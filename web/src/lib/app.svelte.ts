@@ -156,10 +156,10 @@ export async function toggleAccount(id: string) {
 	app.overview = await getOverview();
 }
 
-/** The engine's overview as the sidebar draws it. */
 /** Every photo not on the disk, of the accounts shown. */
 export const missingTotal = (o: Overview) => Object.values(o.missing).reduce((a, b) => a + b, 0);
 
+/** The engine's overview as the sidebar draws it. */
 export function sidebarOf(o: Overview): Sidebar {
 	return {
 		// An account is its address: Homewend asks Google for nothing more.
