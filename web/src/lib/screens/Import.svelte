@@ -36,7 +36,10 @@
 	import ImportPick from './ImportPick.svelte';
 
 	let im = $state<ImportState | null>(null);
-	const plan = $derived(im?.plan);
+	// A look again of the plan on screen keeps it there, untouchable, until
+	// the new one comes: a tick does not flash the reading screen.
+	let kept = $state<ImportPlan | undefined>();
+	const plan = $derived(im?.plan ?? kept);
 	let cards = $state<Card[]>([]);
 	let free = $state(0);
 	// An import that ended before this window opened is not shown again: the
@@ -61,7 +64,9 @@
 			? 'choose'
 			: im.running
 				? im.kind === 'plan'
-					? 'reading'
+					? kept
+						? 'plan'
+						: 'reading'
 					: 'copying'
 				: im.problem === 'taken-out'
 					? 'taken-out'
@@ -130,7 +135,8 @@
 	// The engine keeps what was asked, and runs it again.
 	const carryOn = () => start(againImport);
 
-	async function start(call: () => Promise<ImportState>) {
+	async function start(call: () => Promise<ImportState>, keep?: ImportPlan) {
+		kept = keep;
 		choosing = false;
 		// A run measures its own pace, not the last one's.
 		forget('import');
@@ -173,7 +179,7 @@
 
 	// What the person has said so far, for the next look or the copy.
 	const asking = (): ImportAsk => ({ dir: im!.dir!, profile: im!.profile || profile, redates, choice, bring_back: bringBack });
-	const lookAgain = () => start(() => planImport(asking()));
+	const lookAgain = () => start(() => planImport(asking()), plan);
 
 	// Which of the folder's groups come in (I4), and the photos picked from
 	// one that stays out (I5): null, each as its kind says. A change looks
@@ -274,7 +280,8 @@
 	{/if}
 {/snippet}
 
-<div class="page">
+<!-- A plan looked at again takes no click until the new one comes: it would be lost. -->
+<div class="page" inert={!!im?.running && !!kept}>
 	{#if view === 'choose'}
 		<!-- I1: a card in, or a folder to choose. -->
 		<h1>{cards.length > 0 ? text.importChoose : text.importNoCard}</h1>

@@ -1,6 +1,8 @@
 // homewend — Copyright (C) 2026 Ron Alder
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import { text } from './strings.js';
+
 /** Bytes as a person reads them: 91 GB, 812 MB. */
 export function bytes(n: number): string {
 	const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -19,7 +21,7 @@ export function roughly(seconds: number): string {
 
 /** A day as the window writes it everywhere: 3 Nov. */
 export function day(d: Date): string {
-	return `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]}`;
+	return `${d.getDate()} ${text.monthNames[d.getMonth()].slice(0, 3)}`;
 }
 
 const clockFormat = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
