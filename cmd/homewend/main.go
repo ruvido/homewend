@@ -517,7 +517,7 @@ func takeoutCommand(args []string) int {
 			return newPrinter(*asJSON).fail(engine.ErrBadProfile)
 		}
 	}
-	dir, code := libraryFor(ctx, *libraryDir, *asJSON)
+	dir, code := libraryFor(ctx, *libraryDir, *asJSON, fmt.Sprintf(text["no library hint"], typed()))
 	if dir == "" {
 		return code
 	}
@@ -609,8 +609,8 @@ func takeoutCommand(args []string) int {
 
 // libraryFor is the library folder of this run: the one given, or the one
 // chosen once, or one asked now and kept. "" with the exit code when there is
-// none and no one to ask.
-func libraryFor(ctx context.Context, given string, asJSON bool) (string, int) {
+// none and no one to ask, hint saying how to choose one.
+func libraryFor(ctx context.Context, given string, asJSON bool, hint string) (string, int) {
 	if given != "" {
 		return given, exitOK
 	}
@@ -621,7 +621,7 @@ func libraryFor(ctx context.Context, given string, asJSON bool) (string, int) {
 		return "", newPrinter(asJSON).fail(err)
 	}
 	if !interactive(asJSON) {
-		return "", failed(text["no library"], nil, fmt.Sprintf(text["no library hint"], typed()))
+		return "", failed(text["no library"], nil, hint)
 	}
 	home, _ := os.UserHomeDir()
 	proposed := filepath.Join(home, "Pictures", "Homewend")
@@ -735,7 +735,7 @@ func verify(args []string) int {
 	if dir == "" {
 		kept, err := engine.DefaultLibrary()
 		if err != nil || kept == "" {
-			return failed(text["no library"], nil, fmt.Sprintf(text["no library hint"], typed()))
+			return failed(text["no library"], nil, text["no library verify"])
 		}
 		dir = kept
 	}
@@ -1032,7 +1032,7 @@ func (w importWords) failed(said string, hints ...string) int {
 func importCopy(w importWords, args []string) int {
 	ctx, stop := interrupted()
 	defer stop()
-	if _, code := libraryFor(ctx, "", w.json); code != exitOK {
+	if _, code := libraryFor(ctx, "", w.json, text["no library ask"]); code != exitOK {
 		return code
 	}
 	profile, err := pickProfile(ctx, w.profile, w.json)

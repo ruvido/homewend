@@ -94,6 +94,9 @@ type ImportState struct {
 // ErrImportRunning is a second import asked for while one runs.
 var ErrImportRunning = errors.New("an import is already running")
 
+// ErrNothingToRunAgain is Again asked before any look or copy ran.
+var ErrNothingToRunAgain = errors.New("no import ran to run again")
+
 // Plan reads a.Dir in the background, to say what importing it into
 // a.Profile would bring.
 func (im *Importing) Plan(a ImportAsk) error {
@@ -118,10 +121,13 @@ func (im *Importing) Again() error {
 	im.mu.Lock()
 	a, kind := im.state.ImportAsk, im.state.Kind
 	im.mu.Unlock()
-	if kind == "plan" {
+	switch kind {
+	case "plan":
 		return im.Plan(a)
+	case "import":
+		return im.Import(a)
 	}
-	return im.Import(a)
+	return ErrNothingToRunAgain
 }
 
 // Import copies a.Dir into the library, into a.Profile, in the background.
@@ -158,6 +164,8 @@ func (im *Importing) start(a ImportAsk, kind string, run func(context.Context, p
 	// the thumbnails; another folder starts afresh. Kept by the folder as
 	// the look reads it, a link to it followed: a thumbnail's path is made
 	// from it.
+	// The same folder by the path asked, or by where a link to it leads.
+	same := im.state.Dir == a.Dir || im.hashesOf == real
 	if im.hashesOf != real {
 		im.hashes, im.hashesOf = library.Hashes{}, real
 	}
@@ -169,7 +177,7 @@ func (im *Importing) start(a ImportAsk, kind string, run func(context.Context, p
 	var plan *library.ImportPlan
 	var before *library.Imported
 	var filed map[string]map[int]int
-	if im.state.Dir == a.Dir {
+	if same {
 		card = card || im.state.Card
 		if kind == "import" {
 			plan = im.state.Plan

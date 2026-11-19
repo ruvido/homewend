@@ -97,7 +97,9 @@
 	// number that moves says the wait is alive, and reopening the window does
 	// not start it again.
 	let tick = $state(Date.now());
-	const stageSince = $derived(job?.stageSince ? new Date(job.stageSince).getTime() : tick);
+	// A step not begun yet is counted from when the window opened.
+	const opened = Date.now();
+	const stageSince = $derived(job?.stageSince ? new Date(job.stageSince).getTime() : opened);
 	onMount(() => {
 		const t = setInterval(() => (tick = Date.now()), 1000);
 		return () => clearInterval(t);

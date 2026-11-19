@@ -209,6 +209,14 @@ func TestTakeoutWithoutALibrary(t *testing.T) {
 	}
 }
 
+// import has no --library: its hint says how it asks for one instead.
+func TestImportWithoutALibrary(t *testing.T) {
+	out, code := homewendIn(t, t.TempDir(), "import", t.TempDir())
+	if code != exitError || !strings.Contains(out, "error: no library folder chosen") || !strings.Contains(out, "homewend import in a terminal") {
+		t.Errorf("exit %d, output\n%s", code, out)
+	}
+}
+
 func TestUnknownCommand(t *testing.T) {
 	out, code := homewend(t, "download")
 	if code != exitError || !strings.Contains(out, `error: unknown command "download"`) || !strings.Contains(out, "hint: to see the commands, run: homewend help") {

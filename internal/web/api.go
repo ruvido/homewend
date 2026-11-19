@@ -319,7 +319,7 @@ func reply(w http.ResponseWriter, v any, err error) {
 	// to try again until it is back.
 	case errors.As(err, new(engine.LibraryGoneError)):
 		http.Error(w, err.Error(), http.StatusGone)
-	case errors.Is(err, engine.ErrJobRunning), errors.Is(err, engine.ErrImportRunning), errors.Is(err, engine.ErrNoUserYet):
+	case errors.Is(err, engine.ErrJobRunning), errors.Is(err, engine.ErrImportRunning), errors.Is(err, engine.ErrNothingToRunAgain), errors.Is(err, engine.ErrNoUserYet):
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, takeout.ErrSignedOut):
 		http.Error(w, err.Error(), http.StatusUnauthorized)

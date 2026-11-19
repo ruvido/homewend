@@ -426,6 +426,8 @@ Examples:
 	"year hint":         "to bring one year home, run: **homewend takeout %d**",
 	"no library":        "no library folder chosen",
 	"no library hint":   "to choose one, run: **%s --library DIR**",
+	"no library ask":    "to choose one, run **homewend import** in a terminal: it asks once and keeps it",
+	"no library verify": "to check one, run: **homewend verify DIR**",
 	"session expired":   "your Google sign-in expired",
 	"login then":        "to resume, run **homewend login**, then **%s**",
 	"sign-in closed":    "the window closed before you finished signing in",

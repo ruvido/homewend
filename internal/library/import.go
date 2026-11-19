@@ -203,8 +203,8 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		if err != nil {
 			// Not in after all, it is deleted still: the next run leaves it
 			// out unless asked back again.
-			if _, in, _ := catalog.PathOf(hash); deleted && !in {
-				catalog.Put(was)
+			if _, in, looked := catalog.PathOf(hash); deleted && !in {
+				err = errors.Join(err, looked, catalog.Put(was))
 			}
 			return done, err
 		}
