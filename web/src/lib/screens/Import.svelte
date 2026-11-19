@@ -6,7 +6,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { ChevronRight, CircleCheck, Folder, HardDrive, Loader, TriangleAlert } from '@lucide/svelte';
+	import { Check, ChevronDown, ChevronRight, CircleCheck, Folder, HardDrive, Loader, TriangleAlert, User, UserPlus } from '@lucide/svelte';
+	import ContextMenu from '#lib/components/ContextMenu.svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
 	import {
 		ApiError,
@@ -51,7 +52,10 @@
 	const profiles = $derived(app.overview?.profiles ?? []);
 	let typed = $state('');
 	const profile = $derived(typed.trim() || app.overview?.profile || profiles[0] || '');
-	let changing = $state(false);
+	// The name opens the list of the profiles there are, and someone else's:
+	// a new name typed in the field that takes its place.
+	let menu = $state<HTMLElement | null>(null);
+	let naming = $state(false);
 	// No window of the system to pick a folder with (the page in a browser):
 	// its path is typed instead.
 	let askingPath = $state(false);
@@ -313,23 +317,36 @@
 				</button>
 			{/if}
 		</div>
-		{#if profile && !changing}
-			<p class="whose">{text.into}<span><b>{profile}</b>{text.sPhotos}</span><button class="link" onclick={() => (changing = true)}>{text.changeShort}</button></p>
-		{:else}
-			<!-- One of the profiles there are, or a new name: someone else's card. -->
-			<div class="whose">
-				{text.into}
-				{#each profiles as p (p)}
-					<button class="name" class:on={p === profile} onclick={() => ((typed = p), (changing = false))}>{p}</button>
-				{/each}
-				<span><input
+		<div class="whose">
+			{text.into}
+			{#if profile && !naming}
+				<button class="pick" aria-haspopup="menu" onclick={(e) => (menu = menu ? null : e.currentTarget)}>{profile}<ChevronDown size={14} /></button>
+			{:else}
+				<!-- svelte-ignore a11y_autofocus -->
+				<input
 					bind:value={typed}
 					placeholder={text.yourName}
 					aria-label={text.yourName}
 					spellcheck="false"
-					onkeydown={(e) => e.key === 'Enter' && typed.trim() && (changing = false)}
-				/>{text.sPhotosNoStop}</span>
-			</div>
+					autofocus={naming}
+					onkeydown={(e) => {
+						if (e.key === 'Enter' && typed.trim()) naming = false;
+						if (e.key === 'Escape' && profile) ((typed = ''), (naming = false));
+					}}
+					onblur={() => typed.trim() && (naming = false)}
+				/>
+			{/if}
+			<span class="s">{text.sPhotosNoStop}</span>
+		</div>
+		{#if menu}
+			<ContextMenu
+				anchor={menu}
+				onclose={() => (menu = null)}
+				items={[
+					...profiles.map((p) => ({ icon: p === profile ? Check : User, label: p, run: () => void (typed = p) })),
+					{ icon: UserPlus, label: text.someoneElse, run: () => void ((typed = ''), (naming = true)) }
+				]}
+			/>
 		{/if}
 	{:else if view === 'reading' && im}
 		<!-- I2: every file read once, to know it; nothing copied yet. -->
@@ -684,18 +701,26 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-callout);
 	}
-	.name {
-		height: 32px;
-		padding: 0 12px;
+	.pick {
+		height: 36px;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+		padding: 0 10px 0 12px;
 		border: 1px solid var(--border);
-		border-radius: var(--radius-full);
+		border-radius: 10px;
+		background: var(--bg);
 		color: var(--fg);
-		font-weight: 500;
+		font-weight: 600;
 	}
-	.name.on {
-		border-color: var(--accent);
-		background: var(--accent-soft);
-		color: var(--accent);
+	.pick:hover {
+		background: var(--soft);
+	}
+	.pick :global(svg) {
+		color: var(--muted);
+	}
+	.whose .s {
+		margin-left: -8px;
 	}
 	.numbers {
 		display: flex;

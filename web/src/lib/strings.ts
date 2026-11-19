@@ -251,7 +251,7 @@ export const text = {
 	into: 'Into',
 	sPhotos: "'s photos.",
 	sPhotosNoStop: "'s photos",
-	changeShort: 'Change',
+	someoneElse: 'Someone else…',
 	yourName: 'your name',
 	folderPathPlaceholder: '/path/to/the/folder',
 	lookAtFolder: 'Look at this folder',
