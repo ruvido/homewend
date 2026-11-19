@@ -266,26 +266,26 @@
 <!-- During the copy (I6), each with what is in and checked, of what to copy. -->
 {#snippet byYear(years: ImportPlan['years'], filed?: Filed)}
 	{#if years.length > 0}
-		<section class="years">
-			<header><h2>{text.byYearImport}</h2><span>{filed ? text.verifiedLegend : text.byYearImportLegend}</span></header>
+		<h2>{text.byYearImport}</h2>
+		<div class="table">
+			<div class="th"><span class="grow">{text.colYear}</span><span>{filed ? text.verifiedLegend : text.byYearImportLegend}</span></div>
 			{#each years as y (y.year)}
 				{@const open = opened.has(y.year)}
-				<button class="year" class:open disabled={!y.months?.length} onclick={() => toggle(y.year)}>
-					<span class="name">{#if y.months?.length}<ChevronRight size={16} />{/if}{y.year || text.noDate}</span>
+				<button class="row year" class:open disabled={!y.months?.length} onclick={() => toggle(y.year)}>
+					<span class="chev">{#if y.months?.length}<ChevronRight size={16} />{/if}</span>
+					<span class="grow name">{y.year || text.noDate}</span>
 					<span class="count">{filed ? verified(filedIn(filed, y.year), y) : counts(y)}</span>
 				</button>
 				{#if open}
 					{#each y.months ?? [] as m (m.month)}
-						<div class="year month">
-							<span class="name">{text.monthNames[m.month - 1]}</span>
-							<span class="count"
-								>{filed ? verified(filed[y.year]?.[m.month] ?? 0, m) : counts(m)}</span
-							>
+						<div class="row month">
+							<span class="grow">{text.monthNames[m.month - 1]}</span>
+							<span class="count">{filed ? verified(filed[y.year]?.[m.month] ?? 0, m) : counts(m)}</span>
 						</div>
 					{/each}
 				{/if}
 			{/each}
-		</section>
+		</div>
 	{/if}
 {/snippet}
 
@@ -336,7 +336,7 @@
 					onblur={() => typed.trim() && (naming = false)}
 				/>
 			{/if}
-			<span class="s">{text.sPhotosNoStop}</span>
+			<span class="s">{text.sPhotos}</span>
 		</div>
 		{#if menu}
 			<ContextMenu
@@ -367,107 +367,107 @@
 	{:else if view === 'plan' && plan && im && dating}
 		<ImportDates files={coming} {redates} onuse={give} onback={() => (dating = false)} />
 	{:else if view === 'plan' && plan && im}
-		<!-- I3: what comes in, by year; what stays out. -->
-		<span class="pill">{name}</span>
-		<h1>{text.toCopy(plan.photos, plan.videos)}</h1>
-		<!-- How it ends, as the engine says it, for this screen and the command line alike. -->
-		{#if plan.outcome !== 'new'}<p class="lead">{text.planLead[plan.outcome](plan)}</p>{:else if plan.in_library > 0}<p class="lead">{text.toCopyLead}</p>{/if}
-		<div class="numbers">
-			<div><b>{bytes(plan.bytes)}</b><span>{text.importToCopy}</span></div>
-			<div><b>{plan.in_library.toLocaleString('en')}</b><span>{text.importInLibrary}</span></div>
-			{#if plan.other_files > 0}<div><b>{plan.other_files.toLocaleString('en')}</b><span>{text.importLeftOut}</span></div>{/if}
-			{#if plan.unreadable > 0}<div class="warn"><b>{plan.unreadable.toLocaleString('en')}</b><span>{text.importUnreadable}</span></div>{/if}
-			{#if free}<div class:warn={!fits}><b>{bytes(free)}</b><span>{text.importFree}</span></div>{/if}
-		</div>
-		{#if im.canLink && plan.photos + plan.videos > 0}
-			<!-- On the library's disk: a second name for each file instead of a copy. -->
-			<fieldset class="how">
-				<legend>{text.importHow}</legend>
-				<label class:on={!link}
-					><input type="radio" bind:group={link} value={false} /><b>{text.importHowCopy}</b><span>{text.importHowCopyDesc(bytes(plan.bytes))}</span></label
-				>
-				<label class:on={link}
-					><input type="radio" bind:group={link} value={true} /><b>{text.importHowLink}</b><span>{text.importHowLinkDesc}</span></label
-				>
-			</fieldset>
-		{/if}
-		{#if !fits && !link}<p class="problem"><TriangleAlert size={16} />{text.importNoRoom}</p>{/if}
-		<div class="actions">
-			<PrimaryButton
-				disabled={(!fits && !link) || plan.outcome !== 'new' && plan.outcome !== 'redated'}
-				onclick={() => start(() => startImport({ ...asking(), link: link && !!im!.canLink }))}>{link ? text.linkIn : text.copyAndVerify}</PrimaryButton
-			>
-			<SecondaryButton onclick={() => (choosing = true)}>{text.back}</SecondaryButton>
-		</div>
-		<p class="whose">{text.into}<span><b>{im.profile || profile}</b>{text.sPhotos}</span></p>
-		<!-- A camera whose clock was reset: its photos given their day before the copy. -->
-		<p class="note">
-			{#if redates.length > 0}{text.datesGiven(redates.reduce((n, r) => n + r.names.length, 0))}
-				{#if plan.not_redated > 0}<span class="warnText">{text.notRedated(plan.not_redated)}</span>{/if}
-			{/if}
-			<button class="link" onclick={() => (dating = true)}>{text.anyDatesWrong}</button>
-		</p>
-		{@const deletedAll = plan.deleted + plan.brought_back}
-		{#if deletedAll > 0}
-			<!-- The card still holds what was deleted from the library: it stays out
-			     unless ticked back, one by its path or all. A ticked one keeps its
-			     place among those left out. -->
-			{@const all = bringBack.includes(BRING_ALL_BACK)}
-			{@const named = [...new Set([...bringBack.filter((n) => n !== BRING_ALL_BACK), ...(plan.deleted_names ?? [])])].sort()}
-			<section class="years">
-				<header>
+		<!-- I3: what comes in, folder by folder and by year, beside what happens. -->
+		<div class="plan">
+			<section class="main">
+				<span class="pill">{name}</span>
+				<h1>{text.toCopy(plan.photos, plan.videos)}</h1>
+				<!-- How it ends, as the engine says it, for this screen and the command line alike. -->
+				{#if plan.outcome !== 'new'}<p class="lead">{text.planLead[plan.outcome](plan)}</p>{:else if plan.in_library > 0}<p class="lead">{text.toCopyLead}</p>{/if}
+				{#if plan.deleted + plan.brought_back > 0}
+					{@const deletedAll = plan.deleted + plan.brought_back}
+					<!-- The card still holds what was deleted from the library: it stays out
+					     unless ticked back, one by its path or all. A ticked one keeps its
+					     place among those left out. -->
+					{@const all = bringBack.includes(BRING_ALL_BACK)}
+					{@const named = [...new Set([...bringBack.filter((n) => n !== BRING_ALL_BACK), ...(plan.deleted_names ?? [])])].sort()}
 					<h2>{text.deletedHead(deletedAll)}</h2>
-					<label class="back"><input type="checkbox" checked={all} onchange={() => backAll(!all)} />{text.bringAllBack}</label>
-				</header>
-				{#each named as n (n)}
-					<label class="year back">
-						<span class="name mono"
-							><input type="checkbox" checked={bringBack.includes(n)} onchange={() => back(n)} />{n}</span
-						>
-					</label>
-				{/each}
-				{#if plan.deleted_more}
-					<div class="year"><span class="name">{text.othersMore(plan.deleted_more)}</span></div>
+					<div class="table">
+						<label class="th"><input type="checkbox" checked={all} onchange={() => backAll(!all)} /><span class="grow">{text.bringAllBack}</span></label>
+						{#each named as n (n)}
+							<label class="row"><input type="checkbox" checked={bringBack.includes(n)} onchange={() => back(n)} /><span class="grow mono">{n}</span></label>
+						{/each}
+						{#if plan.deleted_more}<div class="row"><span class="grow muted">{text.othersMore(plan.deleted_more)}</span></div>{/if}
+					</div>
+				{/if}
+				{#if plan.groups.length > 0}
+					<!-- I4: one row per group, with why; a project is one row, not its folders. -->
+					<div class="table">
+						<div class="th"><span class="box"></span><span class="grow">{text.colFolder}</span><span class="kind">{text.colWhat}</span><span class="n">{text.colFiles}</span></div>
+						{#each plan.groups as g (g.folder)}
+							{@const picks = pickedIn(g.folder).length}
+							<div class="row group" class:out={!g.in}>
+								<input type="checkbox" checked={g.in} onchange={() => tick(g)} aria-label={g.folder} />
+								<span class="grow what">
+									<span class="mono">{g.folder === '.' ? name : g.folder}</span>
+									<small>
+										{g.kind === 'photos'
+											? [range(g) || text.whyPhotos, g.in_library ? text.nInLibrary(g.in_library) : ''].filter(Boolean).join(' · ')
+											: g.kind === 'project'
+												? text.whyProject(g.mark ?? '')
+												: g.kind === 'previews'
+													? text.whyPreviews(g.mark ?? '')
+													: text.whyUnsure}
+									</small>
+									{#if !g.in}<button class="link" onclick={() => (picking = g.folder)}>{text.choosePhotosInside(picks)}</button>{/if}
+								</span>
+								<span class="kind"><span class="tag {g.kind}">{text.groupKind[g.kind]}</span></span>
+								<span class="n count">{!g.in && picks ? `${picks} / ` : ''}{(g.photos + g.videos).toLocaleString('en')}</span>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				{@render byYear(plan.years)}
+				{#if plan.others.length > 0}
+					<h2>{text.leftOut}</h2>
+					<div class="table">
+						<div class="th"><span class="grow">{text.leftOutLead}</span><span>{text.colFiles}</span></div>
+						{#each plan.others as o (o.name)}
+							<div class="row"><span class="grow mono">{o.name}</span><span class="count">{o.files.toLocaleString('en')} · {bytes(o.bytes)}</span></div>
+						{/each}
+						{#if plan.others_more}<div class="row"><span class="grow muted">{text.othersMore(plan.others_more)}</span></div>{/if}
+					</div>
 				{/if}
 			</section>
-		{/if}
-		{#if plan.groups.length > 0}
-			<!-- I4: one row per group, with why; a project is one row, not its folders. -->
-			<section class="years groups">
-				<header><h2>{text.whatComesIn}</h2><span>{text.whatComesInLegend}</span></header>
-				{#each plan.groups as g (g.folder)}
-					{@const picks = pickedIn(g.folder).length}
-					<div class="group" class:out={!g.in}>
-						<input type="checkbox" checked={g.in} onchange={() => tick(g)} aria-label={g.folder} />
-						<span class="what">
-							<b class="mono">{g.folder === '.' ? name : g.folder}</b>
-							<small>
-								{g.kind === 'photos'
-									? [range(g) || text.whyPhotos, g.in_library ? text.nInLibrary(g.in_library) : ''].filter(Boolean).join(' · ')
-									: g.kind === 'project'
-										? text.whyProject(g.mark ?? '')
-										: g.kind === 'previews'
-											? text.whyPreviews(g.mark ?? '')
-											: text.whyUnsure}
-							</small>
-							{#if !g.in}<button class="link" onclick={() => (picking = g.folder)}>{text.choosePhotosInside(picks)}</button>{/if}
-						</span>
-						<span class="tag {g.kind}">{text.groupKind[g.kind]}</span>
-						<span class="count">{!g.in && picks ? `${picks} / ` : ''}{(g.photos + g.videos).toLocaleString('en')}</span>
-					</div>
-				{/each}
-			</section>
-		{/if}
-		{@render byYear(plan.years)}
-		{#if plan.others.length > 0}
-			<section class="years">
-				<header><h2>{text.leftOut}</h2><span>{text.leftOutLead}</span></header>
-				{#each plan.others as o (o.name)}
-					<div class="year"><span class="name mono">{o.name}</span><span class="count">{o.files.toLocaleString('en')} · {bytes(o.bytes)}</span></div>
-				{/each}
-				{#if plan.others_more}<div class="year"><span class="name">{text.othersMore(plan.others_more)}</span></div>{/if}
-			</section>
-		{/if}
+			<aside class="panel">
+				<h2>{text.whatHappens}</h2>
+				<dl>
+					<div><dt>{text.importToCopy}</dt><dd class="strong">{(plan.photos + plan.videos).toLocaleString('en')} · {bytes(plan.bytes)}</dd></div>
+					<div><dt>{text.importInLibrary}</dt><dd class:ok={plan.in_library > 0}>{plan.in_library.toLocaleString('en')}</dd></div>
+					{#if plan.other_files > 0}<div><dt>{text.importLeftOut}</dt><dd>{plan.other_files.toLocaleString('en')}</dd></div>{/if}
+					{#if plan.unreadable > 0}<div class="warn"><dt>{text.importUnreadable}</dt><dd>{plan.unreadable.toLocaleString('en')}</dd></div>{/if}
+					{#if free}<div class:warn={!fits}><dt>{text.importFree}</dt><dd>{bytes(free)}</dd></div>{/if}
+				</dl>
+				{#if im.canLink && plan.photos + plan.videos > 0}
+					<!-- On the library's disk: a second name for each file instead of a copy. -->
+					<fieldset class="how">
+						<legend>{text.importHow}</legend>
+						<label class:on={!link}
+							><input type="radio" bind:group={link} value={false} /><b>{text.importHowCopy}</b><span>{text.importHowCopyDesc(bytes(plan.bytes))}</span></label
+						>
+						<label class:on={link}
+							><input type="radio" bind:group={link} value={true} /><b>{text.importHowLink}</b><span>{text.importHowLinkDesc}</span></label
+						>
+					</fieldset>
+				{/if}
+				{#if !fits && !link}<p class="problem"><TriangleAlert size={16} />{text.importNoRoom}</p>{/if}
+				<div class="actions">
+					<PrimaryButton
+						disabled={(!fits && !link) || plan.outcome !== 'new' && plan.outcome !== 'redated'}
+						onclick={() => start(() => startImport({ ...asking(), link: link && !!im!.canLink }))}>{link ? text.linkIn : text.copyAndVerify}</PrimaryButton
+					>
+					<SecondaryButton onclick={() => (choosing = true)}>{text.back}</SecondaryButton>
+				</div>
+				<p class="foot">
+					{text.into} <b>{im.profile || profile}</b>{text.byTheirDate}
+					<!-- A camera whose clock was reset: its photos given their day before the copy. -->
+					{#if redates.length > 0}{text.datesGiven(redates.reduce((n, r) => n + r.names.length, 0))}
+						{#if plan.not_redated > 0}<span class="warnText">{text.notRedated(plan.not_redated)}</span>{/if}
+					{/if}
+					<button class="link" onclick={() => (dating = true)}>{text.anyDatesWrong}</button>
+				</p>
+			</aside>
+		</div>
 	{:else if view === 'copying' && im}
 		<!-- I6: each file copied and read back, one at a time. -->
 		<span class="pill live"><span class="spin"><Loader size={14} /></span>{name}</span>
@@ -678,9 +678,6 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.whose b {
-		color: var(--fg);
-	}
 	.whose input,
 	.path input {
 		height: 36px;
@@ -808,101 +805,8 @@
 		color: var(--accent);
 		font-weight: 600;
 	}
-	.back {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-	}
-	.back input {
-		accent-color: var(--accent);
-	}
 	.warnText {
 		color: var(--warn);
-	}
-	.note b {
-		color: var(--fg);
-	}
-	.years {
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-	}
-	.years header {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		padding-bottom: 8px;
-		border-bottom: 1px solid var(--line);
-	}
-	.years h2 {
-		font-size: var(--text-title-3);
-		font-weight: 600;
-		color: var(--fg);
-	}
-	.years header span {
-		color: var(--muted);
-		font-size: var(--text-callout);
-	}
-	.year {
-		display: flex;
-		justify-content: space-between;
-		padding: 10px 0;
-		border-bottom: 1px solid var(--line);
-	}
-	button.year {
-		width: 100%;
-		text-align: left;
-	}
-	button.year:not(:disabled):hover {
-		background: var(--soft);
-	}
-	.year .name {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		color: var(--fg);
-		font-weight: 600;
-	}
-	.year.open .name :global(svg) {
-		transform: rotate(90deg);
-	}
-	.year.month {
-		padding-left: 24px;
-	}
-	.year.month .name {
-		font-weight: 400;
-		color: var(--muted);
-	}
-	.group {
-		display: flex;
-		align-items: flex-start;
-		gap: 12px;
-		padding: 12px 0;
-		border-bottom: 1px solid var(--line);
-	}
-	.group input {
-		margin-top: 4px;
-		accent-color: var(--accent);
-	}
-	.group .what {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: 2px;
-	}
-	.group .what b {
-		color: var(--fg);
-		overflow-wrap: anywhere;
-	}
-	.group .what small {
-		color: var(--muted);
-		font-size: var(--text-callout);
-	}
-	.group.out .what b {
-		color: var(--muted);
 	}
 	.tag {
 		padding: 2px 8px;
@@ -922,11 +826,213 @@
 		background: var(--soft);
 		color: var(--muted);
 	}
-	.mono {
-		font-family: var(--font-mono);
+	/* I3: the folders, the years and what stays out beside what happens. */
+	.page > .plan {
+		max-width: 1200px;
+		width: 100%;
 	}
-	.year .count {
+	.plan {
+		display: flex;
+		gap: 48px;
+		align-items: flex-start;
+	}
+	.main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 20px;
+	}
+	.main h2,
+	.panel h2 {
+		font-size: var(--text-title-3);
+		font-weight: 600;
+		color: var(--fg);
+	}
+	.panel h2 {
+		font-size: var(--text-title-2);
+		font-weight: 700;
+	}
+	.table {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-16);
+		overflow: hidden;
+	}
+	.th,
+	.row {
+		display: flex;
+		align-items: center;
+		gap: 16px;
+		padding: 0 20px;
+		border-bottom: 1px solid var(--line);
+	}
+	.th {
+		min-height: 40px;
+		background: var(--soft);
+		font-size: var(--text-subheadline);
+		font-weight: 600;
+		letter-spacing: 0.8px;
+		text-transform: uppercase;
+		color: var(--faint);
+	}
+	.row {
+		min-height: 44px;
+		color: var(--text);
+	}
+	.table > :last-child {
+		border-bottom: 0;
+	}
+	.grow {
+		flex: 1;
+		min-width: 0;
+	}
+	.box {
+		width: 16px;
+	}
+	.kind {
+		width: 120px;
+	}
+	.n {
+		width: 110px;
+		text-align: right;
+	}
+	.count {
 		color: var(--muted);
 		font-variant-numeric: tabular-nums;
+	}
+	.muted {
+		color: var(--muted);
+	}
+	.mono {
+		font-family: var(--font-mono);
+		font-size: var(--text-callout);
+		overflow-wrap: anywhere;
+	}
+	.table input {
+		width: 16px;
+		height: 16px;
+		margin: 0;
+		accent-color: var(--accent);
+	}
+	button.row {
+		width: 100%;
+		text-align: left;
+	}
+	button.row:not(:disabled):hover {
+		background: var(--soft);
+	}
+	.year .name {
+		font-weight: 600;
+		color: var(--fg);
+	}
+	.chev {
+		width: 16px;
+		display: flex;
+		color: var(--muted);
+	}
+	.year.open .chev :global(svg) {
+		transform: rotate(90deg);
+	}
+	.row.month {
+		min-height: 36px;
+		padding-left: 52px;
+		font-size: var(--text-callout);
+		color: var(--muted);
+	}
+	.group {
+		align-items: flex-start;
+		padding-top: 16px;
+		padding-bottom: 16px;
+	}
+	.group input {
+		margin-top: 2px;
+	}
+	.group .what {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+	}
+	.group .what .mono {
+		color: var(--fg);
+	}
+	.group .what small {
+		color: var(--muted);
+		font-size: var(--text-callout);
+	}
+	.group.out .what .mono,
+	.group.out .count {
+		color: var(--faint);
+	}
+	.panel {
+		width: 380px;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 20px;
+		padding: 24px;
+		border: 1px solid var(--line);
+		border-radius: var(--radius-16);
+		background: var(--surface);
+		position: sticky;
+		top: 0;
+	}
+	.panel dl {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding-bottom: 20px;
+		border-bottom: 1px solid var(--line);
+	}
+	.panel dl div {
+		display: flex;
+		justify-content: space-between;
+		gap: 16px;
+	}
+	/* The engine's own words, a sentence's start here. */
+	.panel dt::first-letter {
+		text-transform: uppercase;
+	}
+	.panel dd {
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.panel dd.strong {
+		font-weight: 600;
+		color: var(--fg);
+	}
+	.panel dd.ok {
+		font-weight: 600;
+		color: var(--ok);
+	}
+	.panel .warn dd,
+	.panel .warn dt {
+		color: var(--warn);
+	}
+	.panel .actions {
+		display: flex;
+		gap: 8px;
+	}
+	.panel .actions > :global(:first-child) {
+		flex: 1;
+	}
+	.foot {
+		font-size: var(--text-callout);
+		line-height: 1.5;
+		color: var(--faint);
+	}
+	.foot b {
+		color: var(--fg);
+	}
+	:global(.narrow) .plan {
+		flex-direction: column;
+	}
+	:global(.narrow) .panel {
+		width: 100%;
+		position: static;
 	}
 </style>
