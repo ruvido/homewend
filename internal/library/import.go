@@ -152,18 +152,11 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		if err != nil {
 			return done, err
 		}
-		switch done.judge(seen, hash, f.Root, item.Path, known && !deleted, deleted, back(item.Path)) {
-		case staysOut:
+		v := done.judge(seen, hash, f.Root, item.Path, known && !deleted, deleted, back(item.Path))
+		if v == staysOut {
 			continue
-		case twin:
-			// The same photo, given a date under its other name.
-			if dated {
-				if err := done.redate(root, catalog, hash, when, opt); err != nil {
-					return done, err
-				}
-			}
-			continue
-		case inLibrary:
+		}
+		if v == inLibrary {
 			// Already in the library. Held by another profile, it gets a
 			// name in this one too, and the card as a source: Organize is
 			// handed the library's own file for that, never the folder's,
@@ -177,8 +170,11 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			} else if err := catalog.addOwner(hash, opt.Account); err != nil {
 				return done, err
 			}
-			// A date given now is for a photo already in: the likeliest
-			// case, seen as 2018 in the library after a first import.
+		}
+		// A date given to a photo already in, or to a twin under its other
+		// name: the likeliest case, seen as 2018 in the library after a
+		// first import.
+		if v != comesIn {
 			if dated {
 				if err := done.redate(root, catalog, hash, when, opt); err != nil {
 					return done, err
