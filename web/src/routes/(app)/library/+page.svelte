@@ -1,19 +1,17 @@
 <!-- homewend — Copyright (C) 2026 Ron Alder -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { app } from '#lib/app.svelte.js';
 	import { getPhotos, type GridPhoto } from '#lib/api.js';
-	import { placeOf, urlOf } from '#lib/places.js';
+	import { placeOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
 	import Grid from '#lib/components/Grid.svelte';
 	import EmptyLibrary from '#lib/screens/EmptyLibrary.svelte';
 	import Viewer from '#lib/components/Viewer.svelte';
-	import Strip from '#lib/components/Strip.svelte';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import TakeOut from '#lib/components/TakeOut.svelte';
-	import { CircleCheck, CircleAlert, ImageOff, Loader } from '@lucide/svelte';
+	import { CircleCheck, CircleAlert, Loader } from '@lucide/svelte';
 
 	let open = $state<number | null>(null);
 
@@ -28,14 +26,6 @@
 					? text.missingTitle(photos.length)
 					: text.allPhotos
 	);
-	// The photos of this page whose file is gone: said above the grid, with
-	// the way to see them all.
-	const missingHere = $derived.by(() => {
-		const m = app.overview?.missing ?? {};
-		if (place.kind === 'all') return Object.values(m).reduce((a, b) => a + b, 0);
-		if (place.kind === 'year') return m[place.label === text.noDate ? '' : place.label] ?? 0;
-		return 0;
-	});
 	let takingOut = $state(false);
 	let reload = $state(0);
 
@@ -107,24 +97,13 @@
 	});
 </script>
 
-{#if app.overview && app.overview.total === 0}
+{#if app.overview?.gone}
+	<!-- The strip under the titlebar says it (G4); there is nothing to show. -->
+{:else if app.overview && app.overview.total === 0}
 	<EmptyLibrary />
 {:else}
 	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)}>
 		{#snippet header()}
-			{#if missingHere > 0}
-				<div class="strip">
-					<Strip
-						tone="warn"
-						title={text.missingBanner(missingHere, place.kind === 'year' ? place.label : undefined)}
-						detail={text.missingDetail}
-						action={text.showThem}
-						onaction={() => goto(urlOf({ kind: 'missing' }))}
-					>
-						{#snippet icon()}<ImageOff size={18} />{/snippet}
-					</Strip>
-				</div>
-			{/if}
 			<div class="head">
 				<h1>{title}</h1>
 				<p>
@@ -171,11 +150,6 @@
 		margin-top: 8px;
 		font-size: var(--text-body);
 		color: var(--muted);
-	}
-	.strip {
-		margin: 24px 0 -8px;
-		border-radius: var(--radius-16);
-		overflow: hidden;
 	}
 	.out {
 		display: flex;

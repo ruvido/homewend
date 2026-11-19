@@ -46,6 +46,8 @@ export const text = {
 		`${count(n, 'photo')}${year ? ` of ${year}` : ''} ${n === 1 ? 'is' : 'are'} not on the disk any more.`,
 	missingDetail: 'Deleted or moved outside Homewend. If the files come back, so do the photos.',
 	showThem: 'Show them',
+	libraryNotAnswering: "The library's disk does not answer.",
+	libraryNotAnsweringDesc: (dir: string) => `${dir}: its disk unplugged, its share not mounted, or the network down. Nothing is marked or taken out.`,
 	missingTitle: (n: number) => `${count(n, 'photo')} ${n === 1 ? 'is' : 'are'} not on the disk.`,
 	takeOutAll: 'Take them out of the library',
 	takeOutOne: 'Take it out of the library',

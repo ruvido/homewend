@@ -186,8 +186,12 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		// where it was. The arrivals were emptied, so it is no move left
 		// halfway either.
 		var was Photo
+		var keptOut bool
 		if deleted {
 			if was, err = catalog.photo(hash); err != nil {
+				return done, err
+			}
+			if keptOut, err = catalog.keptOut(hash); err != nil {
 				return done, err
 			}
 			if err := catalog.forget(hash); err != nil {
@@ -205,6 +209,9 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			// out unless asked back again.
 			if _, in, looked := catalog.PathOf(hash); deleted && !in {
 				err = errors.Join(err, looked, catalog.Put(was))
+				if keptOut {
+					err = errors.Join(err, catalog.TakeOut([]string{hash}, true))
+				}
 			}
 			return done, err
 		}

@@ -777,6 +777,13 @@ func (c *Catalog) TakeOut(hashes []string, keepOut bool) error {
 	return tx.Commit()
 }
 
+// keptOut says whether a photo was taken out and kept out.
+func (c *Catalog) keptOut(hash string) (bool, error) {
+	var out bool
+	err := c.db.QueryRow(`SELECT out FROM photos WHERE hash = ?`, hash).Scan(&out)
+	return out, err
+}
+
 // forget drops a photo whose file is gone from the library, so that a copy
 // brought in again is placed and counted as new.
 func (c *Catalog) forget(hash string) error {

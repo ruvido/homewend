@@ -29,6 +29,9 @@ type Overview struct {
 	// Missing counts by year ("" for no date) the photos whose file is
 	// gone from the library, deleted or moved by hand.
 	Missing map[string]int `json:"missing"`
+	// Gone is the library folder when it is not there: its disk unplugged,
+	// its share not mounted. Its catalog is in it, so nothing is counted.
+	Gone string `json:"gone,omitempty"`
 }
 
 // ShownAccount is an account and whether the window shows its photos.
@@ -111,6 +114,10 @@ func overview(root string, accounts []AccountInfo, hidden []string) (Overview, e
 	// No library chosen yet, or nothing in it yet: the accounts are there,
 	// their photos are not.
 	if root == "" {
+		return o, nil
+	}
+	if _, err := os.Stat(root); err != nil {
+		o.Gone = root
 		return o, nil
 	}
 	if _, err := os.Stat(catalogPath(root)); errors.Is(err, fs.ErrNotExist) {

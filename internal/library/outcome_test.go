@@ -5,6 +5,7 @@ package library
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -132,6 +133,18 @@ func TestAPhotoNotOnTheDiskIsTakenOutOrKeptOut(t *testing.T) {
 	}
 	if done := importCard(t, card, root, false); done.Placed != 0 || done.Deleted != 1 {
 		t.Errorf("%+v; kept out, want it left out as deleted", done)
+	}
+	// Brought back on a full disk, it is kept out still, not shown again.
+	folder, err := ReadFolder(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full := errors.New("no room")
+	if _, err := Import(context.Background(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: func(int64) error { return full }}, nil); !errors.Is(err, full) {
+		t.Fatalf("%v, want no room", err)
+	}
+	if out, err := catalog.keptOut(gone[0]); err != nil || !out || years() != 0 {
+		t.Errorf("out %v, %v, 2018 counts %d; after a failed bring-back, want it kept out", out, err, years())
 	}
 	write(t, root, "ron/2018/01/DSCF0002.JPG", exifPhoto("2018:01:01 00:01:36", "two"))
 	missing(0)

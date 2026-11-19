@@ -113,7 +113,8 @@
 			<button class="row" class:selected={is({ kind: 'all' })} onclick={() => go({ kind: 'all' })}>
 				<span class="lead"><Images size={20} /></span>
 				<span class="label">{text.allPhotos}</span>
-				<span class="count">{data.total.toLocaleString('en')}</span>
+				<!-- None counted is no number: a library whose disk does not answer is not empty. -->
+				{#if data.total > 0}<span class="count">{data.total.toLocaleString('en')}</span>{/if}
 			</button>
 
 			<hr />

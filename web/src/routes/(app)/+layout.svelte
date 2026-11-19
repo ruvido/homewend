@@ -11,6 +11,7 @@
 	import Opening from '#lib/components/Opening.svelte';
 	import Banner from '#lib/components/Banner.svelte';
 	import UpdateBanner from '#lib/components/UpdateBanner.svelte';
+	import LibraryBanner from '#lib/components/LibraryBanner.svelte';
 	import Titlebar from '#lib/components/Titlebar.svelte';
 	import Steps from '#lib/components/Steps.svelte';
 	import { app, refresh, shownJob, sidebarOf, toggleAccount, watchJobs } from '#lib/app.svelte.js';
@@ -83,6 +84,7 @@
 
 {#snippet strip()}
 	<UpdateBanner />
+	<LibraryBanner {place} />
 	{#if job}
 		<Banner
 			account={job.account}

@@ -54,6 +54,11 @@ func TestOverviewWithoutALibrary(t *testing.T) {
 	if err != nil || o.Total != 0 {
 		t.Fatalf("got %+v, %v", o, err)
 	}
+	// Chosen, on a disk that is not there: said, not taken for empty.
+	away := filepath.Join(t.TempDir(), "unplugged")
+	if o, err := overview(away, nil, nil); err != nil || o.Gone != away {
+		t.Errorf("got %+v, %v; want the library said gone", o, err)
+	}
 }
 
 func TestFolderIsInTheProfile(t *testing.T) {

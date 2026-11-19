@@ -32,6 +32,8 @@ export interface Overview {
 	profile: string;
 	/** By year ("" for no date), the photos whose file is gone. */
 	missing: Record<string, number>;
+	/** The library folder, when it is not there: nothing is counted. */
+	gone?: string;
 }
 
 /** A call the engine refused; status 401 means Google signed the account out. */
