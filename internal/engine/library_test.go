@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -34,7 +35,7 @@ func TestOverviewOfTheLibrary(t *testing.T) {
 		{ID: "profile-sam", Email: "sam@example.com", Profile: t.TempDir()},
 	}
 
-	o, err := overview(root, accounts, []string{"profile-sam"})
+	o, err := overview(root, accounts, []string{"profile-sam"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,14 +51,23 @@ func TestOverviewOfTheLibrary(t *testing.T) {
 }
 
 func TestOverviewWithoutALibrary(t *testing.T) {
-	o, err := overview("", nil, nil)
+	o, err := overview("", nil, nil, "")
 	if err != nil || o.Total != 0 {
 		t.Fatalf("got %+v, %v", o, err)
 	}
 	// Chosen, on a disk that is not there: said, not taken for empty.
 	away := filepath.Join(t.TempDir(), "unplugged")
-	if o, err := overview(away, nil, nil); err != nil || o.Gone != away {
+	if o, err := overview(away, nil, nil, ""); err != nil || o.Gone != away {
 		t.Errorf("got %+v, %v; want the library said gone", o, err)
+	}
+	// A share not mounted leaves its folder there, empty: a library whose
+	// catalog was seen is away, not new. A folder never filled is new.
+	empty := t.TempDir()
+	if o, err := overview(empty, nil, nil, empty); err != nil || o.Gone != empty {
+		t.Errorf("got %+v, %v; want the emptied library said gone", o, err)
+	}
+	if o, err := overview(empty, nil, nil, "/elsewhere"); err != nil || o.Gone != "" {
+		t.Errorf("got %+v, %v; want a new folder taken for a new library", o, err)
 	}
 }
 
@@ -84,5 +94,46 @@ func TestFolderIsInTheProfile(t *testing.T) {
 		if got != filepath.FromSlash(c.want) {
 			t.Errorf("%s: %s, want %s", c.name, got, c.want)
 		}
+	}
+}
+
+// The photos not on the disk are those of the accounts shown, everywhere:
+// a hidden account's are not counted, nor taken out with the rest. None
+// gone is none listed, not the whole library.
+func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, library.WorkDir), 0o755)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gone, err := shownMissing(c, root, []string{"google/sam@example.com"}); err != nil || len(gone) != 0 {
+		t.Fatalf("%v, %v; want none gone", gone, err)
+	}
+	if page, err := c.Page(library.Filter{Hashes: hashesOf(nil)}); err != nil || len(page) != 0 {
+		t.Fatalf("%d photos, %v; none gone must list none", len(page), err)
+	}
+	for _, h := range []string{"sam", "bob"} {
+		c.Put(library.Photo{Hash: h, Path: h + ".jpg", Name: h + ".jpg"})
+	}
+	c.Close()
+	db, err := sql.Open("sqlite", catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"sam", "bob"} {
+		if _, err := db.Exec(`INSERT INTO owners (hash, account) VALUES (?, ?)`, h, "google/"+h+"@example.com"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+	accounts := []AccountInfo{
+		{ID: "google/sam@example.com", Email: "sam@example.com", Profile: t.TempDir()},
+		{ID: "google/bob@example.com", Email: "bob@example.com", Profile: t.TempDir()},
+	}
+	missingAt = time.Time{} // the first look, with none gone, is not kept
+	o, err := overview(root, accounts, []string{"google/bob@example.com"}, "")
+	if err != nil || o.Missing[""] != 1 {
+		t.Errorf("missing %v, %v; want sam's only", o.Missing, err)
 	}
 }

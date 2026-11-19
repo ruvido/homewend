@@ -6,7 +6,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { CircleAlert } from '@lucide/svelte';
-	import { app } from '#lib/app.svelte.js';
+	import { app, missingTotal } from '#lib/app.svelte.js';
 	import type { Place } from '#lib/library.js';
 	import { urlOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
@@ -15,9 +15,10 @@
 	let { place }: { place: Place } = $props();
 
 	const missing = $derived.by(() => {
-		const m = app.overview?.missing ?? {};
-		if (place.kind === 'all') return Object.values(m).reduce((a, b) => a + b, 0);
-		if (place.kind === 'year') return m[place.label === text.noDate ? '' : place.label] ?? 0;
+		const o = app.overview;
+		if (!o) return 0;
+		if (place.kind === 'all') return missingTotal(o);
+		if (place.kind === 'year') return o.missing[place.label === text.noDate ? '' : place.label] ?? 0;
 		return 0;
 	});
 </script>

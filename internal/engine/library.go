@@ -29,8 +29,9 @@ type Overview struct {
 	// Missing counts by year ("" for no date) the photos whose file is
 	// gone from the library, deleted or moved by hand.
 	Missing map[string]int `json:"missing"`
-	// Gone is the library folder when it is not there: its disk unplugged,
-	// its share not mounted. Its catalog is in it, so nothing is counted.
+	// Gone is the library folder when it is away (libraryAway): its disk
+	// unplugged, its share not mounted. Its catalog is in it, so nothing is
+	// counted.
 	Gone string `json:"gone,omitempty"`
 }
 
@@ -73,9 +74,12 @@ func LibraryOverview(s Settings) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
-	o, err := overview(root, accounts, s.Hidden)
+	o, err := overview(root, accounts, s.Hidden, s.Filled)
 	if err != nil {
 		return o, err
+	}
+	if o.Gone == "" {
+		err = seenFilled(root, s)
 	}
 	names, first := ProfileNames(accounts, s)
 	o.Profiles, o.Profile = append([]string{}, names...), first
@@ -97,7 +101,7 @@ func shownAddresses(accounts []AccountInfo, hidden []string) []string {
 	return shown
 }
 
-func overview(root string, accounts []AccountInfo, hidden []string) (Overview, error) {
+func overview(root string, accounts []AccountInfo, hidden []string, filled string) (Overview, error) {
 	o := Overview{Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []ShownAccount{}, Missing: map[string]int{}}
 	idOf := map[string]string{}
 	for _, a := range accounts {
@@ -116,7 +120,7 @@ func overview(root string, accounts []AccountInfo, hidden []string) (Overview, e
 	if root == "" {
 		return o, nil
 	}
-	if _, err := os.Stat(root); err != nil {
+	if libraryAway(root, filled) {
 		o.Gone = root
 		return o, nil
 	}
@@ -141,7 +145,7 @@ func overview(root string, accounts []AccountInfo, hidden []string) (Overview, e
 	if err != nil {
 		return o, err
 	}
-	gone, err := missingIn(c, root)
+	gone, err := shownMissing(c, root, shown)
 	if err != nil {
 		return o, err
 	}

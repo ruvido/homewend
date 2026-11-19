@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -50,10 +49,37 @@ func LibraryHere() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, err := os.Stat(root); err != nil {
+	s, err := LoadSettings()
+	if err != nil {
+		return "", err
+	}
+	if libraryAway(root, s.Filled) {
 		return "", LibraryGoneError{Root: root}
 	}
-	return root, nil
+	return root, seenFilled(root, s)
+}
+
+// seenFilled remembers root as the library whose catalog was seen, once
+// it has one, for libraryAway.
+func seenFilled(root string, s Settings) error {
+	if root == "" || s.Filled == root {
+		return nil
+	}
+	if _, err := os.Stat(catalogPath(root)); err != nil {
+		return nil
+	}
+	_, err := UpdateSettings(func(s *Settings) { s.Filled = root })
+	return err
+}
+
+// libraryAway is the library folder not there, or there without the
+// catalog it was seen with (filled): a disk unplugged, a share not mounted.
+func libraryAway(root, filled string) bool {
+	if _, err := os.Stat(root); err != nil {
+		return true
+	}
+	_, err := os.Stat(catalogPath(root))
+	return root == filled && errors.Is(err, fs.ErrNotExist)
 }
 
 func openLibrary() (*library.Catalog, string, error) {
@@ -81,7 +107,8 @@ func Photos(s Settings, year, album string, noDate, missing bool, offset, limit 
 	if err != nil {
 		return nil, err
 	}
-	gone, err := missingIn(c, root)
+	shown := shownAddresses(accounts, s.Hidden)
+	gone, err := shownMissing(c, root, shown)
 	if err != nil {
 		return nil, err
 	}
@@ -89,10 +116,9 @@ func Photos(s Settings, year, album string, noDate, missing bool, offset, limit 
 	for _, g := range gone {
 		isGone[g.Hash] = true
 	}
-	f := library.Filter{Year: year, Album: album, NoDate: noDate, Offset: offset, Limit: limit,
-		Accounts: shownAddresses(accounts, s.Hidden)}
+	f := library.Filter{Year: year, Album: album, NoDate: noDate, Offset: offset, Limit: limit, Accounts: shown}
 	if missing {
-		f.Hashes = slices.Collect(maps.Keys(isGone))
+		f.Hashes = hashesOf(gone)
 	}
 	page, err := c.Page(f)
 	if err != nil {
@@ -132,8 +158,42 @@ func missingIn(c *library.Catalog, root string) ([]library.Gone, error) {
 	return list, nil
 }
 
+// shownMissing are the photos whose file is gone, of the accounts shown
+// (nil: all): the sidebar, the strip, the view and the take-out count the
+// same ones.
+func shownMissing(c *library.Catalog, root string, shown []string) ([]library.Gone, error) {
+	gone, err := missingIn(c, root)
+	if err != nil || shown == nil || len(gone) == 0 {
+		return gone, err
+	}
+	page, err := c.Page(library.Filter{Hashes: hashesOf(gone), Accounts: shown})
+	if err != nil {
+		return nil, err
+	}
+	in := map[string]bool{}
+	for _, p := range page {
+		in[p.Hash] = true
+	}
+	var kept []library.Gone
+	for _, g := range gone {
+		if in[g.Hash] {
+			kept = append(kept, g)
+		}
+	}
+	return kept, nil
+}
+
+// hashesOf is never nil: to the catalog's filter nil is every photo.
+func hashesOf(gone []library.Gone) []string {
+	hashes := make([]string, 0, len(gone))
+	for _, g := range gone {
+		hashes = append(hashes, g.Hash)
+	}
+	return hashes
+}
+
 // TakeOutMissing takes out of the library the photo of hash whose file is
-// gone, or with hash "" every one: a clean-up, so that a card that still
+// gone, or with hash "" every one of the accounts shown: a clean-up, so that a card that still
 // has them brings them in again, unless keepOut. It says how many.
 func TakeOutMissing(hash string, keepOut bool) (int, error) {
 	root, err := LibraryHere()
@@ -150,10 +210,18 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 		return 0, err
 	}
 	defer c.Close()
+	s, err := LoadSettings()
+	if err != nil {
+		return 0, err
+	}
+	accounts, err := Accounts()
+	if err != nil {
+		return 0, err
+	}
 	missingMu.Lock()
 	missingAt = time.Time{} // looked at again, now and after
 	missingMu.Unlock()
-	gone, err := missingIn(c, root)
+	gone, err := shownMissing(c, root, shownAddresses(accounts, s.Hidden))
 	if err != nil {
 		return 0, err
 	}

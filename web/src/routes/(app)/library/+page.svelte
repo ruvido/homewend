@@ -1,10 +1,11 @@
 <!-- homewend — Copyright (C) 2026 Ron Alder -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { app } from '#lib/app.svelte.js';
 	import { getPhotos, type GridPhoto } from '#lib/api.js';
-	import { placeOf } from '#lib/places.js';
+	import { placeOf, urlOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
 	import Grid from '#lib/components/Grid.svelte';
 	import EmptyLibrary from '#lib/screens/EmptyLibrary.svelte';
@@ -17,13 +18,14 @@
 
 	const place = $derived(placeOf(page.url));
 	let photos = $state<GridPhoto[]>([]);
+	let loaded = $state(false);
 	const title = $derived(
 		place.kind === 'year'
 			? place.label
 			: place.kind === 'album'
 				? place.name
 				: place.kind === 'missing'
-					? text.missingTitle(photos.length)
+					? loaded ? text.missingTitle(photos.length) : text.notOnDisk
 					: text.allPhotos
 	);
 	let takingOut = $state(false);
@@ -63,7 +65,6 @@
 		}
 		return parts.join(' · ');
 	});
-	let loaded = $state(false);
 
 	// The whole list, a chunk at a time: the grid needs every photo's month to
 	// lay itself out, and the first chunk shows while the rest arrives.
@@ -92,6 +93,8 @@
 				if (chunk.length < CHUNK) break;
 			}
 			loaded = true;
+			// None left not on the disk, all taken out or back: the library.
+			if (p.kind === 'missing' && photos.length === 0) goto(urlOf({ kind: 'all' }));
 		})();
 		return () => (stopped = true);
 	});

@@ -3,7 +3,7 @@
 <!-- Taking photos whose file is gone out of the library: a clean-up, so a
      card that still has them brings them in again, unless kept out. -->
 <script lang="ts">
-	import { takeOutMissing } from '#lib/api.js';
+	import { ApiError, takeOutMissing } from '#lib/api.js';
 	import { refresh } from '#lib/app.svelte.js';
 	import { text } from '#lib/strings.js';
 	import PrimaryButton from './PrimaryButton.svelte';
@@ -12,13 +12,19 @@
 	let { count, hash, onclose }: { count: number; hash?: string; onclose: (taken: boolean) => void } = $props();
 	let keepOut = $state(false);
 	let busy = $state(false);
+	let failed = $state('');
 
 	async function take() {
 		busy = true;
+		failed = '';
 		try {
 			await takeOutMissing(hash, keepOut);
 			await refresh();
 			onclose(true);
+		} catch (e) {
+			// An import holds the library, or its disk went away: said, the
+			// dialog stays to try again.
+			failed = e instanceof ApiError && e.status === 409 ? text.takeOutBusy : e instanceof ApiError && e.status === 410 ? text.libraryNotAnswering : text.takeOutFailed;
 		} finally {
 			busy = false;
 		}
@@ -33,6 +39,7 @@
 			<input type="checkbox" bind:checked={keepOut} />
 			<span><b>{text.keepOut}</b><small>{text.keepOutDesc}</small></span>
 		</label>
+		{#if failed}<p class="failed">{failed}</p>{/if}
 		<div class="actions">
 			<SecondaryButton onclick={() => onclose(false)}>{text.cancel}</SecondaryButton>
 			<PrimaryButton disabled={busy} onclick={take}>{text.takeOut}</PrimaryButton>
@@ -94,5 +101,9 @@
 		display: flex;
 		gap: 8px;
 		justify-content: flex-end;
+	}
+	.failed {
+		color: var(--err);
+		font-size: var(--text-callout);
 	}
 </style>

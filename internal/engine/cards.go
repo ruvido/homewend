@@ -84,7 +84,7 @@ func disksUnder(roots []string) []string {
 
 // cardsOf are the disks with a DCIM folder at their top.
 func cardsOf(disks []string) []Card {
-	var cards []Card
+	cards := []Card{} // none is [], not null: the window reads its length
 	for _, disk := range disks {
 		if !hasDCIM(disk) {
 			continue

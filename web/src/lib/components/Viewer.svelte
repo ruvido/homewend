@@ -27,9 +27,16 @@
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.
 	let about = $state('');
+	// Where its file was, whole, when it is gone: the person looks there.
+	let wasAt = $state('');
 	$effect(() => {
 		const hash = p?.hash;
 		about = '';
+		wasAt = '';
+		if (hash && p?.missing)
+			pathOf(hash).then((r) => {
+				if (p?.hash === hash) wasAt = r.path;
+			});
 		if (hash)
 			getAbout(hash).then((a) => {
 				if (p?.hash !== hash) return;
@@ -79,7 +86,7 @@
 					<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
 					<div class="said">
 						<span class="badge"><ImageOff size={16} />{text.notOnDisk}</span>
-						<span>{text.missingInViewer}</span>
+						<span>{text.missingInViewer(wasAt)}</span>
 					</div>
 				{:else if video}
 					<!-- svelte-ignore a11y_media_has_caption -->

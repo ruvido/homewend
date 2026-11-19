@@ -24,3 +24,10 @@ func TestACardIsADiskWithADCIMFolder(t *testing.T) {
 		t.Errorf("cards %+v, want EOS_DIGITAL and NO NAME", cards)
 	}
 }
+
+// No card is an empty list, which the window can count; nil is null to it.
+func TestNoCardIsAnEmptyList(t *testing.T) {
+	if cards := cardsOf(nil); cards == nil {
+		t.Error("no card is nil, sent as null")
+	}
+}

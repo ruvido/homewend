@@ -31,6 +31,10 @@ type Settings struct {
 	// once, found again at the next import, an account's too, whose folder
 	// stays when the account goes.
 	Imported []string `json:"imported_profiles,omitempty"`
+	// Filled is the library folder whose catalog was seen: its catalog gone
+	// from there is its disk away (a share not mounted leaves an empty
+	// folder), not a new library to fill on the local disk.
+	Filled string `json:"library_filled,omitempty"`
 }
 
 // ProfileFor is the profile of the account id: the one chosen, or the
