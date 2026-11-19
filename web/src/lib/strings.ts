@@ -40,6 +40,22 @@ export const text = {
 
 	allPhotos: 'All photos',
 	noDate: 'No date',
+	// A photo whose file is gone from the library, deleted or moved by hand.
+	notOnDisk: 'Not on the disk',
+	missingBanner: (n: number, year?: string) =>
+		`${count(n, 'photo')}${year ? ` of ${year}` : ''} ${n === 1 ? 'is' : 'are'} not on the disk any more.`,
+	missingDetail: 'Deleted or moved outside Homewend. If the files come back, so do the photos.',
+	showThem: 'Show them',
+	missingTitle: (n: number) => `${count(n, 'photo')} ${n === 1 ? 'is' : 'are'} not on the disk.`,
+	takeOutAll: 'Take them out of the library',
+	takeOutOne: 'Take it out of the library',
+	takeOutNote: 'Only from the library: a card that still has them brings them in again.',
+	takeOutAsk: (n: number) => `Take ${count(n, 'photo')} out of the library?`,
+	takeOutAskLead: 'Their files are already gone; this takes them off the grid and the counts. If a card or a folder still has them, the next import brings them in again.',
+	keepOut: "Don't bring them in again",
+	keepOutDesc: 'An import leaves them out, until you bring them back there.',
+	takeOut: 'Take them out',
+	missingInViewer: 'Deleted or moved outside Homewend. This is its thumbnail.',
 	photosAndVideos: (n: number) => `${n.toLocaleString('en')} photos and videos`,
 	noPhotos: 'No photos yet',
 	noPhotosDesc: 'They appear here as each part of the takeout arrives.',

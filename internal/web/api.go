@@ -94,8 +94,22 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing) http.Handler {
 			reply(w, nil, err)
 			return
 		}
-		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", offset, limit)
+		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", q.Get("missing") != "", offset, limit)
 		reply(w, list, err)
+	})
+	// The photos whose file is gone, taken out of the library: one by its
+	// hash, or all; kept out of the imports only when asked.
+	mux.HandleFunc("POST /api/missing/out", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Hash    string `json:"hash"`
+			KeepOut bool   `json:"keep_out"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		n, err := engine.TakeOutMissing(body.Hash, body.KeepOut)
+		reply(w, map[string]int{"taken": n}, err)
 	})
 	mux.HandleFunc("GET /api/latest", func(w http.ResponseWriter, r *http.Request) {
 		list, err := engine.Latest(6)

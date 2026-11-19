@@ -4,7 +4,7 @@
      grid has to scroll through hundreds of thousands of tiles. -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { Play } from '@lucide/svelte';
+	import { ImageOff, Play } from '@lucide/svelte';
 	import { pathOf, type GridPhoto } from '#lib/api.js';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { Opener } from '#lib/menu.svelte.js';
@@ -128,6 +128,7 @@
 							onload={(e) => (e.currentTarget as HTMLElement).classList.add('in')}
 						/>
 						{#if p.video}<span class="video"><Play size={14} fill="currentColor" /></span>{/if}
+						{#if p.missing}<span class="gone" title={text.notOnDisk}><ImageOff size={14} /></span>{/if}
 					</button>
 				{/each}
 			{/if}
@@ -187,6 +188,24 @@
 		bottom: 6px;
 		color: #fff;
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+	}
+	/* A photo whose file is gone: its thumbnail faded, and a badge. */
+	.tile:has(.gone) img:global(.in) {
+		opacity: 0.35;
+		filter: grayscale(1);
+	}
+	.gone {
+		position: absolute;
+		left: 6px;
+		bottom: 6px;
+		width: 24px;
+		height: 24px;
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-full);
+		background: var(--surface);
+		border: 1px solid var(--border);
+		color: var(--warn);
 	}
 	:global(.narrow) .scroller {
 		padding: 0 24px 24px;

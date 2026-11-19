@@ -35,6 +35,8 @@ export interface Sidebar {
 	years: Year[];
 	albums: Album[];
 	takeouts: number;
+	/** Photos whose file is gone from the library. */
+	missing: number;
 }
 
 /** Where the window is: one row of the sidebar is this. */
@@ -42,6 +44,8 @@ export type Place =
 	| { kind: 'all' }
 	| { kind: 'year'; label: string }
 	| { kind: 'album'; account: string; name: string }
+	/** The photos whose file is gone from the library. */
+	| { kind: 'missing' }
 	| { kind: 'takeouts' }
 	| { kind: 'settings' }
 	/** A screen of its own, no row of the sidebar: choose, the download. */

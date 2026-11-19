@@ -25,7 +25,8 @@ export const twoAccounts: Sidebar = {
 		{ account: 'a', name: 'Lisbon', count: 96 },
 		{ account: 'b', name: 'Kids', count: 6530 }
 	],
-	takeouts: 5
+	takeouts: 5,
+	missing: 0
 };
 
 export const tenAccounts: Sidebar = {

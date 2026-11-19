@@ -2,7 +2,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- B7: one photo, over the grid. ← and → move, Esc or Space closes. -->
 <script lang="ts">
-	import { ChevronLeft, ChevronRight, FolderOpen } from '@lucide/svelte';
+	import { ChevronLeft, ChevronRight, FolderOpen, ImageOff } from '@lucide/svelte';
+	import TakeOut from './TakeOut.svelte';
 	import { fade } from 'svelte/transition';
 	import { getAbout, pathOf, type GridPhoto } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
@@ -11,8 +12,10 @@
 
 	let {
 		photos,
-		index = $bindable()
-	}: { photos: GridPhoto[]; index: number | null } = $props();
+		index = $bindable(),
+		ontakenout
+	}: { photos: GridPhoto[]; index: number | null; ontakenout?: () => void } = $props();
+	let takingOut = $state(false);
 
 	const p = $derived(index === null ? null : photos[index]);
 	// What Chromium shows by itself; anything else shows its thumbnail.
@@ -63,13 +66,22 @@
 				<b>{p.taken ? taken(p.taken) : text.noDate}</b>
 				<span>{p.name}{about}</span>
 			</div>
-			{#if window.shell}
+			{#if p.missing}
+				<button class="pill" onclick={() => (takingOut = true)}>{text.takeOutOne}</button>
+			{:else if window.shell}
 				<button class="pill" onclick={reveal}><FolderOpen size={14} />{text.openInFolder}</button>
 			{/if}
 		</header>
 		<div class="stage">
 			{#key p.hash}
-				{#if video}
+				{#if p.missing}
+					<!-- Its file is gone: what is left is its thumbnail, faded. -->
+					<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
+					<div class="said">
+						<span class="badge"><ImageOff size={16} />{text.notOnDisk}</span>
+						<span>{text.missingInViewer}</span>
+					</div>
+				{:else if video}
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video src="/api/original/{p.hash}" controls autoplay></video>
 				{:else}
@@ -80,9 +92,51 @@
 		<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><ChevronLeft size={20} /></button>
 		<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><ChevronRight size={20} /></button>
 	</div>
+	{#if takingOut}
+		<TakeOut
+			count={1}
+			hash={p.hash}
+			onclose={(taken) => {
+				takingOut = false;
+				if (taken) {
+					index = null;
+					ontakenout?.();
+				}
+			}}
+		/>
+	{/if}
 {/if}
 
 <style>
+	.gone {
+		opacity: 0.35;
+		filter: grayscale(1);
+	}
+	.said {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		align-items: center;
+		justify-content: center;
+		font-family: var(--font-mono);
+		font-size: var(--text-subheadline);
+		color: #ffffff99;
+	}
+	.badge {
+		display: inline-flex;
+		gap: 8px;
+		align-items: center;
+		height: 32px;
+		padding: 0 14px;
+		border-radius: var(--radius-full);
+		background: #ffffff14;
+		color: #fff;
+		font-family: var(--font-ui);
+		font-size: var(--text-body);
+		font-weight: 600;
+	}
 	.viewer {
 		position: fixed;
 		/* The photo takes the whole window, titlebar included. */

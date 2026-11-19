@@ -168,7 +168,8 @@ export function sidebarOf(o: Overview): Sidebar {
 			state: yearState(y.year)
 		})),
 		albums: o.albums,
-		takeouts: o.takeouts
+		takeouts: o.takeouts,
+		missing: Object.values(o.missing ?? {}).reduce((a, b) => a + b, 0)
 	};
 }
 

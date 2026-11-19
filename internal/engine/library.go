@@ -26,6 +26,9 @@ type Overview struct {
 	// the one it goes to when none is named, "" when it is to be asked.
 	Profiles []string `json:"profiles"`
 	Profile  string   `json:"profile"`
+	// Missing counts by year ("" for no date) the photos whose file is
+	// gone from the library, deleted or moved by hand.
+	Missing map[string]int `json:"missing"`
 }
 
 // ShownAccount is an account and whether the window shows its photos.
@@ -92,7 +95,7 @@ func shownAddresses(accounts []AccountInfo, hidden []string) []string {
 }
 
 func overview(root string, accounts []AccountInfo, hidden []string) (Overview, error) {
-	o := Overview{Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []ShownAccount{}}
+	o := Overview{Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []ShownAccount{}, Missing: map[string]int{}}
 	idOf := map[string]string{}
 	for _, a := range accounts {
 		// A profile that is signed out is nobody yet.
@@ -130,6 +133,13 @@ func overview(root string, accounts []AccountInfo, hidden []string) (Overview, e
 	owned, err := c.CountsByOwner()
 	if err != nil {
 		return o, err
+	}
+	gone, err := missingIn(c, root)
+	if err != nil {
+		return o, err
+	}
+	for _, g := range gone {
+		o.Missing[g.Year]++
 	}
 	for i := range o.Accounts {
 		o.Accounts[i].Photos = owned[o.Accounts[i].ID]

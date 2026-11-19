@@ -142,6 +142,12 @@
 						<span class="count">—</span>
 					</button>
 				{/if}
+				{#if data.missing > 0}
+					<button class="row" class:selected={is({ kind: 'missing' })} onclick={() => go({ kind: 'missing' })}>
+						<span class="label">{text.notOnDisk}</span>
+						<span class="count">{data.missing.toLocaleString('en')}</span>
+					</button>
+				{/if}
 			</div>
 
 			{#if groups.length > 0}

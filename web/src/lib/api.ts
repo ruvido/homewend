@@ -30,6 +30,8 @@ export interface Overview {
 	/** Those there are, for an import to choose among; the one it goes to when none is named, "" when asked. */
 	profiles: string[];
 	profile: string;
+	/** By year ("" for no date), the photos whose file is gone. */
+	missing: Record<string, number>;
 }
 
 /** A call the engine refused; status 401 means Google signed the account out. */
@@ -66,13 +68,16 @@ export interface GridPhoto {
 	name: string;
 	taken?: string;
 	video?: boolean;
+	/** Its file is gone from the library, deleted or moved by hand. */
+	missing?: boolean;
 }
 
-export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; offset: number; limit: number }) {
+export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; missing?: boolean; offset: number; limit: number }) {
 	const p = new URLSearchParams({ offset: String(q.offset), limit: String(q.limit) });
 	if (q.year) p.set('year', q.year);
 	if (q.album) p.set('album', q.album);
 	if (q.noDate) p.set('nodate', '1');
+	if (q.missing) p.set('missing', '1');
 	return call<GridPhoto[]>('GET', `/api/photos?${p}`);
 }
 
@@ -122,6 +127,9 @@ export interface YearCounts {
 export const getYears = (account: string) => call<YearCounts>('GET', `/api/years?${q({ account })}`);
 export const countYears = (account: string) => call<Record<string, never>>('POST', `/api/years?${q({ account })}`);
 export const getLibrary = () => call<{ dir: string; free: number }>('GET', '/api/library');
+/** Takes out of the library the photo of hash whose file is gone, or with none every one; keepOut keeps them out of the imports. */
+export const takeOutMissing = (hash: string | undefined, keepOut: boolean) =>
+	call<{ taken: number }>('POST', '/api/missing/out', { hash, keep_out: keepOut });
 export const putLibrary = (dir: string) => call<{ dir: string }>('PUT', '/api/library', { dir });
 export const startGet = (o: { account: string; year?: number; export?: string; fresh?: boolean; again?: boolean }) =>
 	call<JobState>(

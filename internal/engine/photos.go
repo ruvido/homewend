@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ronalder100/homewend/internal/library"
@@ -24,6 +26,8 @@ type GridPhoto struct {
 	Name  string    `json:"name"`
 	Taken time.Time `json:"taken,omitzero"`
 	Video bool      `json:"video,omitempty"`
+	// Missing: its file is gone from the library, deleted or moved by hand.
+	Missing bool `json:"missing,omitempty"`
 }
 
 // ErrNoLibrary is asking for photos before a library folder was chosen.
@@ -65,10 +69,10 @@ func openLibrary() (*library.Catalog, string, error) {
 }
 
 // Photos is a page of the grid, newest first: all of it, a year ("" for no
-// date) or an album.
+// date), an album, or the photos not on the disk.
 // Only the photos of the accounts shown are in it.
-func Photos(s Settings, year, album string, noDate bool, offset, limit int) ([]GridPhoto, error) {
-	c, _, err := openLibrary()
+func Photos(s Settings, year, album string, noDate, missing bool, offset, limit int) ([]GridPhoto, error) {
+	c, root, err := openLibrary()
 	if err != nil || c == nil {
 		return []GridPhoto{}, err
 	}
@@ -77,16 +81,95 @@ func Photos(s Settings, year, album string, noDate bool, offset, limit int) ([]G
 	if err != nil {
 		return nil, err
 	}
-	page, err := c.Page(library.Filter{Year: year, Album: album, NoDate: noDate, Offset: offset, Limit: limit,
-		Accounts: shownAddresses(accounts, s.Hidden)})
+	gone, err := missingIn(c, root)
+	if err != nil {
+		return nil, err
+	}
+	isGone := map[string]bool{}
+	for _, g := range gone {
+		isGone[g.Hash] = true
+	}
+	f := library.Filter{Year: year, Album: album, NoDate: noDate, Offset: offset, Limit: limit,
+		Accounts: shownAddresses(accounts, s.Hidden)}
+	if missing {
+		f.Hashes = slices.Collect(maps.Keys(isGone))
+	}
+	page, err := c.Page(f)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name)}
+		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name), Missing: isGone[p.Hash]}
 	}
 	return out, nil
+}
+
+// The photos whose file is gone, as last looked at, and when.
+var (
+	missingMu   sync.Mutex
+	missingRoot string
+	missingAt   time.Time
+	missingList []library.Gone
+)
+
+// missingIn are the photos of the library at root whose file is gone,
+// looked at again when the last look is older than half a minute.
+// shortcut: every file is looked at on the request that finds the list
+// old; seconds on a share of 100,000 photos; move it to the background
+// when measured slow.
+func missingIn(c *library.Catalog, root string) ([]library.Gone, error) {
+	missingMu.Lock()
+	defer missingMu.Unlock()
+	if missingRoot == root && time.Since(missingAt) < 30*time.Second {
+		return missingList, nil
+	}
+	list, err := c.Missing(root)
+	if err != nil {
+		return nil, err
+	}
+	missingRoot, missingAt, missingList = root, time.Now(), list
+	return list, nil
+}
+
+// TakeOutMissing takes out of the library the photo of hash whose file is
+// gone, or with hash "" every one: a clean-up, so that a card that still
+// has them brings them in again, unless keepOut. It says how many.
+func TakeOutMissing(hash string, keepOut bool) (int, error) {
+	root, err := LibraryHere()
+	if err != nil {
+		return 0, err
+	}
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	c, _, err := openLibrary()
+	if err != nil || c == nil {
+		return 0, err
+	}
+	defer c.Close()
+	missingMu.Lock()
+	missingAt = time.Time{} // looked at again, now and after
+	missingMu.Unlock()
+	gone, err := missingIn(c, root)
+	if err != nil {
+		return 0, err
+	}
+	var hashes []string
+	for _, g := range gone {
+		if hash == "" || g.Hash == hash {
+			hashes = append(hashes, g.Hash)
+		}
+	}
+	if err := c.TakeOut(hashes, keepOut); err != nil {
+		return 0, err
+	}
+	missingMu.Lock()
+	missingAt = time.Time{}
+	missingMu.Unlock()
+	return len(hashes), nil
 }
 
 // thumbSlots keeps thumbnails from taking every core while a grid scrolls.

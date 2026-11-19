@@ -67,3 +67,75 @@ func TestALookAndItsCopyEndAlike(t *testing.T) {
 	}
 	ends(OutcomeDeleted)
 }
+
+// A photo whose file was deleted by hand is missing. Taken out, it is a
+// clean-up: gone from every list, and the card brings it in again. Taken
+// out and kept out, an import leaves it out as deleted. Its file back, it
+// is in the lists again.
+func TestAPhotoNotOnTheDiskIsTakenOutOrKeptOut(t *testing.T) {
+	card := cameraCard(t)
+	root := t.TempDir()
+	importCard(t, card, root, false)
+	catalog, err := OpenCatalog(filepath.Join(root, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalog.Close()
+	if err := os.MkdirAll(filepath.Join(root, WorkDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	photo := filepath.Join(root, "ron", "2018", "01", "DSCF0002.JPG")
+	missing := func(want int) []string {
+		t.Helper()
+		gone, err := catalog.Missing(root)
+		if err != nil || len(gone) != want {
+			t.Fatalf("missing %v, %v; want %d", gone, err, want)
+		}
+		var hashes []string
+		for _, g := range gone {
+			hashes = append(hashes, g.Hash)
+		}
+		return hashes
+	}
+	years := func() int {
+		t.Helper()
+		counts, err := catalog.CountsByYear(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return counts["2018"]
+	}
+	missing(0)
+	if err := os.Remove(photo); err != nil {
+		t.Fatal(err)
+	}
+	gone := missing(1)
+	if err := catalog.TakeOut(gone, false); err != nil {
+		t.Fatal(err)
+	}
+	missing(0)
+	if years() != 0 {
+		t.Errorf("2018 counts %d after the clean-up, want 0", years())
+	}
+	if done := importCard(t, card, root, false); done.Placed != 1 || done.Deleted != 0 {
+		t.Errorf("%+v; after a clean-up, want the card's copy in again", done)
+	}
+	if err := os.Remove(photo); err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.TakeOut(missing(1), true); err != nil {
+		t.Fatal(err)
+	}
+	missing(0)
+	if years() != 0 {
+		t.Errorf("2018 counts %d kept out, want 0", years())
+	}
+	if done := importCard(t, card, root, false); done.Placed != 0 || done.Deleted != 1 {
+		t.Errorf("%+v; kept out, want it left out as deleted", done)
+	}
+	write(t, root, "ron/2018/01/DSCF0002.JPG", exifPhoto("2018:01:01 00:01:36", "two"))
+	missing(0)
+	if years() != 1 {
+		t.Errorf("2018 counts %d with its file back, want 1", years())
+	}
+}
