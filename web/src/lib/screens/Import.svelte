@@ -46,11 +46,16 @@
 	// screen starts at the choice. One under way, or a card out, is.
 	let choosing = $state(true);
 
-	// Whose photos they are: a name typed, or the one the engine goes to,
-	// shown in the empty field so that the list offers them all.
+	// Whose photos they are: a name chosen or typed, else the one the engine
+	// goes to, else the first there is. "Into ron's photos. Change" (option A).
 	const profiles = $derived(app.overview?.profiles ?? []);
 	let typed = $state('');
-	const profile = $derived(typed.trim() || app.overview?.profile || '');
+	const profile = $derived(typed.trim() || app.overview?.profile || profiles[0] || '');
+	let changing = $state(false);
+	// No window of the system to pick a folder with (the page in a browser):
+	// its path is typed instead.
+	let askingPath = $state(false);
+	let path = $state('');
 
 	// How the folder is named on every screen, as the engine names it.
 	const name = $derived(im?.top ?? '');
@@ -294,20 +299,38 @@
 					<span class="go">{text.lookAtCard}</span>
 				</button>
 			{/each}
-			<button class="choice" disabled={!profile || !window.shell} onclick={chooseFolder}>
-				<span class="tile"><Folder size={22} /></span>
-				<span class="what"><b>{text.anotherFolder}</b><small>{text.anotherFolderDesc}</small></span>
-				<span class="go">{text.chooseFolderEllipsis}</span>
-			</button>
+			{#if askingPath}
+				<form class="choice path" onsubmit={(e) => (e.preventDefault(), path.trim() && look(path.trim()))}>
+					<span class="tile"><Folder size={22} /></span>
+					<input bind:value={path} placeholder={text.folderPathPlaceholder} aria-label={text.anotherFolder} spellcheck="false" />
+					<button class="go" disabled={!profile || !path.trim()}>{text.lookAtFolder}</button>
+				</form>
+			{:else}
+				<button class="choice" disabled={!profile} onclick={() => (window.shell ? chooseFolder() : (askingPath = true))}>
+					<span class="tile"><Folder size={22} /></span>
+					<span class="what"><b>{text.anotherFolder}</b><small>{text.anotherFolderDesc}</small></span>
+					<span class="go">{text.chooseFolderEllipsis}</span>
+				</button>
+			{/if}
 		</div>
-		<label class="whose">
-			{profiles.length === 0 ? text.whosePhotos : text.importGoesTo}
+		{#if profile && !changing}
+			<p class="whose">{text.into}<span><b>{profile}</b>{text.sPhotos}</span><button class="link" onclick={() => (changing = true)}>{text.changeShort}</button></p>
+		{:else}
 			<!-- One of the profiles there are, or a new name: someone else's card. -->
-			<input bind:value={typed} list="profiles" placeholder={app.overview?.profile || text.profilePlaceholder} spellcheck="false" />
-			<datalist id="profiles">
-				{#each profiles as p (p)}<option value={p}></option>{/each}
-			</datalist>
-		</label>
+			<div class="whose">
+				{text.into}
+				{#each profiles as p (p)}
+					<button class="name" class:on={p === profile} onclick={() => ((typed = p), (changing = false))}>{p}</button>
+				{/each}
+				<span><input
+					bind:value={typed}
+					placeholder={text.yourName}
+					aria-label={text.yourName}
+					spellcheck="false"
+					onkeydown={(e) => e.key === 'Enter' && typed.trim() && (changing = false)}
+				/>{text.sPhotosNoStop}</span>
+			</div>
+		{/if}
 	{:else if view === 'reading' && im}
 		<!-- I2: every file read once, to know it; nothing copied yet. -->
 		<span class="pill live"><span class="spin"><Loader size={14} /></span>{text.importReading(name)}</span>
@@ -359,7 +382,7 @@
 			>
 			<SecondaryButton onclick={() => (choosing = true)}>{text.back}</SecondaryButton>
 		</div>
-		<p class="whose">{text.importGoesTo} <b>{im.profile || profile}</b></p>
+		<p class="whose">{text.into}<span><b>{im.profile || profile}</b>{text.sPhotos}</span></p>
 		<!-- A camera whose clock was reset: its photos given their day before the copy. -->
 		<p class="note">
 			{#if redates.length > 0}{text.datesGiven(redates.reduce((n, r) => n + r.names.length, 0))}
@@ -628,22 +651,51 @@
 		color: var(--accent);
 		font-weight: 600;
 	}
+	.go:disabled {
+		opacity: 0.5;
+	}
 	.whose {
 		color: var(--muted);
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 8px;
 	}
 	.whose b {
 		color: var(--fg);
 	}
-	.whose input {
-		height: 32px;
-		padding: 0 8px;
+	.whose input,
+	.path input {
+		height: 36px;
+		padding: 0 12px;
 		border: 1px solid var(--border);
-		border-radius: 8px;
-		background: var(--surface);
+		border-radius: 10px;
+		background: var(--bg);
 		color: var(--fg);
+		font: inherit;
+		font-size: var(--text-body);
+	}
+	.whose input::placeholder,
+	.path input::placeholder {
+		color: var(--faint);
+	}
+	.path input {
+		flex: 1;
+		font-family: var(--font-mono);
+		font-size: var(--text-callout);
+	}
+	.name {
+		height: 32px;
+		padding: 0 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-full);
+		color: var(--fg);
+		font-weight: 500;
+	}
+	.name.on {
+		border-color: var(--accent);
+		background: var(--accent-soft);
+		color: var(--accent);
 	}
 	.numbers {
 		display: flex;
