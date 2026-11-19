@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Settings are the choices a person makes in the window. A missing file is
@@ -87,30 +88,25 @@ func SetProfile(id, profile string) error {
 	if _, err := os.Stat(dir); err != nil {
 		return ErrNoSuchAccount
 	}
-	s, err := LoadSettings()
-	if err != nil {
-		return err
-	}
-	if s.Profiles == nil {
-		s.Profiles = map[string]string{}
-	}
-	s.Profiles[id] = profile
-	return SaveSettings(s)
+	_, err = UpdateSettings(func(s *Settings) {
+		if s.Profiles == nil {
+			s.Profiles = map[string]string{}
+		}
+		s.Profiles[id] = profile
+	})
+	return err
 }
 
 // rememberProfile keeps profile among those imported into: a card
 // imported with no account names it once, and its folder is still offered
 // when the account whose profile it was has gone.
 func rememberProfile(profile string) error {
-	s, err := LoadSettings()
-	if err != nil {
-		return err
-	}
-	if slices.Contains(s.Imported, profile) {
-		return nil
-	}
-	s.Imported = append(s.Imported, profile)
-	return SaveSettings(s)
+	_, err := UpdateSettings(func(s *Settings) {
+		if !slices.Contains(s.Imported, profile) {
+			s.Imported = append(s.Imported, profile)
+		}
+	})
+	return err
 }
 
 // ErrBadProfile is a profile name that cannot be a folder.
@@ -160,13 +156,26 @@ func loadSettings(path string) (Settings, error) {
 	return s, nil
 }
 
-// SaveSettings checks the settings and writes them.
-func SaveSettings(s Settings) error {
+// settingsMu holds one change of the settings at a time: an import
+// remembers its profile while the window may save its theme, and the
+// last to write would undo the other.
+var settingsMu sync.Mutex
+
+// UpdateSettings changes the settings as they are now, checks them and
+// writes them, and says them as written.
+func UpdateSettings(change func(*Settings)) (Settings, error) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
 	path, err := settingsPath()
 	if err != nil {
-		return err
+		return Settings{}, err
 	}
-	return saveSettings(path, s)
+	s, err := loadSettings(path)
+	if err != nil {
+		return s, err
+	}
+	change(&s)
+	return s, saveSettings(path, s)
 }
 
 func saveSettings(path string, s Settings) error {

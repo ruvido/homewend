@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -16,8 +17,14 @@ func TestALookAndItsCopyEndAlike(t *testing.T) {
 	card := t.TempDir()
 	write(t, card, "DCIM/A.JPG", exifPhoto("2019:07:14 10:00:00", "a"))
 	write(t, card, "DCIM/B.JPG", exifPhoto("2019:07:15 10:00:00", "b"))
+	// A twin of A, and a file that cannot be read in the project that
+	// stays out: counted alike, or the look says what the copy does not.
+	write(t, card, "DCIM/Z/A2.JPG", exifPhoto("2019:07:14 10:00:00", "a"))
 	write(t, card, "code/site/package.json", []byte("{}"))
 	write(t, card, "code/site/logo.png", []byte("an icon"))
+	if err := os.Chmod(filepath.Join(card, "code/site/logo.png"), 0); err != nil {
+		t.Fatal(err)
+	}
 	root := t.TempDir()
 	catalog, err := OpenCatalog(filepath.Join(root, "catalog.db"))
 	if err != nil {
@@ -39,8 +46,11 @@ func TestALookAndItsCopyEndAlike(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if plan.Outcome != want || done.Outcome != want {
-			t.Errorf("look %s, copy %s; want both %s", plan.Outcome, done.Outcome, want)
+		if plan.Outcome != want {
+			t.Errorf("look %s, want %s", plan.Outcome, want)
+		}
+		if !reflect.DeepEqual(plan.Counts, done.Counts) {
+			t.Errorf("look %+v\ncopy %+v", plan.Counts, done.Counts)
 		}
 	}
 	ends(OutcomeNew)

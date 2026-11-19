@@ -283,6 +283,16 @@ func TestAPhotoDeletedFromTheLibraryStaysOutUnlessBroughtBack(t *testing.T) {
 	if err != nil || done.Deleted != 1 || done.Placed != 0 {
 		t.Errorf("%+v, %v; want the deleted photo left out and said", done, err)
 	}
+	// Brought back on a full disk, it is deleted still: the next run does
+	// not bring it in unasked.
+	full := errors.New("no room")
+	if _, err := Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: func(int64) error { return full }}, nil); !errors.Is(err, full) {
+		t.Fatalf("%v, want no room", err)
+	}
+	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Fits: fits}, nil)
+	if err != nil || done.Deleted != 1 || done.Placed != 0 {
+		t.Errorf("%+v, %v; after a failed bring-back, want it deleted still", done, err)
+	}
 	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: fits}, nil)
 	if err != nil || done.Placed != 1 || done.BroughtBack != 1 || done.Deleted != 0 {
 		t.Errorf("%+v, %v; want the deleted photo placed again", done, err)

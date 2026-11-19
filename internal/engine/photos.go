@@ -238,7 +238,7 @@ type PhotoAbout struct {
 func About(hash string) (PhotoAbout, error) {
 	c, _, err := openLibrary()
 	if err != nil || c == nil {
-		return PhotoAbout{Albums: []string{}, Accounts: []string{}}, err
+		return PhotoAbout{Albums: []string{}, Accounts: []string{}, Local: []string{}}, err
 	}
 	defer c.Close()
 	var sources []string

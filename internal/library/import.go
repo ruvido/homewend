@@ -148,8 +148,14 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			continue
 		}
 		when, dated := dates[item.Path]
-		if seen[hash] {
-			done.Twins++
+		relative, known, deleted, err := libraryHolds(catalog, root, hash)
+		if err != nil {
+			return done, err
+		}
+		switch done.judge(seen, hash, f.Root, item.Path, known && !deleted, deleted, back(item.Path)) {
+		case staysOut:
+			continue
+		case twin:
 			// The same photo, given a date under its other name.
 			if dated {
 				if err := done.redate(root, catalog, hash, when, opt); err != nil {
@@ -157,27 +163,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 				}
 			}
 			continue
-		}
-		seen[hash] = true
-		relative, known, deleted, err := libraryHolds(catalog, root, hash)
-		if err != nil {
-			return done, err
-		}
-		if deleted {
-			// The arrivals were emptied, so it is no move left halfway
-			// either. It stays out unless asked back; brought back, it is
-			// new, in this profile.
-			if !done.deleted(f.Root, item.Path, back(item.Path)) {
-				// Its twin further on is deleted too, not a photo in.
-				delete(seen, hash)
-				continue
-			}
-			if err := catalog.forget(hash); err != nil {
-				return done, err
-			}
-			known = false
-		}
-		if known {
+		case inLibrary:
 			// Already in the library. Held by another profile, it gets a
 			// name in this one too, and the card as a source: Organize is
 			// handed the library's own file for that, never the folder's,
@@ -198,8 +184,19 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 					return done, err
 				}
 			}
-			done.InLibrary++
 			continue
+		}
+		// Brought back, it is new, in this profile: the catalog forgets
+		// where it was. The arrivals were emptied, so it is no move left
+		// halfway either.
+		var was Photo
+		if deleted {
+			if was, err = catalog.photo(hash); err != nil {
+				return done, err
+			}
+			if err := catalog.forget(hash); err != nil {
+				return done, err
+			}
 		}
 		capture := Capture{Source: NoDate, Origin: OriginOf("", filepath.Base(item.Path))}
 		if dated {
@@ -208,6 +205,11 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		copying = true
 		placed, err := bringIn(item.Path, i, root, catalog, opt, how.Link, how.Fits, capture, tell)
 		if err != nil {
+			// Not in after all, it is deleted still: the next run leaves it
+			// out unless asked back again.
+			if _, in, _ := catalog.PathOf(hash); deleted && !in {
+				catalog.Put(was)
+			}
 			return done, err
 		}
 		done.Placed += placed.Placed

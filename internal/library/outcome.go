@@ -58,16 +58,42 @@ type Counts struct {
 	Outcome Outcome `json:"outcome"`
 }
 
-// deleted counts a photo deleted from the library, path being below root:
-// brought back, or left out by its path. It says back: whether it comes in.
-func (c *Counts) deleted(root, path string, back bool) bool {
-	if back {
-		c.BroughtBack++
-		return true
+// verdict is what becomes of a file of the folder.
+type verdict int
+
+const (
+	comesIn   verdict = iota // new to the library, or brought back
+	inLibrary                // the library holds it already
+	twin                     // a photo met before in the folder
+	staysOut                 // deleted from the library, not asked back
+)
+
+// judge counts a file of the folder and says what becomes of it, for the
+// look and the copy alike, so that the two never count it apart: hash is
+// its content, path is below root; held, the library holds it; deleted,
+// someone deleted it from the library; back, it is asked back. seen holds
+// the photos met so far.
+func (c *Counts) judge(seen map[string]bool, hash, root, path string, held, deleted, back bool) verdict {
+	switch {
+	case seen[hash]:
+		c.Twins++
+		return twin
+	case deleted && !back:
+		// Not seen: its twin further on stays out too, not a twin in.
+		c.Deleted++
+		c.DeletedNames = append(c.DeletedNames, relativeTo(root, path))
+		return staysOut
 	}
-	c.Deleted++
-	c.DeletedNames = append(c.DeletedNames, relativeTo(root, path))
-	return false
+	seen[hash] = true
+	switch {
+	case deleted:
+		c.BroughtBack++
+		return comesIn
+	case held:
+		c.InLibrary++
+		return inLibrary
+	}
+	return comesIn
 }
 
 // end decides the Outcome, fresh being what comes in, in this order: what

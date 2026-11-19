@@ -153,12 +153,12 @@ type fileFacts struct {
 
 // facts are path's, read only when not known.
 func (h Hashes) facts(path string) (fileFacts, error) {
+	if facts, ok := h.known(path); ok {
+		return facts, nil
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return fileFacts{}, err
-	}
-	if k, ok := h[path]; ok && k.size == info.Size() && k.mod.Equal(info.ModTime()) {
-		return k.fileFacts, nil
 	}
 	hash, err := hashOf(path)
 	if err != nil {
@@ -274,12 +274,11 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 			return plan, err
 		}
 		emit.Emit(progress.Event{Stage: progress.Read, N: i + 1, Of: len(f.Items)})
-		facts, err := hashes.facts(item.Path)
-		if err != nil {
-			plan.Unreadable++
-			continue
+		// Not read, it is counted below, if it comes in: the copy reads
+		// only what does.
+		if facts, err := hashes.facts(item.Path); err == nil {
+			read[item.Path] = facts
 		}
-		read[item.Path] = facts
 	}
 	groups, err := classify(f, func(path string) bool { return read[path].dated }, opt.Choice, nil)
 	if err != nil {
@@ -299,7 +298,10 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 	for _, item := range f.Items {
 		facts, ok := read[item.Path]
 		if !ok {
-			continue // unreadable, counted
+			if in[item.Path] {
+				plan.Unreadable++
+			}
+			continue
 		}
 		hash, camera, hasDate := facts.hash, facts.taken, facts.dated
 		group := byPath[item.Path]
@@ -341,35 +343,23 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 		if !in[item.Path] {
 			continue
 		}
-		// The twin of one brought back comes in with it, as the copy says.
-		if deleted && !seen[hash] && !plan.deleted(f.Root, item.Path, back(item.Path)) {
+		when, dated := dates[item.Path]
+		v := plan.judge(seen, hash, f.Root, item.Path, held != "", deleted, back(item.Path))
+		if v == staysOut {
 			continue
 		}
-		when, dated := dates[item.Path]
-		// The library first: a photo it holds is in it however many times
-		// the folder has it.
-		if held != "" {
-			plan.InLibrary++
-			// As redateInLibrary decides: by the profile it is filed in.
-			switch {
-			case !dated:
-			case !filedIn(held, opt.Profile):
+		// A date given moves it, a twin too, as redateInLibrary decides:
+		// one another profile holds keeps the date that profile gives.
+		if dated {
+			if held != "" && !filedIn(held, opt.Profile) {
 				plan.NotRedated++
-			default:
+			} else {
 				plan.Redated++
 			}
+		}
+		if v != comesIn {
 			continue
 		}
-		// Not in the library: given a date, it moves to it, a twin too, as
-		// the copy counts.
-		if dated {
-			plan.Redated++
-		}
-		if seen[hash] {
-			plan.Twins++
-			continue
-		}
-		seen[hash] = true
 		if info, err := os.Stat(item.Path); err == nil {
 			plan.Bytes += info.Size()
 		}

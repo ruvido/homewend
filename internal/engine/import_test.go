@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ronalder100/homewend/internal/library"
@@ -120,6 +121,14 @@ func TestAnImportsProfileIsRemembered(t *testing.T) {
 	o, err := LibraryOverview(s)
 	if err != nil || len(o.Profiles) != 1 || o.Profiles[0] != "ron" {
 		t.Errorf("profiles %q, %v; want ron alone", o.Profiles, err)
+	}
+	// The same card into another profile copies nothing, and its photos
+	// are in that profile all the same.
+	if _, err := Import(context.Background(), card, "anna", library.ImportOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if s, err = LoadSettings(); err != nil || !slices.Contains(s.Imported, "anna") {
+		t.Errorf("%+v, %v; want anna kept", s, err)
 	}
 }
 

@@ -54,12 +54,8 @@ func ChooseLibrary(dir string) error {
 
 // SetDefaultLibrary keeps dir as the library folder from now on.
 func SetDefaultLibrary(dir string) error {
-	s, err := LoadSettings()
-	if err != nil {
-		return err
-	}
-	s.Library = dir
-	return SaveSettings(s)
+	_, err := UpdateSettings(func(s *Settings) { s.Library = dir })
+	return err
 }
 
 // State is where things stand, as the status command shows it.

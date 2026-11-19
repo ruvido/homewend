@@ -114,7 +114,8 @@ func Import(ctx context.Context, dir, profile string, how library.ImportOptions,
 	}
 	opt := library.Options{Profile: profile, SeparateMessaging: true, Account: source}
 	done, err := library.Import(ctx, folder, root, catalog, opt, how, emit)
-	if done.Placed > 0 {
+	// A photo already in another profile is in this one too, given a name.
+	if done.Placed+done.InLibrary > 0 {
 		// Kept even when the run ends short: its photos are in the profile.
 		// Not kept, the photos are in all the same: said, not failed.
 		if kept := rememberProfile(profile); kept != nil {

@@ -236,7 +236,6 @@ Examples:
 	"already":         "Already signed in",
 	"already as":      "Already signed in as **%s**",
 	"after login":     "to bring your %d photos home, run: **homewend takeout %d**",
-	"signed out":      "Signed out of Google",
 	"signed out of":   "Signed out of **%s**",
 	"profile is":      "Your photos go in the profile **%s**",
 	"which account":   "Which account?",

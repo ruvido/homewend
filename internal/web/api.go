@@ -35,13 +35,8 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing) http.Handler {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s, err := engine.LoadSettings()
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		s.Theme, s.Hidden = in.Theme, in.Hidden
-		reply(w, s, engine.SaveSettings(s))
+		s, err := engine.UpdateSettings(func(s *engine.Settings) { s.Theme, s.Hidden = in.Theme, in.Hidden })
+		reply(w, s, err)
 	})
 	// Whose photos an account's are: the folder of the library they go in.
 	mux.HandleFunc("PUT /api/profile", func(w http.ResponseWriter, r *http.Request) {
