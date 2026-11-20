@@ -4,7 +4,10 @@
 package engine
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -112,4 +115,32 @@ func hasDCIM(disk string) bool {
 		}
 	}
 	return false
+}
+
+// ErrNotACard is an eject asked for a folder that is no card mounted now.
+var ErrNotACard = errors.New("not a card mounted now")
+
+// EjectCard unmounts the card at dir and, where the system can, powers it
+// off, so it can be taken out: as the file manager's eject does it. Only a
+// card of Cards is ejected, never any other disk. An import from it is
+// stopped first by the caller's choice: the system refuses a busy disk.
+func EjectCard(dir string) error {
+	if _, ok := cardAt(dir); !ok {
+		return ErrNotACard
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("diskutil", "eject", dir)
+	case "linux":
+		// gio asks udisks, as the file managers of GNOME and KDE do: unmount,
+		// then power off the reader's card.
+		cmd = exec.Command("gio", "mount", "--eject", dir)
+	default:
+		return errors.ErrUnsupported
+	}
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ejecting %s: %v: %s", dir, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }

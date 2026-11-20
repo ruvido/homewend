@@ -68,6 +68,8 @@ type ImportState struct {
 	// year "" month 0, the undated. A copy carried on after its card came
 	// out goes on counting.
 	Filed map[string]map[int]int `json:"filed,omitempty"`
+	// Of them, the videos, by year.
+	FiledVideos map[string]int `json:"filedVideos,omitempty"`
 	// Moved of Bytes are the folder's bytes gone through so far, for the
 	// pace of the copy and the time left.
 	Moved int64 `json:"moved"`
@@ -177,16 +179,17 @@ func (im *Importing) start(a ImportAsk, kind string, run func(context.Context, p
 	var plan *library.ImportPlan
 	var before *library.Imported
 	var filed map[string]map[int]int
+	var videos map[string]int
 	if same {
 		card = card || im.state.Card
 		if kind == "import" {
 			plan = im.state.Plan
 		}
 		if im.state.Problem == "taken-out" {
-			before, filed = im.state.Imported, im.state.Filed
+			before, filed, videos = im.state.Imported, im.state.Filed, im.state.FiledVideos
 		}
 	}
-	im.state = ImportState{Running: true, ImportAsk: a, Top: top, Filed: filed, Kind: kind, Plan: plan, Card: card}
+	im.state = ImportState{Running: true, ImportAsk: a, Top: top, Filed: filed, FiledVideos: videos, Kind: kind, Plan: plan, Card: card}
 	im.cancel, im.done = cancel, make(chan struct{})
 	done := im.done
 	go func() {
@@ -234,6 +237,12 @@ func (s *ImportState) record(e progress.Event) {
 			s.Filed[e.Name] = map[int]int{}
 		}
 		s.Filed[e.Name][e.N]++
+		if e.Note == "video" {
+			if s.FiledVideos == nil {
+				s.FiledVideos = map[string]int{}
+			}
+			s.FiledVideos[e.Name]++
+		}
 	case progress.Read, progress.Copy:
 		// A new file starts at nothing; its bytes follow.
 		if e.N != s.N {
@@ -351,5 +360,6 @@ func (im *Importing) State() ImportState {
 		filed[year] = maps.Clone(months)
 	}
 	s.Filed = filed
+	s.FiledVideos = maps.Clone(s.FiledVideos)
 	return s
 }

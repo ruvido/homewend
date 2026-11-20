@@ -269,3 +269,12 @@ func TestTheWindowCountsACopyByMonth(t *testing.T) {
 		t.Errorf("filed %v, want one in 2025-09 and one undated", s.Filed)
 	}
 }
+
+func TestTheVideosFiledAreCountedByYear(t *testing.T) {
+	var s ImportState
+	s.record(progress.Event{Stage: progress.Filed, Name: "2024", N: 5})
+	s.record(progress.Event{Stage: progress.Filed, Name: "2024", N: 5, Note: "video"})
+	if s.Filed["2024"][5] != 2 || s.FiledVideos["2024"] != 1 {
+		t.Errorf("filed %v, videos %v: want 2 in May 2024, 1 of them a video", s.Filed, s.FiledVideos)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/ronalder100/homewend/internal/engine"
 	"github.com/ronalder100/homewend/internal/session"
@@ -111,6 +112,31 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing) http.Handler {
 		n, err := engine.TakeOutMissing(body.Hash, body.KeepOut)
 		reply(w, map[string]int{"taken": n}, err)
 	})
+	// Dates given to photos picked in the library; when is a clock written as UTC.
+	mux.HandleFunc("POST /api/dates", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Hashes []string  `json:"hashes"`
+			When   time.Time `json:"when"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Hashes) == 0 || body.When.IsZero() {
+			http.Error(w, "photos and a date are needed", http.StatusBadRequest)
+			return
+		}
+		n, err := engine.GiveDates(body.Hashes, body.When)
+		reply(w, map[string]int{"moved": n}, err)
+	})
+	mux.HandleFunc("POST /api/cards/eject", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Path string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Path == "" {
+			http.Error(w, "a card is needed", http.StatusBadRequest)
+			return
+		}
+		reply(w, nil, engine.EjectCard(body.Path))
+	})
+	mux.HandleFunc("POST /api/turn/{hash}", func(w http.ResponseWriter, r *http.Request) {
+		turn, err := engine.TurnLeft(r.PathValue("hash"))
+		reply(w, map[string]int{"turn": turn}, err)
+	})
 	mux.HandleFunc("GET /api/latest", func(w http.ResponseWriter, r *http.Request) {
 		list, err := engine.Latest(6)
 		reply(w, list, err)
@@ -122,6 +148,15 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing) http.Handler {
 	// A thumbnail never changes: it is named by the photo's content.
 	mux.HandleFunc("GET /api/thumb/{hash}", func(w http.ResponseWriter, r *http.Request) {
 		path, err := engine.Thumbnail(r.Context(), r.PathValue("hash"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+		http.ServeFile(w, r, path)
+	})
+	mux.HandleFunc("GET /api/preview/{hash}", func(w http.ResponseWriter, r *http.Request) {
+		path, err := engine.Preview(r.Context(), r.PathValue("hash"))
 		if err != nil {
 			reply(w, nil, err)
 			return

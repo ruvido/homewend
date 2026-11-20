@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -29,5 +30,11 @@ func TestACardIsADiskWithADCIMFolder(t *testing.T) {
 func TestNoCardIsAnEmptyList(t *testing.T) {
 	if cards := cardsOf(nil); cards == nil {
 		t.Error("no card is nil, sent as null")
+	}
+}
+
+func TestOnlyACardIsEjected(t *testing.T) {
+	if err := EjectCard(t.TempDir()); !errors.Is(err, ErrNotACard) {
+		t.Fatalf("a folder that is no card: %v, want ErrNotACard", err)
 	}
 }

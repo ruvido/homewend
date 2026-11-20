@@ -72,6 +72,8 @@ export interface GridPhoto {
 	video?: boolean;
 	/** Its file is gone from the library, deleted or moved by hand. */
 	missing?: boolean;
+	/** Quarter turns anticlockwise the person gave it. */
+	turn?: number;
 }
 
 export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; missing?: boolean; offset: number; limit: number }) {
@@ -169,6 +171,10 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 	);
 
 export const getLatest = () => call<GridPhoto[]>('GET', '/api/latest');
+export const giveDates = (hashes: string[], when: string) => call<{ moved: number }>('POST', '/api/dates', { hashes, when });
+export const turnLeft = (hash: string) => call<{ turn: number }>('POST', `/api/turn/${hash}`);
+/** A square picture turned as the person turned the photo. */
+export const turned = (p: { turn?: number }) => (p.turn ? `rotate(${-90 * p.turn}deg)` : undefined);
 export const getAbout = (hash: string) =>
 	call<{ albums: string[]; accounts: string[]; local: string[] }>('GET', `/api/about/${hash}`);
 
@@ -238,6 +244,8 @@ export interface Counts {
 	deleted_names?: string[];
 	deleted_more?: number;
 	unreadable: number;
+	/** The groups that stay out, by their kind or as chosen. */
+	left_out?: (Omit<ImportGroup, 'in' | 'photos' | 'videos' | 'in_library'> & { files: number })[];
 	outcome: Outcome;
 }
 
@@ -260,6 +268,9 @@ export interface Imported extends Counts {
 	placed: number;
 	bytes: number;
 	undated: number;
+	/** Of those placed, a camera's raw files and the videos: the rest are photos. */
+	raw: number;
+	videos: number;
 }
 
 /** In the library and checked, by year and month; year "" month 0, the undated. */
@@ -300,6 +311,8 @@ export interface ImportState extends Partial<ImportAsk> {
 	done: number;
 	total: number;
 	filed?: Filed;
+	/** Of them, the videos, by year. */
+	filedVideos?: Record<string, number>;
 	/** The folder's bytes gone through, of all of them: the copy's pace. */
 	moved: number;
 	bytes: number;
@@ -315,6 +328,7 @@ export interface ImportState extends Partial<ImportAsk> {
 }
 
 export const getCards = () => call<Card[]>('GET', '/api/cards');
+export const ejectCard = (path: string) => call<null>('POST', '/api/cards/eject', { path });
 /** Runs what ran last once more, as it was asked: a card come back. */
 export const againImport = () => call<ImportState>('POST', '/api/import/again');
 export const planImport = (ask: ImportAsk) => call<ImportState>('POST', '/api/import/plan', ask);

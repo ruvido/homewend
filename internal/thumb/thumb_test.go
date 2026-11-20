@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -30,29 +31,32 @@ func writePNG(t *testing.T, path string, w, h int) {
 func TestMakeFitsTheLongEdge(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "wide.png")
-	writePNG(t, src, 1200, 600)
-	dst := Path(filepath.Join(dir, "cache"), "abcdef")
-	if err := Make(context.Background(), src, dst); err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.Open(dst)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	cfg, err := jpeg.DecodeConfig(f)
-	if err != nil || cfg.Width != Size || cfg.Height != Size/2 {
-		t.Fatalf("got %dx%d, %v; want %dx%d", cfg.Width, cfg.Height, err, Size, Size/2)
-	}
-	if filepath.Base(filepath.Dir(dst)) != "ab" {
-		t.Fatalf("not filed by hash: %s", dst)
+	writePNG(t, src, 3000, 1500)
+	// The grid's thumbnail and the viewer's preview, each at its own size.
+	for _, size := range []int{Size, PreviewSize} {
+		dst := Path(filepath.Join(dir, "cache", strconv.Itoa(size)), "abcdef")
+		if err := Make(context.Background(), src, dst, size); err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Open(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := jpeg.DecodeConfig(f)
+		f.Close()
+		if err != nil || cfg.Width != size || cfg.Height != size/2 {
+			t.Fatalf("got %dx%d, %v; want %dx%d", cfg.Width, cfg.Height, err, size, size/2)
+		}
+		if filepath.Base(filepath.Dir(dst)) != "ab" {
+			t.Fatalf("not filed by hash: %s", dst)
+		}
 	}
 }
 
 func TestUnknownFormat(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "x.txt")
 	os.WriteFile(src, []byte("hello"), 0o644)
-	if err := Make(context.Background(), src, src+".jpg"); !errors.Is(err, ErrNoDecoder) {
+	if err := Make(context.Background(), src, src+".jpg", Size); !errors.Is(err, ErrNoDecoder) {
 		t.Fatalf("got %v", err)
 	}
 }

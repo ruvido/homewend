@@ -70,6 +70,15 @@ func TestACardIsCopiedByDateAndLeftAsItWas(t *testing.T) {
 	}
 }
 
+func TestWhatComesInIsCountedByKind(t *testing.T) {
+	card := cameraCard(t)
+	write(t, card, "DCIM/101_FUJI/DSCF0004.RAF", []byte("raw"))
+	done := importCard(t, card, t.TempDir(), false)
+	if done.Placed != 4 || done.Raw != 1 || done.Videos != 1 {
+		t.Errorf("%+v, want 4 placed: 1 raw, 1 video", done)
+	}
+}
+
 func TestACardBroughtInTwiceAddsNothing(t *testing.T) {
 	card := cameraCard(t)
 	root := t.TempDir()
@@ -769,6 +778,44 @@ func TestTheTwinOfAPhotoBroughtBackComesInWithIt(t *testing.T) {
 	for _, c := range []Counts{plan.Counts, done.Counts} {
 		if c.BroughtBack != 1 || c.Twins != 1 || c.Redated != 2 || c.Deleted != 0 || len(c.DeletedNames) != 0 {
 			t.Errorf("%+v, %v %v; want one back and its twin with it", c, err, err2)
+		}
+	}
+}
+
+// Dates given in the library: the earliest takes the date, the others keep
+// their distance; one with no date takes the date; each stays in its profile.
+func TestDatesGivenInTheLibrary(t *testing.T) {
+	root := t.TempDir()
+	importCard(t, cameraCard(t), root, false)
+	catalog, err := OpenCatalog(filepath.Join(root, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalog.Close()
+	byName := map[string]string{}
+	all, err := catalog.Page(Filter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range all {
+		byName[p.Name] = p.Hash
+	}
+	when := time.Date(2020, 5, 1, 10, 0, 0, 0, time.UTC)
+	n, err := GiveDates(root, catalog, []string{byName["DSCF0002.JPG"], byName["DSCF0003.MOV"]}, when)
+	if err != nil || n != 2 {
+		t.Fatalf("%d moved, %v", n, err)
+	}
+	mustExist(t, filepath.Join(root, "ron", "2020", "05", "DSCF0002.JPG"))
+	mustExist(t, filepath.Join(root, "ron", "2020", "05", "DSCF0003.MOV"))
+	if _, err := os.Stat(filepath.Join(root, "ron", "2018")); !os.IsNotExist(err) {
+		t.Errorf("the year it left is still there: %v", err)
+	}
+}
+
+func TestTheProfileOfAPath(t *testing.T) {
+	for path, want := range map[string]string{"ron/2026/08/a.jpg": "ron", "2026/08/a.jpg": "", "undated/a.jpg": "", "a.jpg": ""} {
+		if got := profileOf(path); got != want {
+			t.Errorf("profileOf(%q) = %q, want %q", path, got, want)
 		}
 	}
 }

@@ -14,6 +14,8 @@
 	import { chooseUrl } from '#lib/places.js';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
+	import Arrived from '#lib/components/Arrived.svelte';
+	import YearsPanel from '#lib/components/YearsPanel.svelte';
 
 	const shown = $derived(shownJob());
 	// On the Mac the closed window leaves the app running: the page can close it.
@@ -182,15 +184,7 @@
 				{/if}
 			</div>
 			{#if !waiting && latest.length > 0 && arrived(job)}
-				<div class="strip">
-					<div class="striphead">
-						<span>{paused ? text.lastArrived : text.justArrived}</span>
-						<button class="link" onclick={() => goto('/library')}>{text.seeLibrary}<ArrowRight size={14} /></button>
-					</div>
-					<div class="tiles">
-						{#each latest as p (p.hash)}<img src="/api/thumb/{p.hash}" alt={p.name} />{/each}
-					</div>
-				</div>
+				<Arrived label={paused ? text.lastArrived : text.justArrived} photos={latest} />
 			{/if}
 		</div>
 		{#if waiting || asking}
@@ -212,8 +206,7 @@
 			</section>
 		{/if}
 		{#if !waiting && !asking && (job.years.length > 0 || job.unassigned > 0)}
-			<section class="years">
-				<header><h2>{text.byYear}</h2><span>{text.byYearLegend}</span></header>
+			<YearsPanel title={text.byYear} legend={text.byYearLegend}>
 				{#each job.years as y (y.year)}
 					{@const done = y.of > 0 && y.arrived >= y.of}
 					<!-- Photos land when their part is whole: until then a takeout of
@@ -237,7 +230,7 @@
 						<span class="state arriving"><Loader size={18} /></span>
 					</div>
 				{/if}
-			</section>
+			</YearsPanel>
 		{/if}
 	{/if}
 </div>
@@ -430,30 +423,6 @@
 		text-decoration: none;
 		font-size: var(--text-callout);
 	}
-	.strip {
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-		margin-top: 8px;
-	}
-	.striphead {
-		display: flex;
-		justify-content: space-between;
-		font-size: var(--text-callout);
-		color: var(--muted);
-	}
-	.tiles {
-		display: grid;
-		grid-template-columns: repeat(6, 1fr);
-		gap: 8px;
-	}
-	.tiles img {
-		width: 100%;
-		aspect-ratio: 1;
-		object-fit: cover;
-		border-radius: 6px;
-	}
 	.card {
 		width: min(380px, 100%);
 		flex-shrink: 0;
@@ -515,62 +484,10 @@
 		color: var(--faint);
 		font-weight: 400;
 	}
-	.state.arriving,
-	.turning {
+	/* Above the panel's green: still arriving. */
+	.year .state.arriving,
+	.year .turning {
 		color: var(--accent);
-	}
-	.years {
-		width: min(380px, 100%);
-		flex-shrink: 0;
-		max-height: 100%;
-		overflow-y: auto;
-		padding: 24px;
-		border: 1px solid var(--border);
-		border-radius: 16px;
-	}
-	.years header {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		padding-bottom: 12px;
-	}
-	.years h2 {
-		font-size: var(--text-title-2);
-		font-weight: 700;
-		color: var(--fg);
-	}
-	.years header span {
-		font-size: var(--text-callout);
-		color: var(--faint);
-	}
-	.year {
-		height: 44px;
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		border-bottom: 1px solid var(--line);
-	}
-	.folder {
-		display: grid;
-		color: var(--folder);
-	}
-	.name {
-		flex: 1;
-		font-weight: 500;
-		color: var(--fg);
-	}
-	.count {
-		color: var(--text);
-	}
-	.count.done {
-		color: var(--ok);
-		font-weight: 600;
-	}
-	.state {
-		width: 40px;
-		display: flex;
-		justify-content: flex-end;
-		color: var(--ok);
 	}
 	.bar {
 		width: 40px;

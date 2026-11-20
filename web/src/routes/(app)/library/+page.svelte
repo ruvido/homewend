@@ -4,7 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { app } from '#lib/app.svelte.js';
-	import { getPhotos, type GridPhoto } from '#lib/api.js';
+	import { getPhotos, turnLeft, type GridPhoto } from '#lib/api.js';
 	import { placeOf, urlOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
 	import Grid from '#lib/components/Grid.svelte';
@@ -12,7 +12,9 @@
 	import Viewer from '#lib/components/Viewer.svelte';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import TakeOut from '#lib/components/TakeOut.svelte';
-	import { CircleCheck, CircleAlert, Loader } from '@lucide/svelte';
+	import GiveDate from '#lib/components/GiveDate.svelte';
+	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
+	import { Calendar, CircleCheck, CircleAlert, Loader, RotateCcw, X } from '@lucide/svelte';
 
 	let open = $state<number | null>(null);
 
@@ -30,6 +32,34 @@
 	);
 	let takingOut = $state(false);
 	let reload = $state(0);
+
+	// The photos picked (K1), by hash; the last one picked, for Shift.
+	let selected = $state(new Set<string>());
+	let anchor = -1;
+	let dating = $state(false);
+	// Another page, or the list loaded again: nothing picked.
+	$effect(() => {
+		void place;
+		void reload;
+		selected = new Set();
+		anchor = -1;
+	});
+	function select(i: number, range: boolean) {
+		const next = new Set(selected);
+		if (range && anchor >= 0) {
+			for (let k = Math.min(anchor, i); k <= Math.max(anchor, i); k++) next.add(photos[k].hash);
+		} else if (!next.delete(photos[i].hash)) next.add(photos[i].hash);
+		anchor = i;
+		selected = next;
+	}
+	const picked = $derived(photos.filter((p) => selected.has(p.hash)));
+	async function turnPicked() {
+		for (const p of picked) p.turn = (await turnLeft(p.hash)).turn;
+	}
+	// Esc lets the photos go, unless the viewer or the dialog takes it.
+	function key(e: KeyboardEvent) {
+		if (e.key === 'Escape' && open === null && !dating && selected.size > 0) selected = new Set();
+	}
 
 
 	// What the download says of this page: all here, missing, or arriving.
@@ -49,21 +79,14 @@
 		if (mine.some((y) => y.finished)) return { kind: 'missing', label: text.missing((of - arrived).toLocaleString('en')) };
 		return null;
 	});
-	// What the page holds: the count, and on All photos, how many each shown
-	// account brought; the photos with no date say why they have none.
+	// What the page holds: how many photos and how many videos (L1); whose
+	// they are is the sidebar's. The photos with no date say why they have none.
 	const subtitle = $derived.by(() => {
 		const n = photos.length.toLocaleString('en');
 		if (place.kind === 'missing') return text.missingDetail;
 		if (place.kind === 'year' && place.label === text.noDate) return text.noDateSub(n);
-		const shown = (app.overview?.accounts ?? []).filter((a) => a.shown);
-		const parts = [text.photosAndVideos(photos.length)];
-		if (place.kind === 'all' && shown.length > 1)
-			for (const a of shown) parts.push(`${a.email} ${a.photos.toLocaleString('en')}`);
-		if (place.kind === 'album' && place.account) {
-			const a = app.overview?.accounts.find((x) => x.id === place.account);
-			if (a) parts.push(a.email);
-		}
-		return parts.join(' · ');
+		const videos = photos.filter((p) => p.video).length;
+		return text.photosAndVideos(photos.length - videos, videos);
 	});
 
 	// The whole list, a chunk at a time: the grid needs every photo's month to
@@ -105,7 +128,18 @@
 {:else if app.overview && app.overview.total === 0}
 	<EmptyLibrary />
 {:else}
-	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)}>
+	<!-- The bar over the grid, the grid in what is left. -->
+	<div class="lib">
+	{#if selected.size > 0}
+		<div class="selbar">
+			<button class="close" aria-label={text.clearSelection} onclick={() => (selected = new Set())}><X size={20} /></button>
+			<b>{text.selected(selected.size)}</b>
+			<SecondaryButton small onclick={turnPicked}><RotateCcw size={14} />{text.rotateLeft}</SecondaryButton>
+			<SecondaryButton small onclick={() => (dating = true)}><Calendar size={14} />{text.changeDateEllipsis}</SecondaryButton>
+		</div>
+	{/if}
+	<div class="fill">
+	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)} {selected} onselect={select}>
 		{#snippet header()}
 			<div class="head">
 				<h1>{title}</h1>
@@ -128,7 +162,18 @@
 			</div>
 		{/snippet}
 	</Grid>
-	<Viewer {photos} bind:index={open} ontakenout={() => reload++} />
+	</div>
+	</div>
+	<Viewer {photos} bind:index={open} ontakenout={() => reload++} ondated={() => reload++} />
+	{#if dating}
+		<GiveDate
+			photos={picked}
+			onclose={(moved) => {
+				dating = false;
+				if (moved) reload++;
+			}}
+		/>
+	{/if}
 	{#if takingOut}
 		<TakeOut
 			count={photos.length}
@@ -140,7 +185,44 @@
 	{/if}
 {/if}
 
+<svelte:window onkeydown={key} />
+
 <style>
+	.lib {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+	.fill {
+		flex: 1;
+		min-height: 0;
+	}
+	/* K1: the library's bar while photos are picked, over the grid. */
+	.selbar {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		padding: 16px 40px 16px 24px;
+		border-bottom: 1px solid var(--line);
+		background: var(--bg);
+	}
+	.selbar b {
+		flex: 1;
+		font-size: var(--text-title-2);
+		font-weight: 700;
+		color: var(--fg);
+	}
+	.close {
+		width: 32px;
+		height: 32px;
+		display: grid;
+		place-items: center;
+		border-radius: 8px;
+		color: var(--fg);
+	}
+	.close:hover {
+		background: var(--soft);
+	}
 	.head {
 		padding: 32px 0 8px;
 	}

@@ -13,12 +13,14 @@
 		ApiError,
 		BRING_ALL_BACK,
 		getCards,
+		getLatest,
 		getImport,
 		getLibrary,
 		planImport,
 		startImport,
 		stopImport,
 		type Card,
+		type GridPhoto,
 		againImport,
 		type Choice,
 		type Filed,
@@ -35,6 +37,9 @@
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import ImportDates from './ImportDates.svelte';
 	import ImportPick from './ImportPick.svelte';
+	import Arrived from '#lib/components/Arrived.svelte';
+	import YearsPanel from '#lib/components/YearsPanel.svelte';
+	import Avatar from '#lib/components/Avatar.svelte';
 
 	let im = $state<ImportState | null>(null);
 	// A look again of the plan on screen keeps it there, untouchable, until
@@ -56,10 +61,6 @@
 	// a new name typed in the field that takes its place.
 	let menu = $state<HTMLElement | null>(null);
 	let naming = $state(false);
-	// No window of the system to pick a folder with (the page in a browser):
-	// its path is typed instead.
-	let askingPath = $state(false);
-	let path = $state('');
 
 	// How the folder is named on every screen, as the engine names it.
 	const name = $derived(im?.top ?? '');
@@ -127,9 +128,22 @@
 		return () => clearInterval(t);
 	});
 
-	// What came in is in the sidebar's counts and years at once.
+	// What came in is in the sidebar's counts and years at once, and its
+	// last photos at the end.
+	let latest = $state<GridPhoto[]>([]);
 	$effect(() => {
-		if (view === 'done' || view === 'stopped') refresh();
+		if (view === 'done' || view === 'stopped') {
+			refresh();
+			getLatest().then((l) => (latest = l), () => {});
+		}
+	});
+	// During the copy, the last photos in, as a download shows them.
+	$effect(() => {
+		if (view !== 'copying') return;
+		const load = () => getLatest().then((l) => (latest = l), () => {});
+		load();
+		const t = setInterval(load, 5000);
+		return () => clearInterval(t);
 	});
 
 	// The card put back in: the look or the copy carries on by itself. What
@@ -158,15 +172,24 @@
 			im = { running: false, n: 0, of: 0, done: 0, total: 0, moved: 0, bytes: 0, error: said };
 		}
 	}
-	function look(dir: string) {
+	// A card or a folder comes in at once, each group as its kind says, like
+	// the command line; what stayed out is shown at the end (J1–J3).
+	function bringIn(dir: string) {
 		if (!profile) return;
-		// The room left is read again for each card: an import before took some.
-		getLibrary().then((l) => (free = l.free), () => {});
 		redates = [];
 		link = false;
 		choice = null;
 		bringBack = [];
-		start(() => planImport({ dir, profile }));
+		start(() => startImport({ dir, profile }));
+	}
+	// After it: the look at the folder, to pick from a group left out, bring
+	// back what was deleted, or give dates; the copy that follows adds them.
+	function lookAt(group: string | null, dates = false) {
+		// The room left is read again: the import took some.
+		getLibrary().then((l) => (free = l.free), () => {});
+		picking = group;
+		dating = dates;
+		start(() => planImport(asking()));
 	}
 
 	// Dates given to photos a reset clock dated wrong (I3b): kept here
@@ -236,7 +259,7 @@
 	}
 	async function chooseFolder() {
 		const picked = await window.shell?.chooseFolder();
-		if (picked) look(picked);
+		if (picked) bringIn(picked);
 	}
 
 	// Hard links rather than copies: asked each time, copy unless said.
@@ -250,9 +273,6 @@
 	}
 	// What is in of a year, from its months filed.
 	const filedIn = (filed: Filed, year: string) => Object.values(filed[year] ?? {}).reduce((n, k) => n + k, 0);
-	// "verified / to copy", for a year or a month of the copy.
-	const verified = (n: number, c: { photos: number; videos: number }) =>
-		`${n.toLocaleString('en')} / ${(c.photos + c.videos).toLocaleString('en')}`;
 	const counts = (c: { photos: number; videos: number }) =>
 		`${c.photos ? c.photos.toLocaleString('en') : '—'}${c.videos ? ` · ${c.videos.toLocaleString('en')}` : ''}`;
 	const fits = $derived(!plan || !free || plan.bytes <= free);
@@ -262,25 +282,24 @@
 	const share = $derived(im && im.of > 0 ? (im.n - 1 + fileShare) / im.of : 0);
 </script>
 
-<!-- The years, newest first; a year opened shows its months below it (I8b). -->
-<!-- During the copy (I6), each with what is in and checked, of what to copy. -->
-{#snippet byYear(years: ImportPlan['years'], filed?: Filed)}
+<!-- The years, newest first; a year opened shows its months below it. -->
+{#snippet byYear(years: ImportPlan['years'])}
 	{#if years.length > 0}
 		<h2>{text.byYearImport}</h2>
 		<div class="table">
-			<div class="th"><span class="grow">{text.colYear}</span><span>{filed ? text.verifiedLegend : text.byYearImportLegend}</span></div>
+			<div class="th"><span class="grow">{text.colYear}</span><span>{text.byYearImportLegend}</span></div>
 			{#each years as y (y.year)}
 				{@const open = opened.has(y.year)}
 				<button class="row year" class:open disabled={!y.months?.length} onclick={() => toggle(y.year)}>
 					<span class="chev">{#if y.months?.length}<ChevronRight size={16} />{/if}</span>
 					<span class="grow name">{y.year || text.noDate}</span>
-					<span class="count">{filed ? verified(filedIn(filed, y.year), y) : counts(y)}</span>
+					<span class="count">{counts(y)}</span>
 				</button>
 				{#if open}
 					{#each y.months ?? [] as m (m.month)}
 						<div class="row month">
 							<span class="grow">{text.monthNames[m.month - 1]}</span>
-							<span class="count">{filed ? verified(filed[y.year]?.[m.month] ?? 0, m) : counts(m)}</span>
+							<span class="count">{counts(m)}</span>
 						</div>
 					{/each}
 				{/if}
@@ -292,35 +311,15 @@
 <!-- A plan looked at again takes no click until the new one comes: it would be lost. -->
 <div class="page" inert={!!im?.running && !!kept}>
 	{#if view === 'choose'}
-		<!-- I1: a card in, or a folder to choose. -->
+		<!-- J1: the library the photos go to, then a card or a folder, brought in at once. -->
 		<h1>{cards.length > 0 ? text.importChoose : text.importNoCard}</h1>
-		<p class="lead">{cards.length > 0 ? text.importChooseLead : text.importNoCardLead}</p>
-		<div class="choices">
-			{#each cards as c (c.path)}
-				<button class="choice card" disabled={!profile} onclick={() => look(c.path)}>
-					<span class="tile"><HardDrive size={22} /></span>
-					<span class="what"><b>{c.name}</b><small>{c.path}</small></span>
-					<span class="go">{text.lookAtCard}</span>
-				</button>
-			{/each}
-			{#if askingPath}
-				<form class="choice path" onsubmit={(e) => (e.preventDefault(), path.trim() && look(path.trim()))}>
-					<span class="tile"><Folder size={22} /></span>
-					<input bind:value={path} placeholder={text.folderPathPlaceholder} aria-label={text.anotherFolder} spellcheck="false" />
-					<button class="go" disabled={!profile || !path.trim()}>{text.lookAtFolder}</button>
-				</form>
-			{:else}
-				<button class="choice" disabled={!profile} onclick={() => (window.shell ? chooseFolder() : (askingPath = true))}>
-					<span class="tile"><Folder size={22} /></span>
-					<span class="what"><b>{text.anotherFolder}</b><small>{text.anotherFolderDesc}</small></span>
-					<span class="go">{text.chooseFolderEllipsis}</span>
-				</button>
-			{/if}
-		</div>
+		{#if cards.length === 0}<p class="lead">{text.importNoCardLead}</p>{/if}
 		<div class="whose">
-			{text.into}
+			<span>{text.libraryLabel}</span>
 			{#if profile && !naming}
-				<button class="pick" aria-haspopup="menu" onclick={(e) => (menu = menu ? null : e.currentTarget)}>{profile}<ChevronDown size={14} /></button>
+				<button class="account" aria-haspopup="menu" onclick={(e) => (menu = menu ? null : e.currentTarget)}
+					><Avatar account={{ id: profile, name: profile, email: '', shown: true }} /><b>{profile}</b><ChevronDown size={14} /></button
+				>
 			{:else}
 				<!-- svelte-ignore a11y_autofocus -->
 				<input
@@ -336,7 +335,6 @@
 					onblur={() => typed.trim() && (naming = false)}
 				/>
 			{/if}
-			<span class="s">{text.sPhotos}</span>
 		</div>
 		{#if menu}
 			<ContextMenu
@@ -348,6 +346,20 @@
 				]}
 			/>
 		{/if}
+		<!-- One grid: the buttons share one width and one edge. -->
+		<div class="sources">
+			{#each cards as c (c.path)}
+				<span class="tile"><HardDrive size={22} /></span>
+				<span class="what"><b>{c.name}</b><small class="mono">{c.path}</small></span>
+				<span class="act"><PrimaryButton disabled={!profile} onclick={() => bringIn(c.path)}>{text.bringIn}</PrimaryButton></span>
+			{/each}
+			<span class="tile"><Folder size={22} /></span>
+			<span class="what"><b>{text.anotherFolder}</b><small>{text.anotherFolderDesc}</small></span>
+			<!-- The system's own window picks the folder: the desktop app has it, a browser does not. -->
+			<span class="act"
+				><SecondaryButton disabled={!profile || !window.shell} onclick={chooseFolder}>{text.chooseFolderEllipsis}</SecondaryButton></span
+			>
+		</div>
 	{:else if view === 'reading' && im}
 		<!-- I2: every file read once, to know it; nothing copied yet. -->
 		<span class="pill live"><span class="spin"><Loader size={14} /></span>{text.importReading(name)}</span>
@@ -469,21 +481,35 @@
 			</aside>
 		</div>
 	{:else if view === 'copying' && im}
-		<!-- I6: each file copied and read back, one at a time. -->
-		<span class="pill live"><span class="spin"><Loader size={14} /></span>{name}</span>
-		<h1>{text.importCopying}</h1>
-		<p class="lead">{text.importCopyingLead}</p>
-		<div class="track"><b style:width="{share * 100}%"></b></div>
-		<div class="numbers">
-			<div><b>{text.nOf(im.n, im.of)}</b><span>{im.stage === 'read' ? text.datesRead : text.importCopied}</span></div>
-			{#if im.total > 0}<div><b>{bytes(im.done)} / {bytes(im.total)}</b><span>{im.name}</span></div>{/if}
-			{#if run}
-				<div><b>{text.perSecond(bytes(run.rate))}</b><span>{text.speed}</span></div>
-				<div><b>{text.aboutTime(roughly(run.left))}</b><span>{text.leftAtSpeed}</span></div>
+		<!-- J2: each file copied and read back, one at a time; the years fill beside, as a download's. -->
+		{@const years = Object.keys(im.filed ?? {}).sort((x, y) => (y || '0').localeCompare(x || '0'))}
+		<div class="end">
+			<div class="main">
+				<span class="pill live"><span class="spin"><Loader size={14} /></span>{text.importBringing(name)}</span>
+				<h1 class="hero">{isCard ? text.importCopying : text.importCopyingFolder}</h1>
+				<div class="track"><b style:width="{share * 100}%"></b></div>
+				<div class="numbers">
+					<div><b>{im.n.toLocaleString('en')}</b><span>{text.ofN(im.of.toLocaleString('en'))}</span></div>
+					{#if im.bytes > 0}<div><b>{bytes(im.moved)}</b><span>{text.ofN(bytes(im.bytes))}</span></div>{/if}
+					{#if run}<div><b>{text.aboutTime(roughly(run.left))}</b><span>{text.leftAtSpeed}</span></div>{/if}
+				</div>
+				<div class="actions"><SecondaryButton onclick={() => stopImport().then((s) => (im = s))}>{text.importStop}</SecondaryButton></div>
+				{#if latest.length > 0 && years.length > 0}<Arrived label={text.importArrived} photos={latest} />{/if}
+			</div>
+			{#if years.length > 0}
+				<YearsPanel title={text.whosePhotos(im.profile || profile)} legend={[text.kindPhotos, text.kindVideos]}>
+					{#each years as y (y)}
+						{@const videos = im.filedVideos?.[y] ?? 0}
+						<div class="year">
+							<span class="folder"><Folder size={18} /></span>
+							<span class="name">{y || text.noDate}</span>
+							<span class="count n">{(filedIn(im.filed ?? {}, y) - videos).toLocaleString('en')}</span>
+							<span class="count n">{videos.toLocaleString('en')}</span>
+						</div>
+					{/each}
+				</YearsPanel>
 			{/if}
 		</div>
-		<div class="actions"><SecondaryButton onclick={() => stopImport().then((s) => (im = s))}>{text.importStop}</SecondaryButton></div>
-		{#if plan}{@render byYear(plan.years, im.filed ?? {})}{/if}
 	{:else if view === 'taken-out' && im}
 		<!-- I7: the card came out; put back, the copy carries on by itself. -->
 		<span class="pill warn">{text.importWaitingFor(name)}</span>
@@ -503,38 +529,78 @@
 		</div>
 		{#if im.kind !== 'plan'}<p class="note">{text.importEndWithoutDesc}</p>{/if}
 	{:else if (view === 'done' || view === 'stopped') && im}
-		<!-- I8: what came in; the card can go. -->
+		<!-- J3: what came in, by kind and by year; what did not, each shown on asking. -->
 		{@const done = im.imported}
-		<span class="pill" class:ok={view === 'done'}>{#if view === 'done'}<CircleCheck size={14} />{/if}{name}</span>
-		<!-- How it ended, as the engine says it. -->
-		{@const end =
-			view === 'stopped'
-				? { title: text.importStopped, lead: text.importStoppedLead }
-				: done && done.outcome !== 'new'
-					? { title: text.importNothingNew, lead: (text.doneLead[done.outcome as keyof typeof text.doneLead] ?? text.planLead[done.outcome])(done) }
-					: { title: text.importDone(done?.placed ?? 0), lead: text.importDoneLead }}
-		<h1>{end.title}</h1>
-		<p class="lead">{end.lead}</p>
-		{#if done}
-			<div class="numbers">
-				<div><b>{done.placed.toLocaleString('en')}</b><span>{text.importPlaced}</span></div>
-				<div><b>{done.in_library.toLocaleString('en')}</b><span>{text.importInLibrary}</span></div>
-				{#if done.undated > 0}<div><b>{done.undated.toLocaleString('en')}</b><span>{text.importUndated}</span></div>{/if}
-				{#if done.redated > 0}<div><b>{done.redated.toLocaleString('en')}</b><span>{text.importRedated}</span></div>{/if}
-				{#if done.brought_back > 0}<div><b>{done.brought_back.toLocaleString('en')}</b><span>{text.importDeletedBack}</span></div>{/if}
-				{#if done.deleted > 0}<div><b>{done.deleted.toLocaleString('en')}</b><span>{text.importDeletedOut}</span></div>{/if}
-				{#if done.unreadable > 0}<div class="warn"><b>{done.unreadable.toLocaleString('en')}</b><span>{text.importUnreadable}</span></div>{/if}
+		{@const years = Object.keys(im.filed ?? {}).sort((x, y) => (y || '0').localeCompare(x || '0'))}
+		<div class="end">
+			<div class="main">
+				<span class="pill" class:ok={view === 'done'}>{#if view === 'done'}<CircleCheck size={14} />{/if}{name}</span>
+				<!-- How it ended, as the engine says it. -->
+				{#if view === 'stopped'}
+					<h1 class="hero">{text.importStopped}</h1>
+					<p class="lead">{text.importStoppedLead}</p>
+				{:else if done && done.outcome !== 'new'}
+					<h1 class="hero">{text.importNothingNew}</h1>
+					<p class="lead">{(text.doneLead[done.outcome as keyof typeof text.doneLead] ?? text.planLead[done.outcome])(done)}</p>
+				{:else}
+					<h1 class="hero">{text.imported}</h1>
+				{/if}
+				{#if done && done.placed > 0}
+					{@const photos = done.placed - done.raw - done.videos}
+					<div class="numbers">
+						{#if photos > 0}<div><b>{photos.toLocaleString('en')}</b><span>{text.kindPhotos}</span></div>{/if}
+						{#if done.raw > 0}<div><b>{done.raw.toLocaleString('en')}</b><span>{text.kindRaw}</span></div>{/if}
+						{#if done.videos > 0}<div><b>{done.videos.toLocaleString('en')}</b><span>{text.kindVideos}</span></div>{/if}
+						<div><b>{bytes(done.bytes)}</b><span>{text.onTheDisk}</span></div>
+						{#if done.unreadable > 0}<div class="warn"><b>{done.unreadable.toLocaleString('en')}</b><span>{text.importUnreadable}</span></div>{/if}
+					</div>
+				{/if}
+				<div class="actions">
+					<PrimaryButton onclick={() => goto('/library')}>{text.seeLibraryNow}</PrimaryButton>
+					<SecondaryButton onclick={() => lookAt(null, true)}>{text.anyDatesWrong}</SecondaryButton>
+				</div>
+				{#if done && done.placed > 0 && latest.length > 0}<Arrived label={text.importArrived} photos={latest} />{/if}
+				{#if done && ((done.left_out?.length ?? 0) > 0 || done.deleted > 0 || done.in_library > 0)}
+					<div class="out">
+						<span class="outhead">{text.notCopied}</span>
+						<div>
+							{#each done.left_out ?? [] as g (g.folder)}
+								<div class="outrow">
+									<b>{text.nPhotos(g.files)}</b><span>{text.outIn(g.folder === '.' ? name : g.folder, g.kind, g.mark)}</span>
+									<button class="link" onclick={() => lookAt(g.folder)}>{text.show}</button>
+								</div>
+							{/each}
+							{#if done.deleted > 0}
+								<div class="outrow">
+									<b>{text.nPhotos(done.deleted)}</b><span>{text.youDeleted}</span>
+									<button class="link" onclick={() => lookAt(null)}>{text.show}</button>
+								</div>
+							{/if}
+							{#if done.in_library > 0}
+								<div class="outrow">
+									<b>{text.nPhotos(done.in_library)}</b><span>{text.importInLibrary}</span>
+									<button class="link" onclick={() => lookAt(null)}>{text.show}</button>
+								</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
 			</div>
-		{/if}
-		{#if isCard}
-			<p class="note"><b>{text.canTakeOut(name)}</b> {text.nothingChanged}</p>
-		{/if}
-		<div class="actions">
-			<PrimaryButton onclick={() => goto('/library')}>{text.seeLibraryNow}</PrimaryButton>
-			<SecondaryButton onclick={() => (choosing = true)}>{text.back}</SecondaryButton>
+			{#if years.length > 0}
+				<YearsPanel title={text.whosePhotos(im.profile || profile)} legend={[text.kindPhotos, text.kindVideos]} spacer>
+					{#each years as y (y)}
+						{@const videos = im.filedVideos?.[y] ?? 0}
+						<div class="year">
+							<span class="folder"><Folder size={18} /></span>
+							<span class="name">{y || text.noDate}</span>
+							<span class="count done n">{(filedIn(im.filed ?? {}, y) - videos).toLocaleString('en')}</span>
+							<span class="count done n">{videos.toLocaleString('en')}</span>
+							<span class="state"><CircleCheck size={18} /></span>
+						</div>
+					{/each}
+				</YearsPanel>
+			{/if}
 		</div>
-		<!-- All of it came in: what came in is what the look said would. -->
-		{#if view === 'done' && plan}{@render byYear(plan.years)}{/if}
 	{:else if im}
 		<span class="pill err">{name}</span>
 		<h1>{text.importFailed}</h1>
@@ -561,7 +627,7 @@
 		flex-direction: column;
 		align-items: flex-start;
 		gap: 16px;
-		padding: 48px 40px 40px;
+		padding: 64px 40px 40px;
 	}
 	/* The page scrolls whole, its scrollbar at the window's edge; what is
 	   read stays a column a line can be followed across. Picking dates
@@ -569,11 +635,63 @@
 	.page > :global(*) {
 		max-width: 760px;
 	}
+	/* The end: the column beside the years, as at the end of a download (J3, A4). */
+	.page > .end {
+		max-width: none;
+		width: 100%;
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		align-items: flex-start;
+		gap: 40px;
+	}
+	.main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 16px;
+	}
+	.hero {
+		font-size: var(--text-hero);
+		letter-spacing: -2px;
+		line-height: 1.05;
+	}
+	.out {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+		margin-top: 8px;
+	}
+	.outhead {
+		font-size: var(--text-callout);
+		color: var(--muted);
+	}
+	.outrow {
+		height: 44px;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		border-bottom: 1px solid var(--line);
+	}
+	.outrow b {
+		font-weight: 500;
+		color: var(--fg);
+	}
+	.outrow span {
+		flex: 1;
+		color: var(--muted);
+	}
+	.outrow .link {
+		font-size: var(--text-callout);
+	}
 	.page > :global(.dates) {
 		max-width: 1200px;
 	}
 	h1 {
-		font-size: var(--text-title-1);
+		font-size: var(--text-display);
 		font-weight: 700;
 		color: var(--fg);
 	}
@@ -614,72 +732,29 @@
 			transform: rotate(360deg);
 		}
 	}
-	.choices {
-		width: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-	}
-	.choice {
+	.whose {
 		display: flex;
 		align-items: center;
-		gap: 16px;
-		padding: 16px;
-		border: 1px solid var(--border);
-		border-radius: 12px;
-		background: var(--surface);
-		text-align: left;
-	}
-	.choice.card {
-		border-color: var(--accent);
-	}
-	.choice:disabled {
-		opacity: 0.5;
-	}
-	.choice:not(:disabled):hover {
-		background: var(--soft);
-	}
-	.tile {
-		width: 44px;
-		height: 44px;
-		display: grid;
-		place-items: center;
-		border-radius: 10px;
-		background: var(--accent-soft);
-		color: var(--accent);
-	}
-	.what {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-	}
-	.what b {
-		font-size: var(--text-title-3);
-		color: var(--fg);
-	}
-	.what small {
+		gap: 12px;
 		color: var(--muted);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
-	.go {
-		color: var(--accent);
-		font-weight: 600;
-	}
-	.go:disabled {
-		opacity: 0.5;
-	}
-	.whose {
-		color: var(--muted);
-		display: flex;
-		flex-wrap: wrap;
+	/* The account pill of the status bar, opening the list of libraries. */
+	.account {
+		height: 32px;
+		display: inline-flex;
 		align-items: center;
 		gap: 8px;
+		padding: 0 12px 0 4px;
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		background: var(--soft);
+		color: var(--muted);
 	}
-	.whose input,
-	.path input {
+	.account b {
+		color: var(--fg);
+		font-weight: 600;
+	}
+	.whose input {
 		height: 36px;
 		padding: 0 12px;
 		border: 1px solid var(--border);
@@ -689,35 +764,57 @@
 		font: inherit;
 		font-size: var(--text-body);
 	}
-	.whose input::placeholder,
-	.path input::placeholder {
+	.whose input::placeholder {
 		color: var(--faint);
 	}
-	.path input {
-		flex: 1;
-		font-family: var(--font-mono);
-		font-size: var(--text-callout);
+	.sources {
+		width: 100%;
+		margin-top: 8px;
+		display: grid;
+		grid-template-columns: auto 1fr auto;
+		border-top: 1px solid var(--line);
 	}
-	.pick {
-		height: 36px;
-		display: inline-flex;
+	/* The space between the columns inside the cells: a gap would break each row's line. */
+	.sources .what,
+	.sources .act {
+		padding-left: 16px;
+	}
+	.sources > * {
+		padding: 16px 0;
+		display: flex;
 		align-items: center;
-		gap: 8px;
-		padding: 0 10px 0 12px;
-		border: 1px solid var(--border);
+		border-bottom: 1px solid var(--line);
+	}
+	.sources .tile :global(svg) {
+		width: 44px;
+		height: 44px;
+		padding: 11px;
+		box-sizing: border-box;
 		border-radius: 10px;
-		background: var(--bg);
-		color: var(--fg);
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+	.sources .what {
+		min-width: 0;
+		flex-direction: column;
+		align-items: stretch;
+		justify-content: center;
+		gap: 2px;
+	}
+	.sources .what b {
+		font-size: var(--text-title-3);
 		font-weight: 600;
+		color: var(--fg);
 	}
-	.pick:hover {
-		background: var(--soft);
-	}
-	.pick :global(svg) {
+	.sources .what small {
+		font-size: var(--text-callout);
 		color: var(--muted);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.whose .s {
-		margin-left: -8px;
+	.act :global(button) {
+		width: 100%;
 	}
 	.numbers {
 		display: flex;
@@ -737,16 +834,18 @@
 	.numbers .warn b {
 		color: var(--warn);
 	}
+	/* A download's bar (A4). */
 	.track {
 		width: 100%;
 		height: 8px;
-		border-radius: 4px;
-		background: var(--soft);
+		border-radius: 999px;
+		background: var(--line);
 		overflow: hidden;
 	}
 	.track b {
 		display: block;
 		height: 100%;
+		border-radius: 999px;
 		background: var(--accent);
 		transition: width 0.5s;
 	}

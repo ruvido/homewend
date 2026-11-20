@@ -36,6 +36,11 @@ import (
 // pixels, twice that on a high-density screen.
 const Size = 256
 
+// PreviewSize is the long edge of the picture the viewer shows a photo with:
+// a 1440-pixel-high window at twice the density, so the original is read only
+// to zoom in.
+const PreviewSize = 2560
+
 // quality of the JPEG written; the size where artefacts stop showing at Size.
 const quality = 80
 
@@ -52,13 +57,14 @@ func Path(cacheDir, hash string) string {
 	return filepath.Join(cacheDir, hash[:2], hash+".jpg")
 }
 
-// Make writes the thumbnail of src at dst, whole or not at all.
-func Make(ctx context.Context, src, dst string) error {
-	img, err := decode(ctx, src)
+// Make writes the picture of src at dst, its long edge size at most (Size
+// or PreviewSize), whole or not at all.
+func Make(ctx context.Context, src, dst string, size int) error {
+	img, err := decode(ctx, src, size)
 	if err != nil {
 		return err
 	}
-	img = upright(fit(img), library.Orientation(src))
+	img = upright(fit(img, size), library.Orientation(src))
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
 		return err
@@ -73,10 +79,10 @@ func Make(ctx context.Context, src, dst string) error {
 	return os.Rename(tmp, dst)
 }
 
-func decode(ctx context.Context, src string) (image.Image, error) {
+func decode(ctx context.Context, src string, size int) (image.Image, error) {
 	ext := strings.ToLower(filepath.Ext(src))
 	if library.IsVideo(src) {
-		return frame(ctx, src)
+		return frame(ctx, src, size)
 	}
 	f, err := os.Open(src)
 	if err != nil {
@@ -93,13 +99,13 @@ func decode(ctx context.Context, src string) (image.Image, error) {
 	return img, err
 }
 
-// frame is a video's first frame, already at Size, from ffmpeg.
-func frame(ctx context.Context, src string) (image.Image, error) {
+// frame is a video's first frame, already at size, from ffmpeg.
+func frame(ctx context.Context, src string, size int) (image.Image, error) {
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		return nil, fmt.Errorf("%w: video needs ffmpeg", ErrNoDecoder)
 	}
-	scale := "scale='min(" + strconv.Itoa(Size) + ",iw)':-2"
+	scale := "scale='min(" + strconv.Itoa(size) + ",iw)':-2"
 	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "error", "-i", src,
 		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-")
 	out, err := cmd.Output()
@@ -113,19 +119,19 @@ func frame(ctx context.Context, src string) (image.Image, error) {
 	return img, nil
 }
 
-// fit scales img so its long edge is Size. ApproxBiLinear, not CatmullRom:
+// fit scales img so its long edge is size. ApproxBiLinear, not CatmullRom:
 // on a 12 MP photo it takes 3 ms instead of 800 (measured 2026-10-03), and at
 // 256 pixels the difference does not show.
-func fit(img image.Image) image.Image {
+func fit(img image.Image, size int) image.Image {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	if w <= Size && h <= Size {
+	if w <= size && h <= size {
 		return img
 	}
 	if w >= h {
-		w, h = Size, max(1, h*Size/w)
+		w, h = size, max(1, h*size/w)
 	} else {
-		w, h = max(1, w*Size/h), Size
+		w, h = max(1, w*size/h), size
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, draw.Src, nil)

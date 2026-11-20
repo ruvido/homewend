@@ -4,6 +4,8 @@
 package library
 
 import (
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"testing"
 	"time"
@@ -87,5 +89,31 @@ func TestLatestAndAbout(t *testing.T) {
 	albums, accounts, err := c.About("b")
 	if err != nil || len(albums) != 1 || albums[0] != "Trip" || len(accounts) != 1 || accounts[0] != "ann@x" {
 		t.Fatalf("about: %v %v %v", albums, accounts, err)
+	}
+}
+
+func TestATurnIsKeptAndComesRound(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.Put(Photo{Hash: "a", Path: "a", Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []int{1, 2, 3, 0, 1} {
+		if got, err := c.TurnLeft("a"); err != nil || got != want {
+			t.Fatalf("turned to %d, %v; want %d", got, err, want)
+		}
+	}
+	// Put again, as an import that finds it does: the turn stays.
+	if err := c.Put(Photo{Hash: "a", Path: "a", Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if page, err := c.Page(Filter{}); err != nil || len(page) != 1 || page[0].Turn != 1 {
+		t.Fatalf("%+v, %v: want one photo turned once", page, err)
+	}
+	if _, err := c.TurnLeft("nope"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("an unknown photo turned: %v", err)
 	}
 }

@@ -67,6 +67,9 @@ type Photo struct {
 	Kind   DateKind
 	Origin Origin
 	Albums []string
+	// Turn is how many quarter turns anticlockwise the person gave it: kept
+	// here, the file is never changed.
+	Turn int
 }
 
 // Catalog is the index the interface reads: what there is, where it is, and
@@ -142,6 +145,11 @@ func OpenCatalog(path string) (*Catalog, error) {
 	// every list, still known, so that an import leaves it out as deleted.
 	// Added to a catalog from before; a second process finds it there.
 	if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN out INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+		db.Close()
+		return nil, fmt.Errorf("preparing the catalog: %w", err)
+	}
+	// A photo turned by the person, in quarter turns: added the same way.
+	if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN turn INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 		db.Close()
 		return nil, fmt.Errorf("preparing the catalog: %w", err)
 	}
@@ -438,7 +446,7 @@ type Filter struct {
 
 // Page returns photos newest first, narrowed by the filter.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
-	query := `SELECT hash, path, name, bytes, taken, source, kind, origin FROM photos`
+	query := `SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos`
 	where := []string{"out = 0"}
 	var args []any
 
@@ -500,7 +508,7 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 
 // photo is the record of one photo.
 func (c *Catalog) photo(hash string) (Photo, error) {
-	rows, err := c.db.Query(`SELECT hash, path, name, bytes, taken, source, kind, origin FROM photos WHERE hash = ?`, hash)
+	rows, err := c.db.Query(`SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos WHERE hash = ?`, hash)
 	if err != nil {
 		return Photo{}, fmt.Errorf("reading the catalog: %w", err)
 	}
@@ -525,7 +533,7 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 		var taken sql.NullInt64
 		var source, kind, origin string
 		if err := rows.Scan(&photo.Hash, &photo.Path, &photo.Name, &photo.Bytes,
-			&taken, &source, &kind, &origin); err != nil {
+			&taken, &source, &kind, &origin, &photo.Turn); err != nil {
 			return nil, err
 		}
 		if taken.Valid {
@@ -627,7 +635,7 @@ func (c *Catalog) CountsByOwner() (map[string]int, error) {
 // Latest are the photos recorded last, newest first: the first to arrive in
 // a download are the last of these once it is over, the latest while it runs.
 func (c *Catalog) Latest(n int) ([]Photo, error) {
-	rows, err := c.db.Query(`SELECT hash, name FROM photos WHERE out = 0 ORDER BY rowid DESC LIMIT ?`, n)
+	rows, err := c.db.Query(`SELECT hash, name, turn FROM photos WHERE out = 0 ORDER BY rowid DESC LIMIT ?`, n)
 	if err != nil {
 		return nil, err
 	}
@@ -635,12 +643,23 @@ func (c *Catalog) Latest(n int) ([]Photo, error) {
 	var out []Photo
 	for rows.Next() {
 		var p Photo
-		if err := rows.Scan(&p.Hash, &p.Name); err != nil {
+		if err := rows.Scan(&p.Hash, &p.Name, &p.Turn); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// TurnLeft gives the photo of hash a quarter turn more, anticlockwise, and
+// says how many it has now; fs.ErrNotExist for a hash the catalog lacks.
+func (c *Catalog) TurnLeft(hash string) (int, error) {
+	var turn int
+	err := c.db.QueryRow(`UPDATE photos SET turn = (turn + 1) % 4 WHERE hash = ? RETURNING turn`, hash).Scan(&turn)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fs.ErrNotExist
+	}
+	return turn, err
 }
 
 // About says which albums a photo is in and which accounts it came from.

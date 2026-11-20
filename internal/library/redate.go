@@ -220,6 +220,47 @@ func redateInLibrary(root string, catalog *Catalog, hash string, when time.Time,
 	return writeXMP(to, when)
 }
 
+// GiveDates gives photos of the library at root a date, chosen in the
+// library: the earliest of them is taken at when, the others keep their
+// distance from it, as dates given before an import do; one with no date
+// takes when. Each stays in its own profile. It says how many moved.
+func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (int, error) {
+	records := make([]Photo, 0, len(hashes))
+	var earliest time.Time
+	for _, hash := range hashes {
+		p, err := catalog.photo(hash)
+		if err != nil {
+			return 0, err
+		}
+		records = append(records, p)
+		if !p.Taken.IsZero() && (earliest.IsZero() || p.Taken.Before(earliest)) {
+			earliest = p.Taken
+		}
+	}
+	for i, p := range records {
+		at := when
+		if !p.Taken.IsZero() {
+			at = when.Add(p.Taken.Sub(earliest))
+		}
+		opt := Options{Profile: profileOf(p.Path), SeparateMessaging: true}
+		if err := redateInLibrary(root, catalog, p.Hash, at, opt); err != nil {
+			return i, err
+		}
+	}
+	return len(records), nil
+}
+
+// profileOf is the profile a path of the library is filed in: its first
+// folder, unless that is already the date layout of a library from before
+// profiles (a year, undated/, messaging/), which has none.
+func profileOf(path string) string {
+	first, _, nested := strings.Cut(path, "/")
+	if !nested || first == "undated" || first == "messaging" || strings.Trim(first, "0123456789") == "" {
+		return ""
+	}
+	return first
+}
+
 // writeXMP puts a given date in an XMP file beside the photo, named as
 // Immich, digiKam and darktable look for it first: the photo's whole name
 // and .xmp. The photo itself is never written. The date is the clock given,

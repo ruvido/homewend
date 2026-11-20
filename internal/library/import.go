@@ -27,6 +27,9 @@ type Imported struct {
 	Placed  int   `json:"placed"`  // photos and videos now in the library
 	Bytes   int64 `json:"bytes"`   // they take, counted once each
 	Undated int   `json:"undated"` // of them, with no date the camera wrote
+	// Of them, a camera's raw files and the videos: the rest are photos.
+	Raw    int `json:"raw"`
+	Videos int `json:"videos"`
 	Counts
 }
 
@@ -218,6 +221,12 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		done.Placed += placed.Placed
 		done.Bytes += placed.Bytes
 		done.Undated += placed.Undated
+		switch {
+		case IsVideo(item.Path):
+			done.Videos += placed.Placed
+		case IsRaw(item.Path):
+			done.Raw += placed.Placed
+		}
 		filed, err := catalog.photo(hash)
 		if err != nil {
 			return done, err
@@ -234,6 +243,9 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		// it was filed, the catalog's date. bringIn dates it as the look
 		// does (the date given, else the camera's), so the two agree.
 		e := progress.Event{Stage: progress.Filed}
+		if IsVideo(item.Path) {
+			e.Note = "video"
+		}
 		if !filed.Taken.IsZero() {
 			e.Name, e.N = strconv.Itoa(filed.Taken.Year()), int(filed.Taken.Month())
 		}

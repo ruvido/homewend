@@ -79,6 +79,9 @@ var rawExtensions = map[string]bool{
 	".orf": true, ".rw2": true, ".pef": true, ".srw": true,
 }
 
+// IsRaw is whether the file is a camera's raw file, by its extension.
+func IsRaw(path string) bool { return rawExtensions[strings.ToLower(filepath.Ext(path))] }
+
 // classify puts each photo and video of f in its group. dated says whether
 // a file's camera wrote a date, asked only where it decides: a folder whose
 // photos mostly have none is unsure. A folder the choice names that is no
@@ -138,7 +141,7 @@ func classify(f Folder, dated func(path string) bool, choice *Choice, emit progr
 			continue
 		}
 		for _, p := range byFolder[folder].Paths {
-			if !IsVideo(p) && !rawExtensions[strings.ToLower(filepath.Ext(p))] {
+			if !IsVideo(p) && !IsRaw(p) {
 				asked[folder] = append(asked[folder], p)
 				of++
 			}

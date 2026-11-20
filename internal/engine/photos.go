@@ -27,6 +27,8 @@ type GridPhoto struct {
 	Video bool      `json:"video,omitempty"`
 	// Missing: its file is gone from the library, deleted or moved by hand.
 	Missing bool `json:"missing,omitempty"`
+	// Turn: quarter turns anticlockwise the person gave it.
+	Turn int `json:"turn,omitempty"`
 }
 
 // ErrNoLibrary is asking for photos before a library folder was chosen.
@@ -126,7 +128,7 @@ func Photos(s Settings, year, album string, noDate, missing bool, offset, limit 
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name), Missing: isGone[p.Hash]}
+		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn}
 	}
 	return out, nil
 }
@@ -240,40 +242,74 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 	return len(hashes), nil
 }
 
+// TurnLeft gives a photo of the library a quarter turn anticlockwise, kept in
+// the catalog, and says how many it has now.
+func TurnLeft(hash string) (int, error) {
+	c, _, err := openLibrary()
+	if err != nil {
+		return 0, err
+	}
+	if c == nil {
+		return 0, fs.ErrNotExist
+	}
+	defer c.Close()
+	return c.TurnLeft(hash)
+}
+
+// GiveDates gives photos of the library a date chosen in the window: the
+// earliest of them when, the others keep their distance. Files move, so the
+// library is held as an import holds it. It says how many moved.
+func GiveDates(hashes []string, when time.Time) (int, error) {
+	root, err := LibraryHere()
+	if err != nil {
+		return 0, err
+	}
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	c, _, err := openLibrary()
+	if err != nil {
+		return 0, err
+	}
+	if c == nil {
+		return 0, fs.ErrNotExist
+	}
+	defer c.Close()
+	return library.GiveDates(root, c, hashes, when)
+}
+
 // thumbSlots keeps thumbnails from taking every core while a grid scrolls.
 var thumbSlots = make(chan struct{}, max(1, runtime.NumCPU()-1))
 
 // Thumbnail returns the file of a photo's thumbnail, making it the first time.
 func Thumbnail(ctx context.Context, hash string) (string, error) {
-	return thumbnailOf(ctx, hash, func() (string, error) {
-		c, root, err := openLibrary()
-		if err != nil {
-			return "", err
-		}
-		if c == nil {
-			return "", fs.ErrNotExist
-		}
-		rel, ok, err := c.PathOf(hash)
-		c.Close()
-		if err != nil {
-			return "", err
-		}
-		if !ok {
-			return "", fs.ErrNotExist
-		}
-		return filepath.Join(root, rel), nil
-	})
+	return thumbnailOf(ctx, hash, func() (string, error) { return Original(hash) })
+}
+
+// Preview is the picture the viewer shows a photo of the library with, at
+// the size of a screen: kept like a thumbnail, so the original, on a slow
+// disk or a share, is read once.
+func Preview(ctx context.Context, hash string) (string, error) {
+	return cached(ctx, "previews", thumb.PreviewSize, hash, func() (string, error) { return Original(hash) })
 }
 
 // thumbnailOf is the thumbnail of the content hash, kept by it: made the
 // first time from the file source finds, a photo of the library or one on
 // a card being looked at.
 func thumbnailOf(ctx context.Context, hash string, source func() (string, error)) (string, error) {
+	return cached(ctx, "thumbs", thumb.Size, hash, source)
+}
+
+// cached is the picture of the content hash at size, kept by it in the
+// cache's folder dir.
+func cached(ctx context.Context, dir string, size int, hash string, source func() (string, error)) (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	dst := thumb.Path(filepath.Join(cache, "homewend", "thumbs"), hash)
+	dst := thumb.Path(filepath.Join(cache, "homewend", dir), hash)
 	if _, err := os.Stat(dst); err == nil {
 		return dst, nil
 	}
@@ -290,7 +326,7 @@ func thumbnailOf(ctx context.Context, hash string, source func() (string, error)
 	if _, err := os.Stat(dst); err == nil { // made while this one waited
 		return dst, nil
 	}
-	return dst, thumb.Make(ctx, src, dst)
+	return dst, thumb.Make(ctx, src, dst, size)
 }
 
 // Original is the file of a photo in the library.
@@ -373,7 +409,7 @@ func Latest(n int) ([]GridPhoto, error) {
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
 	for i, p := range list {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Video: library.IsVideo(p.Name)}
+		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn}
 	}
 	return out, err
 }

@@ -6,11 +6,12 @@
 	let {
 		small = false,
 		onclick,
+		disabled = false,
 		children
-	}: { small?: boolean; onclick?: () => void; children: Snippet } = $props();
+	}: { small?: boolean; onclick?: () => void; disabled?: boolean; children: Snippet } = $props();
 </script>
 
-<button class:small {onclick}>{@render children()}</button>
+<button class:small {onclick} {disabled}>{@render children()}</button>
 
 <style>
 	/* The primary button's size (see there). */
@@ -28,8 +29,12 @@
 		font-weight: 600;
 		white-space: nowrap;
 	}
-	button:hover {
+	button:hover:not(:disabled) {
 		background: var(--soft);
+	}
+	/* As the primary one: greyed when it cannot be done now. */
+	button:disabled {
+		opacity: 0.4;
 	}
 	/* The titlebar's size of the same button. */
 	.small {

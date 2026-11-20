@@ -1,11 +1,12 @@
 <!-- homewend — Copyright (C) 2026 Ron Alder -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<!-- B7: one photo, over the grid. ← and → move, Esc or Space closes. -->
+<!-- B7: one photo, over the grid. ← and → move, Esc or Space closes; a click zooms in. -->
 <script lang="ts">
-	import { ChevronLeft, ChevronRight, FolderOpen, ImageOff } from '@lucide/svelte';
+	import { Calendar, ChevronLeft, ChevronRight, ImageOff, Loader, RotateCcw } from '@lucide/svelte';
 	import TakeOut from './TakeOut.svelte';
+	import GiveDate from './GiveDate.svelte';
 	import { fade } from 'svelte/transition';
-	import { getAbout, pathOf, type GridPhoto } from '#lib/api.js';
+	import { getAbout, pathOf, turnLeft, type GridPhoto } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { takenAt } from '#lib/format.js';
 	import { app } from '#lib/app.svelte.js';
@@ -13,14 +14,108 @@
 	let {
 		photos,
 		index = $bindable(),
-		ontakenout
-	}: { photos: GridPhoto[]; index: number | null; ontakenout?: () => void } = $props();
+		ontakenout,
+		ondated
+	}: { photos: GridPhoto[]; index: number | null; ontakenout?: () => void; ondated?: () => void } = $props();
 	let takingOut = $state(false);
+	// K3: this one photo given a date, as the library's selection is (K2).
+	let dating = $state(false);
 
 	const p = $derived(index === null ? null : photos[index]);
-	// What Chromium shows by itself; anything else shows its thumbnail.
+	// What Chromium shows by itself: zoomed in, the original; anything else
+	// (HEIC, a raw file) is zoomed in on its preview.
 	const ext = $derived(p ? p.name.toLowerCase().split('.').pop() ?? '' : '');
 	const image = $derived(['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext));
+	// The photo whose preview has loaded whole: shown over its thumbnail.
+	let ready = $state('');
+	// The previews of the photos either side, asked before they are wanted:
+	// the browser keeps them, and moving on is at once.
+	$effect(() => {
+		if (index === null) return;
+		for (const d of [-1, 1]) {
+			const q = photos[index + d];
+			if (q && !q.missing) new Image().src = `/api/preview/${q.hash}`;
+		}
+	});
+
+	// Zoom: a click on the photo shows it at its own size, the point clicked in
+	// the middle; dragged, or scrolled with two fingers, it moves; a click
+	// again, or Esc, fits it back. The
+	// bigger picture is waited for whole before the switch.
+	let fitted = $state<HTMLImageElement>();
+	// Turned a quarter or three, the picture's box is the stage's on its side.
+	let stageW = $state(0);
+	let stageH = $state(0);
+	const turn = $derived(p?.turn ?? 0);
+	const side = $derived(turn % 2 === 1);
+	const fit = $derived(
+		!turn
+			? ''
+			: side
+				? `width:${stageH}px;height:${stageW}px;left:${(stageW - stageH) / 2}px;top:${(stageH - stageW) / 2}px;transform:rotate(${-90 * turn}deg)`
+				: `transform:rotate(${-90 * turn}deg)`
+	);
+	// A quarter turn anticlockwise more, kept in the catalog: the grid shows it too.
+	async function turnIt() {
+		if (!p) return;
+		const photo = p;
+		zoomed = asked = null;
+		photo.turn = (await turnLeft(photo.hash)).turn;
+	}
+	let pan = $state<HTMLDivElement>();
+	let asked = $state<{ hash: string; fx: number; fy: number } | null>(null);
+	// w × h the picture as shown, turned; iw × ih the picture itself.
+	let zoomed = $state<{ hash: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
+	const zoomSrc = $derived(p ? `/api/${image ? 'original' : 'preview'}/${p.hash}` : '');
+	$effect(() => {
+		// Another photo: fitted again.
+		if (p?.hash !== zoomed?.hash) zoomed = null;
+		if (p?.hash !== asked?.hash) asked = null;
+	});
+	function zoomIn(e: MouseEvent) {
+		if (!fitted || !p) return;
+		// Where the click fell on the picture, as object-fit: contain draws it.
+		const r = fitted.getBoundingClientRect();
+		const [nw, nh] = side ? [fitted.naturalHeight, fitted.naturalWidth] : [fitted.naturalWidth, fitted.naturalHeight];
+		const scale = Math.min(r.width / nw, r.height / nh);
+		const w = nw * scale, h = nh * scale;
+		const fx = (e.clientX - r.left - (r.width - w) / 2) / w;
+		const fy = (e.clientY - r.top - (r.height - h) / 2) / h;
+		if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return;
+		asked = { hash: p.hash, fx, fy };
+	}
+	function loaded(e: Event) {
+		if (!asked) return;
+		const img = e.currentTarget as HTMLImageElement;
+		// One pixel of the picture to one of the screen.
+		const iw = img.naturalWidth / devicePixelRatio, ih = img.naturalHeight / devicePixelRatio;
+		zoomed = { ...asked, iw, ih, w: side ? ih : iw, h: side ? iw : ih };
+		asked = null;
+	}
+	$effect(() => {
+		if (!zoomed || !pan) return;
+		pan.scrollLeft = zoomed.fx * zoomed.w - pan.clientWidth / 2;
+		pan.scrollTop = zoomed.fy * zoomed.h - pan.clientHeight / 2;
+	});
+	// A drag moves the picture; a click without one fits it back.
+	let drag: { x: number; y: number; moved: boolean } | null = null;
+	function down(e: PointerEvent) {
+		drag = { x: e.clientX, y: e.clientY, moved: false };
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+	}
+	function moveDrag(e: PointerEvent) {
+		if (!drag || !pan) return;
+		const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+		if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+		pan.scrollLeft -= dx;
+		pan.scrollTop -= dy;
+		drag.x = e.clientX;
+		drag.y = e.clientY;
+	}
+	function up() {
+		if (drag && !drag.moved) zoomed = null;
+		drag = null;
+	}
 	const video = $derived(['mp4', 'webm', 'm4v'].includes(ext));
 	// "Taken 14 July 2019, 18:32", as the design writes it.
 	const taken = (iso: string) => text.taken(takenAt(new Date(iso)));
@@ -49,15 +144,19 @@
 	const move = (d: number) => {
 		if (index !== null) index = Math.max(0, Math.min(photos.length - 1, index + d));
 	};
-	async function reveal() {
-		if (p) window.shell?.showInFolder((await pathOf(p.hash)).path);
-	}
 	function key(e: KeyboardEvent) {
 		if (index === null) return;
+		// The date's dialog over it takes the keys; Esc closes it.
+		if (dating) {
+			if (e.key === 'Escape') dating = false;
+			return;
+		}
 		// Space closes it, as it closes Quick Look.
 		if (e.key === 'Escape' || e.key === ' ') {
 			e.preventDefault();
-			index = null;
+			// Zoomed in, Esc fits the photo back first.
+			if (zoomed || asked) zoomed = asked = null;
+			else index = null;
 		}
 		if (e.key === 'ArrowLeft') move(-1);
 		if (e.key === 'ArrowRight') move(1);
@@ -75,11 +174,13 @@
 			</div>
 			{#if p.missing}
 				<button class="pill" onclick={() => (takingOut = true)}>{text.takeOutOne}</button>
-			{:else if window.shell}
-				<button class="pill" onclick={reveal}><FolderOpen size={14} />{text.openInFolder}</button>
+			{:else}
+				<!-- Clicked, it gives the focus back: ←, → and Space are the viewer's keys. -->
+				{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><RotateCcw size={14} />{text.rotateLeft}</button>{/if}
+				<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Calendar size={14} />{text.changeDateEllipsis}</button>
 			{/if}
 		</header>
-		<div class="stage">
+		<div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
 			{#key p.hash}
 				{#if p.missing}
 					<!-- Its file is gone: what is left is its thumbnail, faded. -->
@@ -91,14 +192,53 @@
 				{:else if video}
 					<!-- svelte-ignore a11y_media_has_caption -->
 					<video src="/api/original/{p.hash}" controls autoplay></video>
+				{:else if zoomed}
+					<div class="pan" bind:this={pan} onpointerdown={down} onpointermove={moveDrag} onpointerup={up} role="presentation">
+						<div class="turned" style:width="{zoomed.w}px" style:height="{zoomed.h}px">
+							<img
+								src={zoomSrc}
+								alt={p.name}
+								style:width="{zoomed.iw}px"
+								style:height="{zoomed.ih}px"
+								style:transform="translate(-50%, -50%) rotate({-90 * turn}deg)"
+								draggable="false"
+							/>
+						</div>
+					</div>
 				{:else}
-					<img src="/api/{image ? 'original' : 'thumb'}/{p.hash}" alt={p.name} />
+					<!-- The thumbnail at once; the preview, from the cache, over it only
+					     once whole: a big file is never seen drawing itself. -->
+					<img src="/api/thumb/{p.hash}" alt={p.name} style={fit} />
+					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+					<img
+						style={fit}
+						class="full"
+						class:ready={ready === p.hash}
+						src="/api/preview/{p.hash}"
+						alt=""
+						bind:this={fitted}
+						onload={() => (ready = p!.hash)}
+						onclick={zoomIn}
+					/>
+					{#if asked}
+						<img class="probe" src={zoomSrc} alt="" onload={loaded} />
+						<span class="waiting"><Loader size={20} /></span>
+					{/if}
 				{/if}
 			{/key}
 		</div>
 		<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><ChevronLeft size={20} /></button>
 		<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><ChevronRight size={20} /></button>
 	</div>
+	{#if dating}
+		<GiveDate
+			photos={[p]}
+			onclose={(moved) => {
+				dating = false;
+				if (moved) ondated?.();
+			}}
+		/>
+	{/if}
 	{#if takingOut}
 		<TakeOut
 			count={1}
@@ -214,6 +354,62 @@
 		width: 100%;
 		height: 100%;
 		object-fit: contain;
+	}
+	.full {
+		opacity: 0;
+		cursor: zoom-in;
+	}
+	.full.ready {
+		opacity: 1;
+	}
+	/* Zoomed in: the photo at its own size, moved by dragging it. */
+	/* It scrolls: a trackpad's two fingers or a mouse wheel move it as a drag
+	   does; no scrollbars over the photo. */
+	.pan {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		overflow: auto;
+		scrollbar-width: none;
+		overscroll-behavior: contain;
+		cursor: grab;
+		touch-action: none;
+	}
+	.pan:active {
+		cursor: grabbing;
+	}
+	/* Centred when smaller than the window, never cut when bigger; the
+	   picture turned inside its box. */
+	.turned {
+		margin: auto;
+		flex-shrink: 0;
+		position: relative;
+	}
+	.pan img {
+		position: absolute;
+		inset: auto;
+		left: 50%;
+		top: 50%;
+		max-width: none;
+		object-fit: fill;
+	}
+	/* The bigger picture, loaded out of sight until whole. */
+	.probe {
+		visibility: hidden;
+	}
+	.waiting {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		translate: -50% -50%;
+		display: grid;
+		color: #ffffffcc;
+		animation: spin 1s linear infinite;
+	}
+	@keyframes spin {
+		to {
+			rotate: 360deg;
+		}
 	}
 	.nav {
 		position: absolute;

@@ -8,11 +8,15 @@
 		Loader,
 		Check,
 		ChevronDown,
-		ChevronRight
+		ChevronRight,
+		MemoryStick,
+		Eject
 	} from '@lucide/svelte';
+	import { goto } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import Avatar from './Avatar.svelte';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
-	import { folderOf } from '#lib/api.js';
+	import { ejectCard, folderOf, getCards, type Card } from '#lib/api.js';
 	import { Opener } from '#lib/menu.svelte.js';
 	import { text } from '#lib/strings.js';
 	import { FOLD, samePlace, type Place, type Sidebar } from '#lib/library.js';
@@ -34,6 +38,20 @@
 		/** A click anywhere on the rail opens the full sidebar instead. */
 		onexpand?: () => void;
 	} = $props();
+
+	// K4: the cards in now, looked at every few seconds; a click on one opens
+	// the import, ⏏ ejects it.
+	let cards = $state<Card[]>([]);
+	onMount(() => {
+		const look = () => getCards().then((c) => (cards = c), () => {});
+		look();
+		const t = setInterval(look, 3000);
+		return () => clearInterval(t);
+	});
+	async function eject(c: Card) {
+		await ejectCard(c.path).catch(() => {});
+		cards = await getCards().catch(() => cards);
+	}
 
 	let allAccounts = $state(false);
 	let allYears = $state(false);
@@ -106,6 +124,24 @@
 				</button>
 			{/if}
 		</div>
+
+		{#if cards.length > 0 && !rail}
+			<hr />
+			<div class="group">
+				<h2>{text.cards}</h2>
+				{#each cards as c (c.path)}
+					<div class="row card">
+						<button class="open" onclick={() => goto('/import')}>
+							<span class="lead"><MemoryStick size={20} /></span>
+							<span class="label">{c.name}</span>
+						</button>
+						<button class="eject" aria-label={text.ejectCard(c.name)} title={text.ejectCard(c.name)} onclick={() => eject(c)}
+							><Eject size={16} /></button
+						>
+					</div>
+				{/each}
+			</div>
+		{/if}
 
 		<hr />
 
@@ -288,6 +324,31 @@
 		text-align: left;
 		color: var(--text);
 		font-size: var(--text-body);
+	}
+	/* A card: its name opens the import, ⏏ at the end ejects it. */
+	.row.card {
+		gap: 4px;
+		padding-right: 6px;
+	}
+	.card .open {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		text-align: left;
+	}
+	.eject {
+		width: 24px;
+		height: 24px;
+		display: grid;
+		place-items: center;
+		border-radius: 6px;
+		color: var(--muted);
+	}
+	.eject:hover {
+		background: var(--line);
+		color: var(--fg);
 	}
 	.row:has(.lead) {
 		padding-left: 8px;
