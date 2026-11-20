@@ -221,10 +221,12 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		done.Placed += placed.Placed
 		done.Bytes += placed.Bytes
 		done.Undated += placed.Undated
-		switch {
-		case IsVideo(item.Path):
+		// What it is, said once: for the counts and for the year it is filed in.
+		kind := kindOf(item.Path)
+		switch kind {
+		case "video":
 			done.Videos += placed.Placed
-		case IsRaw(item.Path):
+		case "raw":
 			done.Raw += placed.Placed
 		}
 		filed, err := catalog.photo(hash)
@@ -242,10 +244,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		// Its month, for the window that counts what came in by month: as
 		// it was filed, the catalog's date. bringIn dates it as the look
 		// does (the date given, else the camera's), so the two agree.
-		e := progress.Event{Stage: progress.Filed}
-		if IsVideo(item.Path) {
-			e.Note = "video"
-		}
+		e := progress.Event{Stage: progress.Filed, Note: kind}
 		if !filed.Taken.IsZero() {
 			e.Name, e.N = strconv.Itoa(filed.Taken.Year()), int(filed.Taken.Month())
 		}
@@ -254,6 +253,17 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 	moved(all)
 	done.end(done.Placed)
 	return done, nil
+}
+
+// kindOf is what a file is beside a photo: "video", "raw", or "".
+func kindOf(path string) string {
+	switch {
+	case IsVideo(path):
+		return "video"
+	case IsRaw(path):
+		return "raw"
+	}
+	return ""
 }
 
 // libraryHolds is where the library holds the photo of hash, below root,

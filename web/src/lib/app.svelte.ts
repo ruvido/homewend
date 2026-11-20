@@ -8,12 +8,14 @@ import { goto } from '$app/navigation';
 import { onDestroy } from 'svelte';
 import {
 	ApiError,
+	getCards,
 	getJob,
 	getOverview,
 	getSettings,
 	login,
 	putSettings,
 	startGet,
+	type Card,
 	type JobState,
 	type Overview,
 	type Settings
@@ -57,6 +59,24 @@ function measure(account: string, j: JobState) {
 const writes: Record<string, number> = {};
 
 /** Asks every second where each account's download stands. */
+// The cards in now, one list for the window: looked at every second while a
+// screen that shows them is open (the sidebar, the import).
+export const cards = $state<{ list: Card[] }>({ list: [] });
+export async function lookCards() {
+	cards.list = await getCards().catch(() => cards.list);
+}
+let cardWatchers = 0;
+let cardTimer: ReturnType<typeof setInterval> | undefined;
+export function watchCards(): () => void {
+	if (cardWatchers++ === 0) {
+		lookCards();
+		cardTimer = setInterval(lookCards, 1000);
+	}
+	return () => {
+		if (--cardWatchers === 0) clearInterval(cardTimer);
+	};
+}
+
 export function watchJobs(): () => void {
 	let wasRunning = false;
 	const tick = async () => {

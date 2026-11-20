@@ -291,6 +291,9 @@ func Thumbnail(ctx context.Context, hash string) (string, error) {
 // Preview is the picture the viewer shows a photo of the library with, at
 // the size of a screen: kept like a thumbnail, so the original, on a slow
 // disk or a share, is read once.
+//
+// shortcut: no limit on the cache's size (about 0.5–1 MB a photo looked at),
+// prune by age when a library's previews grow past a few GB.
 func Preview(ctx context.Context, hash string) (string, error) {
 	return cached(ctx, "previews", thumb.PreviewSize, hash, func() (string, error) { return Original(hash) })
 }

@@ -16,7 +16,7 @@
 		index = $bindable(),
 		ontakenout,
 		ondated
-	}: { photos: GridPhoto[]; index: number | null; ontakenout?: () => void; ondated?: () => void } = $props();
+	}: { photos: GridPhoto[]; index: number | null; ontakenout?: () => void; ondated?: (hash: string) => void } = $props();
 	let takingOut = $state(false);
 	// K3: this one photo given a date, as the library's selection is (K2).
 	let dating = $state(false);
@@ -34,7 +34,7 @@
 		if (index === null) return;
 		for (const d of [-1, 1]) {
 			const q = photos[index + d];
-			if (q && !q.missing) new Image().src = `/api/preview/${q.hash}`;
+			if (q && !q.missing && !q.video) new Image().src = `/api/preview/${q.hash}`;
 		}
 	});
 
@@ -235,7 +235,7 @@
 			photos={[p]}
 			onclose={(moved) => {
 				dating = false;
-				if (moved) ondated?.();
+				if (moved) ondated?.(p.hash);
 			}}
 		/>
 	{/if}

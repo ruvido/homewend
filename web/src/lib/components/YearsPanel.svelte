@@ -30,20 +30,20 @@
 		flex-shrink: 0;
 		max-height: 100%;
 		overflow-y: auto;
-		padding: 24px;
+		padding: var(--space-24);
 		border: 1px solid var(--border);
-		border-radius: 16px;
+		border-radius: var(--radius-16);
 	}
 	header {
 		display: flex;
 		align-items: baseline;
-		gap: 12px;
-		padding-bottom: 12px;
+		gap: var(--space-12);
+		padding-bottom: var(--space-12);
 	}
 	h2 {
 		flex: 1;
 		font-size: var(--text-title-2);
-		font-weight: 700;
+		font-weight: var(--weight-bold);
 		color: var(--fg);
 	}
 	header span {
@@ -54,7 +54,7 @@
 		height: 44px;
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-12);
 		border-bottom: 1px solid var(--line);
 	}
 	.years :global(.folder) {
@@ -63,7 +63,7 @@
 	}
 	.years :global(.name) {
 		flex: 1;
-		font-weight: 500;
+		font-weight: var(--weight-medium);
 		color: var(--fg);
 	}
 	.years :global(.count) {
@@ -71,19 +71,19 @@
 	}
 	.years :global(.count.done) {
 		color: var(--ok);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 	}
 	/* A column of numbers, its figures under each other. */
 	.years :global(.n) {
-		width: 64px;
+		width: var(--space-64);
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
 	.spacer {
-		width: 40px;
+		width: var(--space-40);
 	}
 	.years :global(.state) {
-		width: 40px;
+		width: var(--space-40);
 		display: flex;
 		justify-content: flex-end;
 		color: var(--ok);

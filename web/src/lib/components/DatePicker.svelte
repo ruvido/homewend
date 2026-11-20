@@ -69,7 +69,7 @@
 	.date {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: var(--space-12);
 	}
 	.head {
 		display: flex;
@@ -78,15 +78,15 @@
 	}
 	.head b {
 		font-size: var(--text-title-3);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 		color: var(--fg);
 	}
 	.head button {
-		width: 32px;
-		height: 32px;
+		width: var(--space-32);
+		height: var(--space-32);
 		display: grid;
 		place-items: center;
-		border-radius: 8px;
+		border-radius: var(--radius-8);
 		color: var(--muted);
 	}
 	.head button:hover {
@@ -96,17 +96,17 @@
 	.days {
 		display: grid;
 		grid-template-columns: repeat(7, 1fr);
-		gap: 4px;
+		gap: var(--space-4);
 		text-align: center;
 	}
 	.days span {
-		padding-bottom: 4px;
+		padding-bottom: var(--space-4);
 		font-size: var(--text-callout);
 		color: var(--faint);
 	}
 	.days button {
 		aspect-ratio: 1;
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		font-size: var(--text-body);
 		color: var(--text);
 	}
@@ -115,27 +115,27 @@
 	}
 	.days button.today {
 		color: var(--accent);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 	}
 	.days button.on {
 		background: var(--accent);
 		color: var(--on-accent);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 	}
 	.time {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: var(--space-8);
 		color: var(--muted);
 	}
 	.time span {
 		flex: 1;
 	}
 	.time input {
-		width: 40px;
-		height: 32px;
+		width: var(--space-40);
+		height: var(--space-32);
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: var(--radius-8);
 		background: var(--bg);
 		color: var(--fg);
 		font: inherit;

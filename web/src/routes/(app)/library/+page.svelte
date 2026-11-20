@@ -37,6 +37,9 @@
 	let selected = $state(new Set<string>());
 	let anchor = -1;
 	let dating = $state(false);
+	// A photo given a date in the viewer: it is opened again where the list,
+	// loaded again, now has it.
+	let reopen: string | null = null;
 	// Another page, or the list loaded again: nothing picked.
 	$effect(() => {
 		void place;
@@ -56,9 +59,11 @@
 	async function turnPicked() {
 		for (const p of picked) p.turn = (await turnLeft(p.hash)).turn;
 	}
-	// Esc lets the photos go, unless the viewer or the dialog takes it.
+	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
 	function key(e: KeyboardEvent) {
-		if (e.key === 'Escape' && open === null && !dating && selected.size > 0) selected = new Set();
+		if (e.key !== 'Escape' || open !== null) return;
+		if (dating) dating = false;
+		else if (selected.size > 0) selected = new Set();
 	}
 
 
@@ -116,6 +121,11 @@
 				if (chunk.length < CHUNK) break;
 			}
 			loaded = true;
+			if (reopen) {
+				const i = photos.findIndex((x) => x.hash === reopen);
+				open = i >= 0 ? i : null;
+				reopen = null;
+			}
 			// None left not on the disk, all taken out or back: the library.
 			if (p.kind === 'missing' && photos.length === 0) goto(urlOf({ kind: 'all' }));
 		})();
@@ -164,7 +174,7 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} ontakenout={() => reload++} ondated={() => reload++} />
+	<Viewer {photos} bind:index={open} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), reload++)} />
 	{#if dating}
 		<GiveDate
 			photos={picked}
@@ -201,46 +211,46 @@
 	.selbar {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		padding: 16px 40px 16px 24px;
+		gap: var(--space-12);
+		padding: var(--space-16) var(--space-40) var(--space-16) var(--space-24);
 		border-bottom: 1px solid var(--line);
 		background: var(--bg);
 	}
 	.selbar b {
 		flex: 1;
 		font-size: var(--text-title-2);
-		font-weight: 700;
+		font-weight: var(--weight-bold);
 		color: var(--fg);
 	}
 	.close {
-		width: 32px;
-		height: 32px;
+		width: var(--space-32);
+		height: var(--space-32);
 		display: grid;
 		place-items: center;
-		border-radius: 8px;
+		border-radius: var(--radius-8);
 		color: var(--fg);
 	}
 	.close:hover {
 		background: var(--soft);
 	}
 	.head {
-		padding: 32px 0 8px;
+		padding: var(--space-32) 0 var(--space-8);
 	}
 	h1 {
 		font-size: var(--text-display);
-		font-weight: 700;
+		font-weight: var(--weight-bold);
 		color: var(--fg);
 	}
 	p {
-		margin-top: 8px;
+		margin-top: var(--space-8);
 		font-size: var(--text-body);
 		color: var(--muted);
 	}
 	.out {
 		display: flex;
-		gap: 16px;
+		gap: var(--space-16);
 		align-items: center;
-		margin-top: 16px;
+		margin-top: var(--space-16);
 	}
 	.out span {
 		font-size: var(--text-callout);
@@ -249,8 +259,8 @@
 	.state {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		font-weight: 500;
+		gap: var(--space-4);
+		font-weight: var(--weight-medium);
 	}
 	.state.ok {
 		color: var(--ok);

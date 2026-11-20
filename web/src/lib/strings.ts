@@ -71,6 +71,7 @@ export const text = {
 	years: 'YEARS',
 	cards: 'CARDS',
 	ejectCard: (name: string) => `Eject ${name}`,
+	ejectFailed: 'In use: not ejected',
 	albums: 'ALBUMS',
 	takeouts: 'Takeouts',
 	settings: 'Settings',

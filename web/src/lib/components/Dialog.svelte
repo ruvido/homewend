@@ -23,27 +23,27 @@
 		z-index: 40;
 		display: grid;
 		place-items: center;
-		background: #0a0a1a59;
+		background: var(--scrim);
 	}
 	.dialog {
 		width: 440px;
-		padding: 24px;
+		padding: var(--space-24);
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: var(--space-16);
 		background: var(--surface);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-16);
-		box-shadow: 0 12px 40px #0a0a1a29;
+		box-shadow: var(--shadow-dialog);
 	}
 	h2 {
 		font-size: var(--text-title-2);
-		font-weight: 700;
+		font-weight: var(--weight-bold);
 		color: var(--fg);
 	}
 	.actions {
 		display: flex;
-		gap: 8px;
+		gap: var(--space-8);
 		justify-content: flex-end;
 	}
 </style>

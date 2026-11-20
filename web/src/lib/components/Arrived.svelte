@@ -78,8 +78,8 @@
 		width: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
-		margin-top: 8px;
+		gap: var(--space-12);
+		margin-top: var(--space-8);
 	}
 	.head {
 		display: flex;
@@ -90,20 +90,20 @@
 	.link {
 		display: inline-flex;
 		align-items: center;
-		gap: 6px;
+		gap: var(--space-6);
 		color: var(--accent);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 		font-size: var(--text-callout);
 	}
 	.tiles {
 		display: grid;
 		grid-template-columns: repeat(6, 1fr);
-		gap: 8px;
+		gap: var(--space-8);
 	}
 	.tile {
 		position: relative;
 		aspect-ratio: 1;
-		border-radius: 6px;
+		border-radius: var(--radius-6);
 		overflow: hidden;
 		background: var(--line);
 		display: grid;

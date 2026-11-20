@@ -16,7 +16,8 @@
 	import { onMount } from 'svelte';
 	import Avatar from './Avatar.svelte';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
-	import { ejectCard, folderOf, getCards, type Card } from '#lib/api.js';
+	import { ejectCard, folderOf, type Card } from '#lib/api.js';
+	import { cards as cardList, lookCards, watchCards } from '#lib/app.svelte.js';
 	import { Opener } from '#lib/menu.svelte.js';
 	import { text } from '#lib/strings.js';
 	import { FOLD, samePlace, type Place, type Sidebar } from '#lib/library.js';
@@ -39,18 +40,15 @@
 		onexpand?: () => void;
 	} = $props();
 
-	// K4: the cards in now, looked at every few seconds; a click on one opens
-	// the import, ⏏ ejects it.
-	let cards = $state<Card[]>([]);
-	onMount(() => {
-		const look = () => getCards().then((c) => (cards = c), () => {});
-		look();
-		const t = setInterval(look, 3000);
-		return () => clearInterval(t);
-	});
+	// K4: the cards in now; a click on one opens the import, ⏏ ejects it.
+	// One that would not eject says so on its row until it goes.
+	const cards = $derived(cardList.list);
+	onMount(watchCards);
+	let stuck = $state<string | null>(null);
 	async function eject(c: Card) {
-		await ejectCard(c.path).catch(() => {});
-		cards = await getCards().catch(() => cards);
+		stuck = null;
+		await ejectCard(c.path).catch(() => (stuck = c.path));
+		await lookCards();
 	}
 
 	let allAccounts = $state(false);
@@ -133,7 +131,7 @@
 					<div class="row card">
 						<button class="open" onclick={() => goto('/import')}>
 							<span class="lead"><MemoryStick size={20} /></span>
-							<span class="label">{c.name}</span>
+							<span class="label">{c.name}{#if stuck === c.path}<small>{text.ejectFailed}</small>{/if}</span>
 						</button>
 						<button class="eject" aria-label={text.ejectCard(c.name)} title={text.ejectCard(c.name)} onclick={() => eject(c)}
 							><Eject size={16} /></button
@@ -382,6 +380,15 @@
 		display: grid;
 		place-items: center;
 		color: var(--muted);
+	}
+	.label small {
+		display: block;
+		font-size: var(--text-subheadline);
+		color: var(--warn);
+	}
+	.row.card:has(small) {
+		height: auto;
+		min-height: 36px;
 	}
 	.label {
 		flex: 1;

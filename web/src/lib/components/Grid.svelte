@@ -161,7 +161,7 @@
 	.scroller {
 		height: 100%;
 		overflow-y: auto;
-		padding: 0 40px 40px;
+		padding: 0 var(--space-40) var(--space-40);
 	}
 	.grid {
 		position: relative;
@@ -173,21 +173,21 @@
 		left: 0;
 	}
 	h3 {
-		height: 40px;
+		height: var(--space-40);
 		padding-top: 16px;
 		font-size: var(--text-body);
-		font-weight: 600;
+		font-weight: var(--weight-semibold);
 		color: var(--fg);
 		white-space: nowrap;
 	}
 	h3 span {
 		margin-left: 8px;
 		font-size: var(--text-callout);
-		font-weight: 400;
+		font-weight: var(--weight-regular);
 		color: var(--faint);
 	}
 	.tile {
-		border-radius: 6px;
+		border-radius: var(--radius-6);
 		overflow: hidden;
 		background: var(--line);
 	}
@@ -206,19 +206,19 @@
 	}
 	.video {
 		position: absolute;
-		right: 6px;
-		bottom: 6px;
-		color: #fff;
+		right: var(--space-6);
+		bottom: var(--space-6);
+		color: var(--on-photo);
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 	}
 	/* Picking (K1): the circle shows on a tile under the pointer, on every
 	   tile once one is picked; a picked one shrinks in an accent frame. */
 	.pick {
 		position: absolute;
-		top: 8px;
-		left: 8px;
+		top: var(--space-8);
+		left: var(--space-8);
 		display: grid;
-		color: #fff;
+		color: var(--on-photo);
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 		opacity: 0;
 		transition: opacity 120ms ease;
@@ -232,7 +232,7 @@
 	}
 	.tile.on img {
 		scale: 0.84;
-		border-radius: 6px;
+		border-radius: var(--radius-6);
 	}
 	.tile.on .pick {
 		color: var(--accent);
@@ -247,10 +247,10 @@
 	}
 	.gone {
 		position: absolute;
-		left: 6px;
-		bottom: 6px;
-		width: 24px;
-		height: 24px;
+		left: var(--space-6);
+		bottom: var(--space-6);
+		width: var(--space-24);
+		height: var(--space-24);
 		display: grid;
 		place-items: center;
 		border-radius: var(--radius-full);
@@ -259,6 +259,6 @@
 		color: var(--warn);
 	}
 	:global(.narrow) .scroller {
-		padding: 0 24px 24px;
+		padding: 0 var(--space-24) var(--space-24);
 	}
 </style>

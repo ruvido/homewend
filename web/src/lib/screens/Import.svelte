@@ -8,18 +8,16 @@
 	import { onMount } from 'svelte';
 	import { Check, ChevronDown, ChevronRight, CircleCheck, Folder, HardDrive, Loader, TriangleAlert, User, UserPlus } from '@lucide/svelte';
 	import ContextMenu from '#lib/components/ContextMenu.svelte';
-	import { app, refresh } from '#lib/app.svelte.js';
+	import { app, cards as cardList, lookCards, refresh, watchCards } from '#lib/app.svelte.js';
 	import {
 		ApiError,
 		BRING_ALL_BACK,
-		getCards,
 		getLatest,
 		getImport,
 		getLibrary,
 		planImport,
 		startImport,
 		stopImport,
-		type Card,
 		type GridPhoto,
 		againImport,
 		type Choice,
@@ -46,7 +44,7 @@
 	// the new one comes: a tick does not flash the reading screen.
 	let kept = $state<ImportPlan | undefined>();
 	const plan = $derived(im?.plan ?? kept);
-	let cards = $state<Card[]>([]);
+	const cards = $derived(cardList.list);
 	let free = $state(0);
 	// An import that ended before this window opened is not shown again: the
 	// screen starts at the choice. One under way, or a card out, is.
@@ -102,9 +100,6 @@
 			// The engine answers within a second; the next ask will do.
 		}
 	}
-	async function lookCards() {
-		cards = await getCards().catch(() => cards);
-	}
 	onMount(() => {
 		load().then(() => {
 			// A copy under way, or waiting for its card, is where the window opens.
@@ -117,15 +112,14 @@
 				bringBack = im.bring_back ?? [];
 			}
 		});
-		lookCards();
+		// The cards come and go: one put in while the window is open, the
+		// one taken out put back.
+		const unwatch = watchCards();
 		getLibrary().then((l) => (free = l.free), () => {});
 		const t = setInterval(() => {
 			if (im?.running) load();
-			// The cards come and go: one put in while the window is open, the
-			// one taken out put back.
-			lookCards();
 		}, 1000);
-		return () => clearInterval(t);
+		return () => (clearInterval(t), unwatch());
 	});
 
 	// What came in is in the sidebar's counts and years at once, and its
@@ -281,6 +275,34 @@
 	const fileShare = $derived(im && im.total > 0 ? im.done / im.total : 0);
 	const share = $derived(im && im.of > 0 ? (im.n - 1 + fileShare) / im.of : 0);
 </script>
+
+<!-- J2, J3: the years filed so far, newest first, photos, raw files and
+     videos apart, as the numbers count them; done, each with its check. -->
+{#snippet filedYears(done: boolean)}
+	{@const filed = im?.filed ?? {}}
+	{@const years = Object.keys(filed).sort((x, y) => (y || '0').localeCompare(x || '0'))}
+	{@const anyRaw = Object.keys(im?.filedRaw ?? {}).length > 0}
+	{#if years.length > 0}
+		<YearsPanel
+			title={text.whosePhotos(im?.profile || profile)}
+			legend={anyRaw ? [text.kindPhotos, text.kindRaw, text.kindVideos] : [text.kindPhotos, text.kindVideos]}
+			spacer={done}
+		>
+			{#each years as y (y)}
+				{@const videos = im?.filedVideos?.[y] ?? 0}
+				{@const raw = im?.filedRaw?.[y] ?? 0}
+				<div class="year">
+					<span class="folder"><Folder size={18} /></span>
+					<span class="name">{y || text.noDate}</span>
+					<span class="count n" class:done>{(filedIn(filed, y) - videos - raw).toLocaleString('en')}</span>
+					{#if anyRaw}<span class="count n" class:done>{raw.toLocaleString('en')}</span>{/if}
+					<span class="count n" class:done>{videos.toLocaleString('en')}</span>
+					{#if done}<span class="state"><CircleCheck size={18} /></span>{/if}
+				</div>
+			{/each}
+		</YearsPanel>
+	{/if}
+{/snippet}
 
 <!-- The years, newest first; a year opened shows its months below it. -->
 {#snippet byYear(years: ImportPlan['years'])}
@@ -482,7 +504,6 @@
 		</div>
 	{:else if view === 'copying' && im}
 		<!-- J2: each file copied and read back, one at a time; the years fill beside, as a download's. -->
-		{@const years = Object.keys(im.filed ?? {}).sort((x, y) => (y || '0').localeCompare(x || '0'))}
 		<div class="end">
 			<div class="main">
 				<span class="pill live"><span class="spin"><Loader size={14} /></span>{text.importBringing(name)}</span>
@@ -494,21 +515,9 @@
 					{#if run}<div><b>{text.aboutTime(roughly(run.left))}</b><span>{text.leftAtSpeed}</span></div>{/if}
 				</div>
 				<div class="actions"><SecondaryButton onclick={() => stopImport().then((s) => (im = s))}>{text.importStop}</SecondaryButton></div>
-				{#if latest.length > 0 && years.length > 0}<Arrived label={text.importArrived} photos={latest} />{/if}
+				{#if latest.length > 0 && Object.keys(im.filed ?? {}).length > 0}<Arrived label={text.importArrived} photos={latest} />{/if}
 			</div>
-			{#if years.length > 0}
-				<YearsPanel title={text.whosePhotos(im.profile || profile)} legend={[text.kindPhotos, text.kindVideos]}>
-					{#each years as y (y)}
-						{@const videos = im.filedVideos?.[y] ?? 0}
-						<div class="year">
-							<span class="folder"><Folder size={18} /></span>
-							<span class="name">{y || text.noDate}</span>
-							<span class="count n">{(filedIn(im.filed ?? {}, y) - videos).toLocaleString('en')}</span>
-							<span class="count n">{videos.toLocaleString('en')}</span>
-						</div>
-					{/each}
-				</YearsPanel>
-			{/if}
+			{@render filedYears(false)}
 		</div>
 	{:else if view === 'taken-out' && im}
 		<!-- I7: the card came out; put back, the copy carries on by itself. -->
@@ -531,7 +540,6 @@
 	{:else if (view === 'done' || view === 'stopped') && im}
 		<!-- J3: what came in, by kind and by year; what did not, each shown on asking. -->
 		{@const done = im.imported}
-		{@const years = Object.keys(im.filed ?? {}).sort((x, y) => (y || '0').localeCompare(x || '0'))}
 		<div class="end">
 			<div class="main">
 				<span class="pill" class:ok={view === 'done'}>{#if view === 'done'}<CircleCheck size={14} />{/if}{name}</span>
@@ -586,20 +594,7 @@
 					</div>
 				{/if}
 			</div>
-			{#if years.length > 0}
-				<YearsPanel title={text.whosePhotos(im.profile || profile)} legend={[text.kindPhotos, text.kindVideos]} spacer>
-					{#each years as y (y)}
-						{@const videos = im.filedVideos?.[y] ?? 0}
-						<div class="year">
-							<span class="folder"><Folder size={18} /></span>
-							<span class="name">{y || text.noDate}</span>
-							<span class="count done n">{(filedIn(im.filed ?? {}, y) - videos).toLocaleString('en')}</span>
-							<span class="count done n">{videos.toLocaleString('en')}</span>
-							<span class="state"><CircleCheck size={18} /></span>
-						</div>
-					{/each}
-				</YearsPanel>
-			{/if}
+			{@render filedYears(true)}
 		</div>
 	{:else if im}
 		<span class="pill err">{name}</span>

@@ -16,7 +16,10 @@
 
 	// The earliest date among them, as the field starts: a clock written as UTC.
 	const earliest = untrack(() => photos.map((p) => p.taken).filter((t): t is string => !!t).sort()[0]);
-	let when = $state((earliest ?? new Date().toISOString()).slice(0, 16));
+	// None dated: now, by this computer's clock, written as the clock it reads.
+	const now = new Date();
+	const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString();
+	let when = $state((earliest ?? local).slice(0, 16));
 	let busy = $state(false);
 	let failed = $state('');
 	async function give() {
