@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- I1–I8: a card or a folder, what comes in, the copy, a card taken out, the end.
      Each title answers what a person wants to know there; the numbers that

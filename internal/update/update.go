@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package update brings the installed homewend up to the latest release, and
@@ -28,13 +28,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // latest is the newest release. GitHub answers it with a redirect to
 // releases/tag/v<version>, and serves the release's files under
 // latest/download/. Read 2026-10-02.
-var latest = "https://github.com/ronalder100/homewend/releases/latest"
+var latest = "https://github.com/ruvido/homewend/releases/latest"
 
 // ErrDamaged means the download does not match the release's checksum.
 // Nothing was installed.

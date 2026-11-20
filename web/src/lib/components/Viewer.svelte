@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- B7: one photo, over the grid. ← and → move, Esc or Space closes; a click zooms in. -->
 <script lang="ts">

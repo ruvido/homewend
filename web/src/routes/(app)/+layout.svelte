@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Every screen after sign-in sits in the window frame, with the sidebar and,
      while photos come home, the status bar. -->

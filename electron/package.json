@@ -2,7 +2,7 @@
 	"name": "homewend-desktop",
 	"version": "0.0.0",
 	"description": "Google Photos, on your own disk.",
-	"author": "Ron Alder",
+	"author": "ruvido",
 	"license": "AGPL-3.0-or-later",
 	"private": true,
 	"main": "main.js",
@@ -62,7 +62,7 @@
 		"publish": [
 			{
 				"provider": "github",
-				"owner": "ronalder100",
+				"owner": "ruvido",
 				"repo": "homewend"
 			}
 		]

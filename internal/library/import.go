@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package library
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // ErrNoLink is a hard link the disk refused: the folder is on another disk

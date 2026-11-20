@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- The photos, by month, newest first. Only the rows on screen exist: the
      grid has to scroll through hundreds of thousands of tiles. -->

@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package session
@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/session/sessiontest"
+	"github.com/ruvido/homewend/internal/session/sessiontest"
 )
 
 func TestMain(m *testing.M) {

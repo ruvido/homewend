@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package engine is what every shell calls: the CLI, the MCP server, and later
@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/download"
-	"github.com/ronalder100/homewend/internal/library"
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/download"
+	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // Fetch is one export to bring into one library.

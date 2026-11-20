@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package main
@@ -17,8 +17,8 @@ import (
 	"github.com/dustin/go-humanize"
 	"golang.org/x/term"
 
-	"github.com/ronalder100/homewend/internal/engine"
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // printer shows the engine's events: as lines for a person, or with --json

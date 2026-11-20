@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Command homewend is the command-line shell over the engine. It parses flags,
@@ -24,13 +24,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"golang.org/x/term"
 
-	"github.com/ronalder100/homewend/internal/download"
-	"github.com/ronalder100/homewend/internal/engine"
-	"github.com/ronalder100/homewend/internal/library"
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/session"
-	"github.com/ronalder100/homewend/internal/takeout"
-	"github.com/ronalder100/homewend/internal/update"
+	"github.com/ruvido/homewend/internal/download"
+	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/session"
+	"github.com/ruvido/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/update"
 )
 
 const (

@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- I5, I5b: the photos inside a group that stays out, a project most often,
      picked one by one. The likely photos first; the rest, by kind, when

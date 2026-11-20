@@ -1,4 +1,4 @@
-# homewend — Copyright (C) 2026 Ron Alder
+# homewend — Copyright (C) 2026 ruvido
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # A tag like v0.1.0 builds the binaries and publishes them as a release.
@@ -41,7 +41,7 @@ jobs:
       # The check SECURITY.md tells people to run, on what was just uploaded.
       - run: >
           cosign verify-blob
-          --certificate-identity-regexp '^https://github\.com/ronalder100/homewend/\.github/workflows/release\.yml@refs/tags/v'
+          --certificate-identity-regexp '^https://github\.com/ruvido/homewend/\.github/workflows/release\.yml@refs/tags/v'
           --certificate-oidc-issuer https://token.actions.githubusercontent.com
           --bundle dist/homewend_checksums.txt.sigstore.json
           dist/homewend_checksums.txt

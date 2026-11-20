@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- The photos that arrived, and the way to the library (A4, J2, J3). Six
      tiles fill one by one in the order the photos came; once full, every 5–8 s

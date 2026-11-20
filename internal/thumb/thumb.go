@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package thumb makes the small pictures the window's grid shows, and keeps
@@ -29,7 +29,7 @@ import (
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 
-	"github.com/ronalder100/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/library"
 )
 
 // Size is the long edge of a thumbnail: the grid's tiles are about 104 to 180

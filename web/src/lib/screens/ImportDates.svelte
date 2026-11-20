@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- I3b: the photos a reset clock dated wrong, found by the day their camera
      says, ticked, and given the day they were taken. Nothing is written

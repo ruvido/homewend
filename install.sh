@@ -1,5 +1,5 @@
 #!/bin/sh
-# homewend — Copyright (C) 2026 Ron Alder
+# homewend — Copyright (C) 2026 ruvido
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Installs the latest homewend release for this machine:
@@ -11,7 +11,7 @@
 # before it is installed.
 set -eu
 
-repo="ronalder100/homewend"
+repo="ruvido/homewend"
 dir="${HOMEWEND_INSTALL_DIR:-$HOME/.local/bin}"
 
 fail() {

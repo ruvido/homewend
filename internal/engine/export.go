@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/session"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/session"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // ErrNoDownload means the browser was closed before a download started, so

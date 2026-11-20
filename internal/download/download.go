@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package download brings the archives down. This is the product: 159 files
@@ -29,8 +29,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // ErrSessionExpired means Google no longer accepts the profile's cookies: it

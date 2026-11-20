@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package web
@@ -15,8 +15,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/ronalder100/homewend/internal/engine"
-	"github.com/ronalder100/homewend/internal/session"
+	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/session"
 )
 
 func newTestServer(t *testing.T) *Server {

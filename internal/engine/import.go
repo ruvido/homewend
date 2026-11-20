@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/ronalder100/homewend/internal/library"
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // LibraryGoneError is a library folder chosen once and not there now: its

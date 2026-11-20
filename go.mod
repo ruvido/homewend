@@ -1,4 +1,4 @@
-module github.com/ronalder100/homewend
+module github.com/ruvido/homewend
 
 go 1.26.8
 

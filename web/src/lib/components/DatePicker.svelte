@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- K2: a day on the month, Monday first, and the time in two fields. The
      value is a clock, "2026-11-07T15:27", as the photos' dates are kept. -->

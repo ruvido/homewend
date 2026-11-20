@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # The desktop app
@@ -13,7 +13,7 @@ bring home, and watch your library fill.
 ## Install it (Linux)
 
 1. Download `Homewend-<version>.AppImage` from the
-   [latest release](https://github.com/ronalder100/homewend/releases/latest).
+   [latest release](https://github.com/ruvido/homewend/releases/latest).
 2. Make it executable and open it:
 
    ```sh
@@ -30,7 +30,7 @@ follows.
 For a Mac with Apple silicon (M1 or later).
 
 1. Download `Homewend-<version>-arm64.dmg` from the
-   [latest release](https://github.com/ronalder100/homewend/releases/latest).
+   [latest release](https://github.com/ruvido/homewend/releases/latest).
 2. Open it and drag **Homewend** into **Applications**.
 3. Open Homewend. The app is not notarized by Apple, so the first time macOS
    refuses to open it. Choose **Apple menu > System Settings > Privacy &
@@ -48,7 +48,7 @@ xattr -dr com.apple.quarantine /Applications/Homewend.app
 ## Install it (Windows)
 
 1. Download `Homewend-Setup-<version>.exe` from the
-   [latest release](https://github.com/ronalder100/homewend/releases/latest)
+   [latest release](https://github.com/ruvido/homewend/releases/latest)
    and open it.
 2. The installer is not signed yet, so Windows may stop it with "Windows
    protected your PC". Click **More info**, then **Run anyway**.
@@ -108,5 +108,5 @@ with a notification. Nothing is downloaded until you press **Update** or click
 the notification; then it installs the new version and opens again.
 
 On the Mac it does not say so or update itself yet: download the new `.dmg`
-from the [latest release](https://github.com/ronalder100/homewend/releases/latest)
+from the [latest release](https://github.com/ruvido/homewend/releases/latest)
 and replace the app in **Applications**.

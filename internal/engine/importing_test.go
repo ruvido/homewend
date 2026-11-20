@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/library"
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // importEnded waits for the import going on to end, and is where it stands.

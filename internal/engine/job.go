@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // Jobs runs Get in the background, one per account, and keeps where each

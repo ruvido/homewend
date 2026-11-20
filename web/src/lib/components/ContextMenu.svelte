@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- B1's menu: one bubble whose arrow touches the end of the row it is for,
      its first item on the row's centre line. Ours, the same on every system. -->

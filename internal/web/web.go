@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Package web serves the interface: the built page, on the loopback only, to
@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/engine"
 )
 
 // dist is the page as built by web/ (npm run build). Only .gitkeep is

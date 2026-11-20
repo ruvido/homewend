@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/library"
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // onePhoto is a takeout of one photo, from 2025: its manifest and its part.

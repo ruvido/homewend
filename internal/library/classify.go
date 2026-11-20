@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package library
@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // GroupKind is what a group of a folder's photos is, and so whether it comes

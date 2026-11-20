@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package web
@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/engine"
-	"github.com/ronalder100/homewend/internal/session"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/session"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // apiRoutes are the engine calls the page makes. Each is a thin translation

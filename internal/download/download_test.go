@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package download
@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/progress"
-	"github.com/ronalder100/homewend/internal/takeout"
+	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/takeout"
 )
 
 // dropping serves data with Range, and cuts each of the first drops

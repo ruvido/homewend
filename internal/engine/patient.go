@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -9,8 +9,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/download"
-	"github.com/ronalder100/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/download"
+	"github.com/ruvido/homewend/internal/progress"
 )
 
 // Patiently runs fn again for as long as it fails on the network, with a

@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package engine
@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ronalder100/homewend/internal/library"
-	"github.com/ronalder100/homewend/internal/session"
+	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/session"
 )
 
 // libraryFile is where an older homewend kept the library folder, before it

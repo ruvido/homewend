@@ -1,7 +1,7 @@
 # Security
 
 Found a vulnerability? Report it privately,
-[here](https://github.com/ronalder100/homewend/security/advisories/new), or
+[here](https://github.com/ruvido/homewend/security/advisories/new), or
 from the **Security** tab of this repository, **Report a vulnerability**.
 Please do not open a public issue.
 
@@ -28,7 +28,7 @@ The signature, with
 
 ```bash
 cosign verify-blob \
-  --certificate-identity-regexp '^https://github\.com/ronalder100/homewend/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/ruvido/homewend/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --bundle homewend_checksums.txt.sigstore.json homewend_checksums.txt
 ```
@@ -36,5 +36,5 @@ cosign verify-blob \
 The provenance of a binary, with the [GitHub CLI](https://cli.github.com):
 
 ```bash
-gh attestation verify homewend_linux_amd64 --repo ronalder100/homewend
+gh attestation verify homewend_linux_amd64 --repo ruvido/homewend
 ```

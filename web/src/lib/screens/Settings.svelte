@@ -1,4 +1,4 @@
-<!-- homewend — Copyright (C) 2026 Ron Alder -->
+<!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- C4: where the photos go, how the window looks, each account's cookies. -->
 <script lang="ts">
@@ -113,7 +113,7 @@
 					<h3>Homewend {version}</h3>
 					<p>{text.aboutDesc}</p>
 				</div>
-				<a class="link" href="https://github.com/ronalder100/homewend" target="_blank" rel="noreferrer"
+				<a class="link" href="https://github.com/ruvido/homewend" target="_blank" rel="noreferrer"
 					><Code size={14} />{text.sourceCode}</a
 				>
 			</div>

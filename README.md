@@ -9,8 +9,8 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue.svg" alt="License: AGPL-3.0" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg" alt="Platform: macOS | Linux" />
-  <a href="https://scorecard.dev/viewer/?uri=github.com/ronalder100/homewend"><img src="https://api.scorecard.dev/projects/github.com/ronalder100/homewend/badge" alt="OpenSSF Scorecard" /></a>
-  <a href="https://github.com/ronalder100/homewend/actions/workflows/codeql.yml"><img src="https://github.com/ronalder100/homewend/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/ruvido/homewend"><img src="https://api.scorecard.dev/projects/github.com/ruvido/homewend/badge" alt="OpenSSF Scorecard" /></a>
+  <a href="https://github.com/ruvido/homewend/actions/workflows/codeql.yml"><img src="https://github.com/ruvido/homewend/actions/workflows/codeql.yml/badge.svg" alt="CodeQL" /></a>
 </p>
 
 <p align="center">
@@ -52,19 +52,19 @@ Google Photos to your disk in one click: no zips to babysit, no download to rest
 Install Homewend. On macOS or Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ronalder100/homewend/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ruvido/homewend/main/install.sh | sh
 ```
 
 On Windows, download `homewend_windows_amd64.exe` from the
-[latest release](https://github.com/ronalder100/homewend/releases/latest) and
+[latest release](https://github.com/ruvido/homewend/releases/latest) and
 double-click it: it asks which year, and the first time where, and does the rest. Or, in
 PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/ronalder100/homewend/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/ruvido/homewend/main/install.ps1 | iex
 ```
 
-Read it first if you like: [install.sh](install.sh) and [install.ps1](install.ps1) download the binary from the [latest release](https://github.com/ronalder100/homewend/releases/latest) and check it against the release's checksums before installing. Or download the binary yourself and check its signature as [SECURITY.md](SECURITY.md#checking-a-release) shows.
+Read it first if you like: [install.sh](install.sh) and [install.ps1](install.ps1) download the binary from the [latest release](https://github.com/ruvido/homewend/releases/latest) and check it against the release's checksums before installing. Or download the binary yourself and check its signature as [SECURITY.md](SECURITY.md#checking-a-release) shows.
 
 Sign in to Google. A small window opens; you sign in there, once:
 

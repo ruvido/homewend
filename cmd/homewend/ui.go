@@ -1,4 +1,4 @@
-// homewend — Copyright (C) 2026 Ron Alder
+// homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 package main
@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ronalder100/homewend/internal/web"
+	"github.com/ruvido/homewend/internal/web"
 )
 
 // ui serves the interface until Ctrl-C, SIGTERM or until stdin closes: the
