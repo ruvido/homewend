@@ -146,9 +146,9 @@
 	};
 	function key(e: KeyboardEvent) {
 		if (index === null) return;
-		// The date's dialog over it takes the keys; Esc closes it.
-		if (dating) {
-			if (e.key === 'Escape') dating = false;
+		// A dialog over it takes the keys; Esc closes it.
+		if (dating || takingOut) {
+			if (e.key === 'Escape') dating = takingOut = false;
 			return;
 		}
 		// Space closes it, as it closes Quick Look.

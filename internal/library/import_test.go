@@ -807,6 +807,16 @@ func TestDatesGivenInTheLibrary(t *testing.T) {
 	}
 	mustExist(t, filepath.Join(root, "ron", "2020", "05", "DSCF0002.JPG"))
 	mustExist(t, filepath.Join(root, "ron", "2020", "05", "DSCF0003.MOV"))
+	// One whose file is gone is left out, and the others still move.
+	gone, err := catalog.photo(byName["DSCF0001.JPG"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(filepath.Join(root, filepath.FromSlash(gone.Path)))
+	if n, err := GiveDates(root, catalog, []string{byName["DSCF0001.JPG"], byName["DSCF0002.JPG"]}, when.AddDate(1, 0, 0)); err != nil || n != 1 {
+		t.Fatalf("with one gone: %d moved, %v; want 1", n, err)
+	}
+	mustExist(t, filepath.Join(root, "ron", "2021", "05", "DSCF0002.JPG"))
 	if _, err := os.Stat(filepath.Join(root, "ron", "2018")); !os.IsNotExist(err) {
 		t.Errorf("the year it left is still there: %v", err)
 	}

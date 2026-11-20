@@ -223,7 +223,9 @@ func redateInLibrary(root string, catalog *Catalog, hash string, when time.Time,
 // GiveDates gives photos of the library at root a date, chosen in the
 // library: the earliest of them is taken at when, the others keep their
 // distance from it, as dates given before an import do; one with no date
-// takes when. Each stays in its own profile. It says how many moved.
+// takes when. Each stays in its own profile. A photo whose file is gone is
+// left out, before anything moves: a run half done, done again, would move
+// the first ones twice. It says how many moved.
 func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (int, error) {
 	records := make([]Photo, 0, len(hashes))
 	var earliest time.Time
@@ -231,6 +233,9 @@ func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (
 		p, err := catalog.photo(hash)
 		if err != nil {
 			return 0, err
+		}
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p.Path))); err != nil {
+			continue
 		}
 		records = append(records, p)
 		if !p.Taken.IsZero() && (earliest.IsZero() || p.Taken.Before(earliest)) {
