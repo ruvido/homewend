@@ -58,7 +58,6 @@ function measure(account: string, j: JobState) {
  *  ask sent before a start and answered after it is older, and dropped. */
 const writes: Record<string, number> = {};
 
-/** Asks every second where each account's download stands. */
 // The cards in now, one list for the window: looked at every second while a
 // screen that shows them is open (the sidebar, the import).
 export const cards = $state<{ list: Card[] }>({ list: [] });
@@ -77,6 +76,7 @@ export function watchCards(): () => void {
 	};
 }
 
+/** Asks every second where each account's download stands. */
 export function watchJobs(): () => void {
 	let wasRunning = false;
 	const tick = async () => {

@@ -276,26 +276,24 @@
 	const share = $derived(im && im.of > 0 ? (im.n - 1 + fileShare) / im.of : 0);
 </script>
 
-<!-- J2, J3: the years filed so far, newest first, photos, raw files and
-     videos apart, as the numbers count them; done, each with its check. -->
+<!-- J2, J3: the years filed so far, newest first, photos and videos apart
+     (raw files among the photos, as the numbers count them); done, each
+     with its check. -->
 {#snippet filedYears(done: boolean)}
 	{@const filed = im?.filed ?? {}}
 	{@const years = Object.keys(filed).sort((x, y) => (y || '0').localeCompare(x || '0'))}
-	{@const anyRaw = Object.keys(im?.filedRaw ?? {}).length > 0}
 	{#if years.length > 0}
 		<YearsPanel
 			title={text.whosePhotos(im?.profile || profile)}
-			legend={anyRaw ? [text.kindPhotos, text.kindRaw, text.kindVideos] : [text.kindPhotos, text.kindVideos]}
+			legend={[text.kindPhotos, text.kindVideos]}
 			spacer={done}
 		>
 			{#each years as y (y)}
 				{@const videos = im?.filedVideos?.[y] ?? 0}
-				{@const raw = im?.filedRaw?.[y] ?? 0}
 				<div class="year">
 					<span class="folder"><Folder size={18} /></span>
 					<span class="name">{y || text.noDate}</span>
-					<span class="count n" class:done>{(filedIn(filed, y) - videos - raw).toLocaleString('en')}</span>
-					{#if anyRaw}<span class="count n" class:done>{raw.toLocaleString('en')}</span>{/if}
+					<span class="count n" class:done>{(filedIn(filed, y) - videos).toLocaleString('en')}</span>
 					<span class="count n" class:done>{videos.toLocaleString('en')}</span>
 					{#if done}<span class="state"><CircleCheck size={18} /></span>{/if}
 				</div>
@@ -554,10 +552,10 @@
 					<h1 class="hero">{text.imported}</h1>
 				{/if}
 				{#if done && done.placed > 0}
-					{@const photos = done.placed - done.raw - done.videos}
+					{@const photos = done.placed - done.videos}
 					<div class="numbers">
 						{#if photos > 0}<div><b>{photos.toLocaleString('en')}</b><span>{text.kindPhotos}</span></div>{/if}
-						{#if done.raw > 0}<div><b>{done.raw.toLocaleString('en')}</b><span>{text.kindRaw}</span></div>{/if}
+						{#if done.raw > 0}<div><b>{done.raw.toLocaleString('en')}</b><span>{text.kindRawOf}</span></div>{/if}
 						{#if done.videos > 0}<div><b>{done.videos.toLocaleString('en')}</b><span>{text.kindVideos}</span></div>{/if}
 						<div><b>{bytes(done.bytes)}</b><span>{text.onTheDisk}</span></div>
 						{#if done.unreadable > 0}<div class="warn"><b>{done.unreadable.toLocaleString('en')}</b><span>{text.importUnreadable}</span></div>{/if}

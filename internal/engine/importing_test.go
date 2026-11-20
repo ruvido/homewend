@@ -275,7 +275,7 @@ func TestTheVideosFiledAreCountedByYear(t *testing.T) {
 	s.record(progress.Event{Stage: progress.Filed, Name: "2024", N: 5})
 	s.record(progress.Event{Stage: progress.Filed, Name: "2024", N: 5, Note: "video"})
 	s.record(progress.Event{Stage: progress.Filed, Name: "2024", N: 5, Note: "raw"})
-	if s.Filed["2024"][5] != 3 || s.FiledVideos["2024"] != 1 || s.FiledRaw["2024"] != 1 {
-		t.Errorf("filed %v, videos %v: want 2 in May 2024, 1 of them a video", s.Filed, s.FiledVideos)
+	if s.Filed["2024"][5] != 3 || s.FiledVideos["2024"] != 1 {
+		t.Errorf("filed %v, videos %v: want 3 in May 2024, 1 of them a video", s.Filed, s.FiledVideos)
 	}
 }

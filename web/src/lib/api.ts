@@ -313,8 +313,6 @@ export interface ImportState extends Partial<ImportAsk> {
 	filed?: Filed;
 	/** Of them, the videos, by year. */
 	filedVideos?: Record<string, number>;
-	/** Of them, a camera's raw files, by year. */
-	filedRaw?: Record<string, number>;
 	/** The folder's bytes gone through, of all of them: the copy's pace. */
 	moved: number;
 	bytes: number;

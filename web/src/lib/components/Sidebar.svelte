@@ -45,6 +45,10 @@
 	const cards = $derived(cardList.list);
 	onMount(watchCards);
 	let stuck = $state<string | null>(null);
+	// Taken out by hand meanwhile: put back later, it is not said stuck.
+	$effect(() => {
+		if (stuck && !cards.some((c) => c.path === stuck)) stuck = null;
+	});
 	async function eject(c: Card) {
 		stuck = null;
 		await ejectCard(c.path).catch(() => (stuck = c.path));
@@ -388,7 +392,7 @@
 	}
 	.row.card:has(small) {
 		height: auto;
-		min-height: 36px;
+		padding-block: var(--space-6);
 	}
 	.label {
 		flex: 1;

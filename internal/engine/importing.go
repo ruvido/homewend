@@ -68,9 +68,8 @@ type ImportState struct {
 	// year "" month 0, the undated. A copy carried on after its card came
 	// out goes on counting.
 	Filed map[string]map[int]int `json:"filed,omitempty"`
-	// Of them, the videos and the raw files, by year.
+	// Of them, the videos, by year.
 	FiledVideos map[string]int `json:"filedVideos,omitempty"`
-	FiledRaw    map[string]int `json:"filedRaw,omitempty"`
 	// Moved of Bytes are the folder's bytes gone through so far, for the
 	// pace of the copy and the time left.
 	Moved int64 `json:"moved"`
@@ -180,17 +179,17 @@ func (im *Importing) start(a ImportAsk, kind string, run func(context.Context, p
 	var plan *library.ImportPlan
 	var before *library.Imported
 	var filed map[string]map[int]int
-	var videos, raw map[string]int
+	var videos map[string]int
 	if same {
 		card = card || im.state.Card
 		if kind == "import" {
 			plan = im.state.Plan
 		}
 		if im.state.Problem == "taken-out" {
-			before, filed, videos, raw = im.state.Imported, im.state.Filed, im.state.FiledVideos, im.state.FiledRaw
+			before, filed, videos = im.state.Imported, im.state.Filed, im.state.FiledVideos
 		}
 	}
-	im.state = ImportState{Running: true, ImportAsk: a, Top: top, Filed: filed, FiledVideos: videos, FiledRaw: raw, Kind: kind, Plan: plan, Card: card}
+	im.state = ImportState{Running: true, ImportAsk: a, Top: top, Filed: filed, FiledVideos: videos, Kind: kind, Plan: plan, Card: card}
 	im.cancel, im.done = cancel, make(chan struct{})
 	done := im.done
 	go func() {
@@ -238,11 +237,8 @@ func (s *ImportState) record(e progress.Event) {
 			s.Filed[e.Name] = map[int]int{}
 		}
 		s.Filed[e.Name][e.N]++
-		switch e.Note {
-		case "video":
+		if e.Note == "video" {
 			s.FiledVideos = countIn(s.FiledVideos, e.Name)
-		case "raw":
-			s.FiledRaw = countIn(s.FiledRaw, e.Name)
 		}
 	case progress.Read, progress.Copy:
 		// A new file starts at nothing; its bytes follow.
@@ -371,6 +367,5 @@ func (im *Importing) State() ImportState {
 	}
 	s.Filed = filed
 	s.FiledVideos = maps.Clone(s.FiledVideos)
-	s.FiledRaw = maps.Clone(s.FiledRaw)
 	return s
 }

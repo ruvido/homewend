@@ -365,7 +365,7 @@ export const text = {
 	importStoppedLead: 'What came in stays in your library. Look at the card again to bring the rest.',
 	imported: 'Imported.',
 	kindPhotos: 'photos',
-	kindRaw: 'RAW',
+	kindRawOf: 'of them RAW',
 	kindVideos: 'videos',
 	onTheDisk: 'on the disk',
 	importArrived: 'Just arrived',

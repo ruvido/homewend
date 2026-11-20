@@ -174,7 +174,7 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), reload++)} />
+	<Viewer {photos} bind:index={open} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
 	{#if dating}
 		<GiveDate
 			photos={picked}
