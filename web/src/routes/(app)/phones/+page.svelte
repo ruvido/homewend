@@ -69,7 +69,7 @@
 	});
 	function cancel() {
 		stopPairing();
-		((code = ''), (adding = false));
+		((code = ''), (adding = false), (naming = false), (typed = ''));
 	}
 
 	// shortcut: the state is read from when the phone was last heard; "Backing
