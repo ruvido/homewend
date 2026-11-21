@@ -54,6 +54,11 @@
 		anchor = -1;
 		markFailed = '';
 	});
+	// Another photo in the viewer: what failed was the last one's.
+	$effect(() => {
+		void open;
+		markFailed = '';
+	});
 	function select(i: number, range: boolean) {
 		const next = new Set(selected);
 		if (range && anchor >= 0) {
@@ -97,9 +102,10 @@
 	}
 	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
 	function key(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || open !== null) return;
-		if (asking) asking = null;
-		else if (dating) dating = false;
+		if (e.key !== 'Escape') return;
+		if (asking) return void (asking = null);
+		if (open !== null) return;
+		if (dating) dating = false;
 		else if (selected.size > 0) selected = new Set();
 	}
 
