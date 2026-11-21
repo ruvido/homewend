@@ -119,6 +119,8 @@ func Photos(s Settings, year, album string, noDate, missing bool, offset, limit 
 		isGone[g.Hash] = true
 	}
 	f := library.Filter{Year: year, Album: album, NoDate: noDate, Offset: offset, Limit: limit, Accounts: shown}
+	// An archived photo is still in its album and still missing.
+	f.Grid = album == "" && !missing
 	if missing {
 		f.Hashes = hashesOf(gone)
 	}

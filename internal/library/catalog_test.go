@@ -141,17 +141,20 @@ func TestAnArchivedPhoto(t *testing.T) {
 			t.Fatalf("archived %v %v, want a", done, err)
 		}
 	}
-	grid, _ := c.Page(Filter{})
+	grid, _ := c.Page(Filter{Grid: true})
 	album, _ := c.Page(Filter{Album: "Trip"})
 	archive, _ := c.Page(Filter{Archived: true})
 	years, _ := c.CountsByYear(nil)
+	if every, _ := c.Page(Filter{}); len(every) != 2 { // Relayout's: every photo
+		t.Errorf("every photo: %v", every)
+	}
 	if len(grid) != 1 || grid[0].Hash != "b" || len(album) != 1 || len(archive) != 1 || archive[0].Hash != "a" || years["2020"] != 1 {
 		t.Errorf("grid %v album %v archive %v years %v", grid, album, archive, years)
 	}
 	if done, _ := c.Archive([]string{"a"}, "ron", false); len(done) != 1 {
 		t.Errorf("unarchived %v", done)
 	}
-	if grid, _ := c.Page(Filter{}); len(grid) != 2 {
+	if grid, _ := c.Page(Filter{Grid: true}); len(grid) != 2 {
 		t.Errorf("back: %v", grid)
 	}
 }

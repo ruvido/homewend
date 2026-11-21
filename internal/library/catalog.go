@@ -438,9 +438,9 @@ type Filter struct {
 	Album   string
 	Year    string
 	NoDate  bool // only the photos whose date nobody knows
-	// Archived keeps only the archived photos; otherwise they are left out,
-	// except from an album and from a list of hashes.
-	Archived bool
+	// Archived keeps only the archived photos; Grid leaves them out, as the
+	// main grid and its years do.
+	Archived, Grid bool
 	// Hashes keeps only these photos; nil is all, empty is none.
 	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
 	// photos not on the disk, a temporary table if a list ever grows past.
@@ -484,7 +484,7 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 	}
 	if f.Archived {
 		where = append(where, "archived = 1")
-	} else if f.Album == "" && f.Hashes == nil {
+	} else if f.Grid {
 		where = append(where, "archived = 0")
 	}
 	if f.Hashes != nil {
