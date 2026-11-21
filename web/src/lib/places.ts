@@ -14,6 +14,10 @@ export function urlOf(p: Place): string {
 			return `/library?account=${encodeURIComponent(p.account)}&album=${encodeURIComponent(p.name)}`;
 		case 'missing':
 			return '/library?missing';
+		case 'archive':
+			return '/library?archive';
+		case 'trash':
+			return '/library?trash';
 		case 'phones':
 			return '/phones';
 		case 'takeouts':
@@ -40,6 +44,8 @@ export function placeOf(url: { pathname: string; searchParams: { has(k: string):
 	if (!url.pathname.startsWith('/library')) return { kind: 'none' };
 	if (q.has('album')) return { kind: 'album', account: q.get('account') ?? '', name: q.get('album') ?? '' };
 	if (q.has('missing')) return { kind: 'missing' };
+	if (q.has('archive')) return { kind: 'archive' };
+	if (q.has('trash')) return { kind: 'trash' };
 	if (q.has('year')) return { kind: 'year', label: q.get('year') ?? '' };
 	return { kind: 'all' };
 }

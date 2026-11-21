@@ -307,17 +307,6 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 	return have, out, archived, err
 }
 
-// Mark sets state on the photos of hashes a phone's profile holds, or
-// clears it, and says which those were.
-func Mark(phone Phone, state library.State, hashes []string, on bool) ([]string, error) {
-	c, _, err := openLibrary()
-	if err != nil || c == nil {
-		return []string{}, err
-	}
-	defer c.Close()
-	return c.Mark(state, hashes, phone.Profile, on)
-}
-
 // Received is what became of a photo a phone sent.
 type Received struct {
 	Path string `json:"path,omitempty"` // where the library holds it

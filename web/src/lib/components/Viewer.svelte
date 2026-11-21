@@ -6,7 +6,7 @@
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { swap } from '#lib/motion.js';
-	import { getAbout, pathOf, turnLeft, type GridPhoto } from '#lib/api.js';
+	import { getAbout, pathOf, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { takenAt } from '#lib/format.js';
 	import { app } from '#lib/app.svelte.js';
@@ -14,9 +14,19 @@
 	let {
 		photos,
 		index = $bindable(),
+		acts = [],
+		onact,
 		ontakenout,
 		ondated
-	}: { photos: GridPhoto[]; index: number | null; ontakenout?: () => void; ondated?: (hash: string) => void } = $props();
+	}: {
+		photos: GridPhoto[];
+		index: number | null;
+		/** Archive, Delete, Restore…: the page's, beside Rotate and Change date… (Q6). */
+		acts?: MarkAct[];
+		onact?: (a: MarkAct, hash: string) => void;
+		ontakenout?: () => void;
+		ondated?: (hash: string) => void;
+	} = $props();
 	let takingOut = $state(false);
 	// K3: this one photo given a date, as the library's selection is (K2).
 	let dating = $state(false);
@@ -178,6 +188,9 @@
 				<!-- Clicked, it gives the focus back: ←, → and Space are the viewer's keys. -->
 				{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
 				<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
+				{#each acts as a (a.label)}
+					<button class="pill" onclick={(e) => (e.currentTarget.blur(), onact?.(a, p.hash))}><Icon name={a.icon} size={14} />{a.label}</button>
+				{/each}
 			{/if}
 		</header>
 		<div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>

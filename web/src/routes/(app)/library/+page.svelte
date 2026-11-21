@@ -5,7 +5,9 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { app } from '#lib/app.svelte.js';
-	import { getPhotos, turnLeft, type GridPhoto } from '#lib/api.js';
+	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
+	import { refresh } from '#lib/app.svelte.js';
+	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
 	import Grid from '#lib/components/Grid.svelte';
@@ -28,7 +30,11 @@
 				? place.name
 				: place.kind === 'missing'
 					? loaded ? text.missingTitle(photos.length) : text.notOnDisk
-					: text.allPhotos
+					: place.kind === 'archive'
+						? text.archive
+						: place.kind === 'trash'
+							? text.trash
+							: text.allPhotos
 	);
 	let takingOut = $state(false);
 	let reload = $state(0);
@@ -59,10 +65,38 @@
 	async function turnPicked() {
 		for (const p of picked) p.turn = (await turnLeft(p.hash)).turn;
 	}
+	// Archive and Delete (Q1, Q6); in the Archive, Unarchive (Q4); in the
+	// Trash, Restore (Q5). The photos not on the disk have none.
+	const archive: MarkAct = { icon: 'archive', label: text.archive, state: 'archived', on: true };
+	const unarchive: MarkAct = { icon: 'archive', label: text.unarchive, state: 'archived', on: false };
+	const del: MarkAct = { icon: 'trash', label: text.deleteIt, state: 'trashed', on: true, ask: true };
+	const restore: MarkAct = { icon: 'arrow-counterclockwise', label: text.restore, state: 'trashed', on: false };
+	const acts = $derived(
+		place.kind === 'trash' ? [restore] : place.kind === 'archive' ? [unarchive, del] : place.kind === 'missing' ? [] : [archive, del]
+	);
+	// A photo archived, deleted or back leaves this list (an album keeps
+	// the archived): the list is loaded again, the viewer closed.
+	let asking = $state<{ act: MarkAct; hashes: string[] } | null>(null);
+	let markFailed = $state('');
+	async function act(a: MarkAct, hashes: string[]) {
+		if (a.ask && !asking) return void (asking = { act: a, hashes });
+		markFailed = '';
+		try {
+			await mark(hashes, a.state, a.on);
+		} catch {
+			markFailed = text.markFailed;
+			return;
+		}
+		asking = null;
+		open = null;
+		reload++;
+		await refresh();
+	}
 	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
 	function key(e: KeyboardEvent) {
 		if (e.key !== 'Escape' || open !== null) return;
-		if (dating) dating = false;
+		if (asking) asking = null;
+		else if (dating) dating = false;
 		else if (selected.size > 0) selected = new Set();
 	}
 
@@ -89,6 +123,8 @@
 	const subtitle = $derived.by(() => {
 		const n = photos.length.toLocaleString('en');
 		if (place.kind === 'missing') return text.missingDetail;
+		if (place.kind === 'archive') return text.archiveSub(photos.length);
+		if (place.kind === 'trash') return text.trashSub(photos.length);
 		if (place.kind === 'year' && place.label === text.noDate) return text.noDateSub(n);
 		const videos = photos.filter((p) => p.video).length;
 		return text.photosAndVideos(photos.length - videos, videos);
@@ -117,8 +153,8 @@
 						: { year: p.label }
 					: p.kind === 'album'
 						? { album: p.name }
-						: p.kind === 'missing'
-							? { missing: true }
+						: p.kind === 'missing' || p.kind === 'archive' || p.kind === 'trash'
+							? { view: p.kind }
 							: {};
 			try {
 				for (let offset = 0; !stopped; offset += CHUNK) {
@@ -156,8 +192,14 @@
 		<div class="selbar">
 			<button class="close" aria-label={text.clearSelection} onclick={() => (selected = new Set())}><Icon name="x-lg" size={20} /></button>
 			<b>{text.selected(selected.size)}</b>
-			<SecondaryButton small onclick={turnPicked}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
-			<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
+			{#if markFailed && !asking}<span class="failed">{markFailed}</span>{/if}
+			{#if place.kind !== 'archive' && place.kind !== 'trash'}
+				<SecondaryButton small onclick={turnPicked}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
+				<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
+			{/if}
+			{#each acts as a (a.label)}
+				<SecondaryButton small onclick={() => act(a, picked.map((p) => p.hash))}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>
+			{/each}
 		</div>
 	{/if}
 	<div class="fill">
@@ -186,7 +228,18 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
+	<Viewer {photos} bind:index={open} {acts} onact={(a, hash) => act(a, [hash])} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
+	{#if asking}
+		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
+		<Dialog title={text.trashAsk(asking.hashes.length)}>
+			<p>{text.trashAskLead}</p>
+			{#if markFailed}<p class="failed">{markFailed}</p>{/if}
+			{#snippet actions()}
+				<SecondaryButton onclick={() => (asking = null)}>{text.cancel}</SecondaryButton>
+				<PrimaryButton danger onclick={() => asking && act(asking.act, asking.hashes)}>{text.moveToTrash}</PrimaryButton>
+			{/snippet}
+		</Dialog>
+	{/if}
 	{#if dating}
 		<GiveDate
 			photos={picked}
@@ -233,6 +286,9 @@
 		font-size: var(--text-title-2);
 		font-weight: var(--weight-bold);
 		color: var(--fg);
+	}
+	.failed {
+		color: var(--err);
 	}
 	.close {
 		width: var(--space-32);

@@ -35,6 +35,8 @@ export interface Sidebar {
 	years: Year[];
 	albums: Album[];
 	takeouts: number;
+	archived: number;
+	trashed: number;
 	/** Photos whose file is gone from the library. */
 	missing: number;
 }
@@ -46,6 +48,9 @@ export type Place =
 	| { kind: 'album'; account: string; name: string }
 	/** The photos whose file is gone from the library. */
 	| { kind: 'missing' }
+	/** Archived: out of the grid and the years, still in their albums. */
+	| { kind: 'archive' }
+	| { kind: 'trash' }
 	| { kind: 'phones' }
 	| { kind: 'takeouts' }
 	| { kind: 'settings' }

@@ -3,6 +3,8 @@
 
 // The engine, as the page reaches it: one function per call of internal/web.
 
+import type { IconName } from './icons.js';
+
 export type Theme = 'system' | 'light' | 'dark';
 
 export interface Settings {
@@ -27,6 +29,9 @@ export interface Overview {
 	years: { year: string; count: number }[];
 	albums: { account: string; name: string; count: number }[];
 	takeouts: number;
+	/** The photos of the accounts shown in the Archive and in the Trash. */
+	archived: number;
+	trashed: number;
 	/** Those there are, for an import to choose among; the one it goes to when none is named, "" when asked. */
 	profiles: string[];
 	profile: string;
@@ -76,14 +81,25 @@ export interface GridPhoto {
 	turn?: number;
 }
 
-export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; missing?: boolean; offset: number; limit: number }) {
+/** The views besides the grid, a year and an album. */
+export type View = 'missing' | 'archive' | 'trash';
+
+export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; view?: View; offset: number; limit: number }) {
 	const p = new URLSearchParams({ offset: String(q.offset), limit: String(q.limit) });
 	if (q.year) p.set('year', q.year);
 	if (q.album) p.set('album', q.album);
 	if (q.noDate) p.set('nodate', '1');
-	if (q.missing) p.set('missing', '1');
+	if (q.view) p.set('view', q.view);
 	return call<GridPhoto[]>('GET', `/api/photos?${p}`);
 }
+
+/** What a photo's owner sets on it, from the selection's bar or the viewer:
+ *  archived or in the Trash (on), or back. ask: Delete asks first (Q2). */
+export type MarkAct = { icon: IconName; label: string; state: 'archived' | 'trashed'; on: boolean; ask?: boolean };
+
+/** Photos archived or put in the Trash (on), or brought back. */
+export const mark = (hashes: string[], state: 'archived' | 'trashed', on: boolean) =>
+	call<{ marked: number }>('POST', '/api/mark', { hashes, state, on });
 
 export interface JobState {
 	running: boolean;

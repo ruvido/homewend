@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/ruvido/homewend/internal/library"
 	"os"
 	"path/filepath"
 	"strings"
@@ -160,4 +161,44 @@ func mustRead(t *testing.T, name string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+// A photo archived on the computer leaves the grid for the Archive, one in
+// the Trash leaves both for the Trash, and the overview counts them.
+func TestArchiveAndTrashOnTheComputer(t *testing.T) {
+	config(t)
+	root := t.TempDir()
+	if err := SetDefaultLibrary(root); err != nil {
+		t.Fatal(err)
+	}
+	phone := Phone{ID: "p1", Name: "Pixel", Profile: "ron"}
+	var hashes []string
+	for _, b := range []string{"one", "two"} {
+		sum := sha256.Sum256([]byte(b))
+		h := hex.EncodeToString(sum[:])
+		if _, err := ReceivePhoto(context.Background(), phone, h, b+".JPG", int64(len(b)), strings.NewReader(b)); err != nil {
+			t.Fatal(err)
+		}
+		hashes = append(hashes, h)
+	}
+	if done, err := Mark("", library.Archived, hashes[:1], true); err != nil || len(done) != 1 {
+		t.Fatalf("archived %v %v", done, err)
+	}
+	if done, err := Mark("", library.Trashed, hashes[1:], true); err != nil || len(done) != 1 {
+		t.Fatalf("trashed %v %v", done, err)
+	}
+	count := func(view string) int {
+		list, err := Photos(Settings{}, "", "", false, view, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(list)
+	}
+	if grid, archive, trash := count(""), count(ViewArchive), count(ViewTrash); grid != 0 || archive != 1 || trash != 1 {
+		t.Errorf("grid %d archive %d trash %d, want 0 1 1", grid, archive, trash)
+	}
+	o, err := overview(root, nil, nil, "")
+	if err != nil || o.Archived != 1 || o.Trashed != 1 || o.Total != 0 {
+		t.Errorf("overview %+v %v", o, err)
+	}
 }

@@ -240,11 +240,31 @@
 		</button>
 		<button
 			class="row"
+			class:selected={is({ kind: 'archive' })}
+			title={rail ? text.archive : undefined}
+			onclick={() => go({ kind: 'archive' })}
+		>
+			<span class="lead"><Icon name="archive" size={20} /></span>
+			<span class="label">{text.archive}</span>
+			{#if data.archived > 0}<span class="count">{data.archived.toLocaleString('en')}</span>{/if}
+		</button>
+		<button
+			class="row"
+			class:selected={is({ kind: 'trash' })}
+			title={rail ? text.trash : undefined}
+			onclick={() => go({ kind: 'trash' })}
+		>
+			<span class="lead"><Icon name="trash" size={20} /></span>
+			<span class="label">{text.trash}</span>
+			{#if data.trashed > 0}<span class="count">{data.trashed.toLocaleString('en')}</span>{/if}
+		</button>
+		<button
+			class="row"
 			class:selected={is({ kind: 'takeouts' })}
 			title={rail ? text.takeouts : undefined}
 			onclick={() => go({ kind: 'takeouts' })}
 		>
-			<span class="lead"><Icon name="archive" size={20} /></span>
+			<span class="lead"><Icon name="cloud-arrow-down" size={20} /></span>
 			<span class="label">{text.takeouts}</span>
 			{#if data.takeouts > 0}<span class="count">{data.takeouts}</span>{/if}
 		</button>

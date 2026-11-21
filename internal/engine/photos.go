@@ -96,10 +96,17 @@ func openLibrary() (*library.Catalog, string, error) {
 	return c, root, err
 }
 
+// The views of the library besides the grid, a year and an album.
+const (
+	ViewMissing = "missing" // the photos not on the disk
+	ViewArchive = "archive"
+	ViewTrash   = "trash"
+)
+
 // Photos is a page of the grid, newest first: all of it, a year ("" for no
-// date), an album, or the photos not on the disk.
+// date), an album, or a view.
 // Only the photos of the accounts shown are in it.
-func Photos(s Settings, year, album string, noDate, missing bool, offset, limit int) ([]GridPhoto, error) {
+func Photos(s Settings, year, album string, noDate bool, view string, offset, limit int) ([]GridPhoto, error) {
 	c, root, err := openLibrary()
 	if err != nil || c == nil {
 		return []GridPhoto{}, err
@@ -120,8 +127,10 @@ func Photos(s Settings, year, album string, noDate, missing bool, offset, limit 
 	}
 	f := library.Filter{Year: year, Album: album, NoDate: noDate, Offset: offset, Limit: limit, Accounts: shown}
 	// An archived photo is still in its album and still missing.
-	f.Grid = album == "" && !missing
-	if missing {
+	f.Grid = album == "" && view == ""
+	f.Archived = view == ViewArchive
+	f.Trashed = view == ViewTrash
+	if view == ViewMissing {
 		f.Hashes = hashesOf(gone)
 	}
 	page, err := c.Page(f)
@@ -242,6 +251,22 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 	missingAt = time.Time{}
 	missingMu.Unlock()
 	return len(hashes), nil
+}
+
+// Mark sets state on the photos of hashes filed in profile's folder ("":
+// any), or clears it, and says which those were.
+func Mark(profile string, state library.State, hashes []string, on bool) ([]string, error) {
+	c, _, err := openLibrary()
+	if err != nil || c == nil {
+		return []string{}, err
+	}
+	defer c.Close()
+	done, err := c.Mark(state, hashes, profile, on)
+	// A photo in the Trash is not missing: the list is looked at again.
+	missingMu.Lock()
+	missingAt = time.Time{}
+	missingMu.Unlock()
+	return done, err
 }
 
 // TurnLeft gives a photo of the library a quarter turn anticlockwise, kept in

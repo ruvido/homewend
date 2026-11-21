@@ -192,6 +192,8 @@ export function sidebarOf(o: Overview): Sidebar {
 		})),
 		albums: o.albums,
 		takeouts: o.takeouts,
+		archived: o.archived,
+		trashed: o.trashed,
 		missing: missingTotal(o)
 	};
 }

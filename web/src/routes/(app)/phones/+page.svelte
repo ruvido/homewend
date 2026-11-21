@@ -10,6 +10,9 @@
 	import PairCard from '#lib/components/PairCard.svelte';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import Whose from '#lib/components/Whose.svelte';
+	import Avatar from '#lib/components/Avatar.svelte';
+	import Dialog from '#lib/components/Dialog.svelte';
+	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import { app } from '#lib/app.svelte.js';
 	import { getPhones, startPairing, stopPairing, unpair, type Phone } from '#lib/api.js';
 	import { clock, day } from '#lib/format.js';
@@ -27,7 +30,16 @@
 	let naming = $state(false);
 	// Bumped to ask a new code for the same profile: the last one expired.
 	let renew = $state(0);
-	const profile = $derived(typed.trim() || app.overview?.profile || app.overview?.profiles?.[0] || '');
+	// P6: whose phone it is is asked every time, nobody chosen beforehand: a
+	// default went unnoticed, and a phone backed up into someone else's.
+	let asking = $state(false);
+	const profile = $derived(typed.trim());
+	function whose(p: string) {
+		typed = p;
+		naming = p === '';
+		asking = false;
+		adding = true;
+	}
 	let menu = $state<{ items: MenuItem[]; anchor: HTMLElement } | null>(null);
 
 	async function look() {
@@ -110,7 +122,7 @@
 			<h1>{text.phones}</h1>
 			{#if phones?.length}<p>{text.phonesLine(counts)}</p>{/if}
 		</div>
-		{#if !adding}<PrimaryButton onclick={() => (adding = true)}><Icon name="plus-lg" size={16} />{text.addPhone}</PrimaryButton>{/if}
+		{#if !adding}<PrimaryButton onclick={() => (asking = true)}><Icon name="plus-lg" size={16} />{text.addPhone}</PrimaryButton>{/if}
 	</header>
 	{#if failed}<p class="err">{failed}</p>{/if}
 	{#if adding}
@@ -120,6 +132,20 @@
 			<Whose bind:typed bind:naming {profile} />
 			<PairCard code={naming ? '' : code} oncancel={cancel} />
 		</div>
+	{/if}
+	{#if asking}
+		<Dialog title={text.whosePhone}>
+			<p class="muted">{text.whosePhoneLead}</p>
+			<div class="who">
+				{#each app.overview?.profiles ?? [] as p (p)}
+					<button onclick={() => whose(p)}><Avatar account={{ id: p, name: p, email: '', shown: true }} /><b>{p}</b></button>
+				{/each}
+				<button onclick={() => whose('')}><span class="glyph"><Icon name="person-plus" size={16} /></span><b>{text.someoneElse}</b></button>
+			</div>
+			{#snippet actions()}
+				<SecondaryButton onclick={() => (asking = false)}>{text.cancel}</SecondaryButton>
+			{/snippet}
+		</Dialog>
 	{/if}
 	{#if phones?.length === 0 && !adding}
 		<p class="muted">{text.noPhones}</p>
@@ -182,5 +208,38 @@
 	}
 	th:nth-child(6) {
 		width: 96px;
+	}
+	/* P6: one row a person, a click goes on to the code. */
+	.who {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-8);
+	}
+	.who button {
+		display: flex;
+		align-items: center;
+		gap: var(--space-12);
+		padding: var(--space-8) var(--space-12);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-10);
+		background: var(--bg);
+		color: var(--fg);
+		font-size: var(--text-body);
+		text-align: left;
+	}
+	.who button:hover {
+		background: var(--soft);
+	}
+	.who b {
+		font-weight: var(--weight-semibold);
+	}
+	.glyph {
+		width: var(--size-avatar);
+		height: var(--size-avatar);
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-full);
+		background: var(--soft);
+		color: var(--muted);
 	}
 </style>

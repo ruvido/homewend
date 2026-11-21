@@ -22,6 +22,10 @@ type Overview struct {
 	Years    []YearCount    `json:"years"`
 	Albums   []AlbumCount   `json:"albums"`
 	Takeouts int            `json:"takeouts"`
+	// Archived and Trashed count the photos of the accounts shown in the
+	// Archive and in the Trash.
+	Archived int `json:"archived"`
+	Trashed  int `json:"trashed"`
 	// Profiles are those there are, for an import to choose among; Profile,
 	// the one it goes to when none is named, "" when it is to be asked.
 	Profiles []string `json:"profiles"`
@@ -143,6 +147,12 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	}
 	owned, err := c.CountsByOwner()
 	if err != nil {
+		return o, err
+	}
+	if o.Archived, err = c.Count(library.Filter{Archived: true, Accounts: shown}); err != nil {
+		return o, err
+	}
+	if o.Trashed, err = c.Count(library.Filter{Trashed: true, Accounts: shown}); err != nil {
 		return o, err
 	}
 	gone, err := shownMissing(c, root, shown)

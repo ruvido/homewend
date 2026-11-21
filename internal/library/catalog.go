@@ -444,8 +444,9 @@ type Filter struct {
 	Year    string
 	NoDate  bool // only the photos whose date nobody knows
 	// Archived keeps only the archived photos; Grid leaves them out, as the
-	// main grid and its years do.
-	Archived, Grid bool
+	// main grid and its years do; Trashed keeps only those in the Trash,
+	// which are otherwise in no list.
+	Archived, Grid, Trashed bool
 	// Hashes keeps only these photos; nil is all, empty is none.
 	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
 	// photos not on the disk, a temporary table if a list ever grows past.
@@ -458,8 +459,33 @@ type Filter struct {
 
 // Page returns photos newest first, narrowed by the filter.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
-	query := `SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos`
+	query, args := f.where(`SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos`)
+	query += " ORDER BY taken DESC, name ASC"
+	if f.Limit > 0 {
+		query += " LIMIT ? OFFSET ?"
+		args = append(args, f.Limit, f.Offset)
+	}
+	rows, err := c.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("reading the catalog: %w", err)
+	}
+	return scanPhotos(rows)
+}
+
+// Count is how many photos the filter keeps, its Limit aside.
+func (c *Catalog) Count(f Filter) (int, error) {
+	query, args := f.where(`SELECT COUNT(*) FROM photos`)
+	var n int
+	err := c.db.QueryRow(query, args...).Scan(&n)
+	return n, err
+}
+
+// where is query narrowed by the filter, and its arguments.
+func (f Filter) where(query string) (string, []any) {
 	where := []string{"NOT " + away}
+	if f.Trashed {
+		where = []string{"out = 0", "trashed = 1"}
+	}
 	var args []any
 	if len(f.Origins) > 0 {
 		placeholders := ""
@@ -509,17 +535,7 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 		}
 		query += clause
 	}
-	query += " ORDER BY taken DESC, name ASC"
-	if f.Limit > 0 {
-		query += " LIMIT ? OFFSET ?"
-		args = append(args, f.Limit, f.Offset)
-	}
-
-	rows, err := c.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("reading the catalog: %w", err)
-	}
-	return scanPhotos(rows)
+	return query, args
 }
 
 // photo is the record of one photo.

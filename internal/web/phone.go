@@ -219,7 +219,7 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			if !ok {
 				return
 			}
-			done, err := engine.Mark(phone, m.state, hashes, m.on)
+			done, err := engine.Mark(phone.Profile, m.state, hashes, m.on)
 			phoneReply(w, map[string][]string{m.reply: done}, err)
 		}))
 	}

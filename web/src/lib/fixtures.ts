@@ -26,6 +26,8 @@ export const twoAccounts: Sidebar = {
 		{ account: 'b', name: 'Kids', count: 6530 }
 	],
 	takeouts: 5,
+	archived: 12,
+	trashed: 3,
 	missing: 0
 };
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/session"
 	"github.com/ruvido/homewend/internal/takeout"
 )
@@ -95,7 +96,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 			reply(w, nil, err)
 			return
 		}
-		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", q.Get("missing") != "", offset, limit)
+		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", q.Get("view"), offset, limit)
 		reply(w, list, err)
 	})
 	// The photos whose file is gone, taken out of the library: one by its
@@ -111,6 +112,20 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		}
 		n, err := engine.TakeOutMissing(body.Hash, body.KeepOut)
 		reply(w, map[string]int{"taken": n}, err)
+	})
+	// Photos picked in the library archived or put in the Trash, or back.
+	mux.HandleFunc("POST /api/mark", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			State  library.State `json:"state"`
+			On     bool          `json:"on"`
+			Hashes []string      `json:"hashes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Hashes) == 0 || body.State != library.Archived && body.State != library.Trashed {
+			http.Error(w, "photos and archived or trashed are needed", http.StatusBadRequest)
+			return
+		}
+		done, err := engine.Mark("", body.State, body.Hashes, body.On)
+		reply(w, map[string]int{"marked": len(done)}, err)
 	})
 	// Dates given to photos picked in the library; when is a clock written as UTC.
 	mux.HandleFunc("POST /api/dates", func(w http.ResponseWriter, r *http.Request) {
