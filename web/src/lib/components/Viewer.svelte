@@ -5,7 +5,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
-	import { fade } from 'svelte/transition';
+	import { swap } from '#lib/motion.js';
 	import { getAbout, pathOf, turnLeft, type GridPhoto } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { takenAt } from '#lib/format.js';
@@ -166,7 +166,7 @@
 <svelte:window onkeydown={key} />
 
 {#if p}
-	<div class="viewer" transition:fade={{ duration: 150 }}>
+	<div class="viewer" in:swap out:swap={{ leaving: true }}>
 		<header>
 			<div class="meta">
 				<b>{p.taken ? taken(p.taken) : text.noDate}</b>

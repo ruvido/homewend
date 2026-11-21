@@ -3,13 +3,14 @@
 <!-- A question over the window: a title, what it needs, the buttons. -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
+	import { pop, swap } from '#lib/motion.js';
 
 	let { title, children, actions }: { title: string; children: Snippet; actions: Snippet } = $props();
 	const id = `dialog-${Math.random().toString(36).slice(2)}`;
 </script>
 
-<div class="scrim">
-	<div class="dialog" role="dialog" aria-modal="true" aria-labelledby={id}>
+<div class="scrim" in:swap out:swap={{ leaving: true }}>
+	<div class="dialog" in:pop out:pop={{ leaving: true }} role="dialog" aria-modal="true" aria-labelledby={id}>
 		<h2 {id}>{title}</h2>
 		{@render children()}
 		<div class="actions">{@render actions()}</div>

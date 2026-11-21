@@ -16,7 +16,7 @@
 	   at once never blinks a placeholder first. */
 	.skeleton {
 		opacity: 0;
-		animation: appear 150ms ease 300ms forwards;
+		animation: appear var(--motion-base) var(--ease-out) var(--motion-wait) forwards;
 		display: flex;
 		flex-direction: column;
 		gap: 8px;

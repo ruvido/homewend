@@ -3,6 +3,8 @@
 <!-- P1–P3: the phones paired with this computer; Add a phone shows the code. -->
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { flip } from 'svelte/animate';
+	import { moving, reveal } from '#lib/motion.js';
 	import ContextMenu, { type MenuItem } from '#lib/components/ContextMenu.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import PairCard from '#lib/components/PairCard.svelte';
@@ -112,10 +114,12 @@
 	</header>
 	{#if failed}<p class="err">{failed}</p>{/if}
 	{#if adding}
-		<!-- P2: whose phone first, then its code. -->
-		<Whose bind:typed bind:naming {profile} />
-		<!-- At once, its code's place kept until the code comes. -->
-		<PairCard code={naming ? '' : code} oncancel={cancel} />
+		<!-- P2: whose phone, then its code, coming as one block; the code's
+		     place kept until the code comes. -->
+		<div class="adding" in:reveal out:reveal={{ leaving: true }}>
+			<Whose bind:typed bind:naming {profile} />
+			<PairCard code={naming ? '' : code} oncancel={cancel} />
+		</div>
 	{/if}
 	{#if phones?.length === 0 && !adding}
 		<p class="muted">{text.noPhones}</p>
@@ -127,7 +131,7 @@
 			<tbody>
 				{#each phones as p (p.id)}
 					{@const s = states[stateOf(p)]}
-					<tr>
+					<tr animate:flip={moving()}>
 						<td><span class="name"><Icon name="phone" size={16} /><b>{p.name}</b></span></td>
 						<td>{p.profile}</td>
 						<td>{p.backup ? `${day(new Date(p.backup))}, ${clock(new Date(p.backup))}` : '—'}</td>
@@ -150,6 +154,11 @@
 {#if menu}<ContextMenu items={menu.items} anchor={menu.anchor} onclose={() => (menu = null)} />{/if}
 
 <style>
+	.adding {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-24);
+	}
 	header {
 		display: flex;
 		align-items: center;

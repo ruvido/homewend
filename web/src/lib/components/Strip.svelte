@@ -4,7 +4,7 @@
      action; its tone says how much it matters. -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { slide } from 'svelte/transition';
+	import { reveal } from '#lib/motion.js';
 
 	let {
 		tone = 'accent',
@@ -23,7 +23,7 @@
 	} = $props();
 </script>
 
-<div class="banner {tone}" transition:slide={{ duration: 180 }}>
+<div class="banner {tone}" in:reveal out:reveal={{ leaving: true }}>
 	<span class="icon">{@render icon()}</span>
 	<div class="text"><b>{title}</b><span>{detail}</span></div>
 	{#if action}<button class="act" onclick={onaction}>{action}</button>{/if}

@@ -71,8 +71,8 @@
 		border-radius: 1px;
 		background: var(--fg);
 		transition:
-			transform 200ms ease,
-			opacity 200ms ease;
+			transform var(--motion-base) var(--ease-out),
+			opacity var(--motion-base) var(--ease-out);
 	}
 	.menu i:nth-child(1) {
 		top: 6px;
@@ -111,7 +111,7 @@
 		color: var(--accent);
 		font-size: var(--text-callout);
 		font-weight: 600;
-		transition: background-color 120ms ease;
+		transition: background-color var(--motion-fast) var(--ease-out);
 	}
 	.import:hover {
 		background: var(--accent-soft);

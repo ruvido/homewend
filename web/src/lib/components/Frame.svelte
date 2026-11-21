@@ -110,10 +110,10 @@
 		z-index: 2;
 	}
 	.side :global(nav) {
-		transition: width 180ms ease;
+		transition: width var(--motion-base) var(--ease-out);
 	}
 	.side.over {
-		animation: slide 180ms ease;
+		animation: slide var(--motion-base) var(--ease-out);
 		position: absolute;
 		left: 0;
 		top: 0;

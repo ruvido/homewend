@@ -8,6 +8,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Whose from '#lib/components/Whose.svelte';
+	import { swap } from '#lib/motion.js';
 	import { app, cards as cardList, lookCards, refresh, watchCards } from '#lib/app.svelte.js';
 	import {
 		ApiError,
@@ -95,8 +96,11 @@
 			// The engine answers within a second; the next ask will do.
 		}
 	}
+	// The engine has answered once: the step shown is the right one.
+	let ready = $state(false);
 	onMount(() => {
 		load().then(() => {
+			ready = true;
 			// A copy under way, or waiting for its card, is where the window opens.
 			if (im?.running || im?.problem === 'taken-out') {
 				choosing = false;
@@ -325,6 +329,10 @@
 
 <!-- A plan looked at again takes no click until the new one comes: it would be lost. -->
 <div class="page" inert={!!im?.running && !!kept}>
+	<!-- Nothing until the engine has said where the import is: never the
+	     choice shown a moment before the copy under way. Then each step
+	     gives way to the next in place. -->
+	{#if ready}{#key view}<div class="step" in:swap out:swap={{ leaving: true }}>
 	{#if view === 'choose'}
 		<!-- J1: the library the photos go to, then a card or a folder, brought in at once. -->
 		<h1>{cards.length > 0 ? text.importChoose : text.importNoCard}</h1>
@@ -574,26 +582,33 @@
 		</p>
 		<div class="actions"><PrimaryButton onclick={() => (choosing = true)}>{text.lookAgain}</PrimaryButton></div>
 	{/if}
+	</div>{/key}{/if}
 </div>
 
 <style>
+	/* The steps overlap in one cell while one gives way to the next. */
 	.page {
 		height: 100%;
 		overflow-y: auto;
+		display: grid;
+		grid-template: minmax(100%, max-content) / 100%;
+		padding: 64px 40px 40px;
+	}
+	.step {
+		grid-area: 1 / 1;
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
 		gap: 16px;
-		padding: 64px 40px 40px;
 	}
 	/* The page scrolls whole, its scrollbar at the window's edge; what is
 	   read stays a column a line can be followed across. Picking dates
 	   takes more: the photos and the panel beside them. */
-	.page > :global(*) {
+	.step > :global(*) {
 		max-width: 760px;
 	}
 	/* The end: the column beside the years, as at the end of a download (J3, A4). */
-	.page > .end {
+	.step > .end {
 		max-width: none;
 		width: 100%;
 		flex: 1;
@@ -644,7 +659,7 @@
 	.outrow .link {
 		font-size: var(--text-callout);
 	}
-	.page > :global(.dates) {
+	.step > :global(.dates) {
 		max-width: 1200px;
 	}
 	h1 {
@@ -769,7 +784,7 @@
 		height: 100%;
 		border-radius: 999px;
 		background: var(--accent);
-		transition: width 0.5s;
+		transition: width var(--motion-ambient) var(--ease-out);
 	}
 	.how {
 		width: 100%;
@@ -848,7 +863,7 @@
 		color: var(--muted);
 	}
 	/* I3: the folders, the years and what stays out beside what happens. */
-	.page > .plan {
+	.step > .plan {
 		max-width: 1200px;
 		width: 100%;
 	}

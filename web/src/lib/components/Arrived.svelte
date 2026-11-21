@@ -121,7 +121,7 @@
 	.tile img + img,
 	.tile img:only-of-type {
 		opacity: 0;
-		transition: opacity 600ms ease;
+		transition: opacity var(--motion-ambient) var(--ease-out);
 	}
 	.tile img.in {
 		opacity: 1;

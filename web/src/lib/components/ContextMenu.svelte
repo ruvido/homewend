@@ -38,6 +38,7 @@
 </script>
 
 <script lang="ts">
+	import { swap } from '#lib/motion.js';
 	let {
 		items,
 		anchor,
@@ -129,6 +130,8 @@
 <!-- 8px padding, 32px items: the first item's centre is 24px below the top. -->
 <div
 	bind:this={bubble}
+	in:swap
+	out:swap={{ leaving: true }}
 	class="menu" class:flip style:left="{flip ? at.left - 7 - WIDTH : x + 7}px" style:top="{y - 24}px" role="menu">
 	{#each items as item (item.label)}
 		<button role="menuitem" onclick={() => pick(item)}><Icon name={item.icon} size={16} />{item.label}</button>

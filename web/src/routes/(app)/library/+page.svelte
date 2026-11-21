@@ -101,7 +101,8 @@
 		const p = place;
 		void reload;
 		let stopped = false;
-		photos = [];
+		// The photos shown stay until the first chunk replaces them: no
+		// empty grid between two places.
 		loaded = false;
 		(async () => {
 			const q =

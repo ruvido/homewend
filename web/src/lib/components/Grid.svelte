@@ -198,8 +198,8 @@
 		display: block;
 		opacity: 0;
 		transition:
-			opacity 160ms ease,
-			scale 120ms ease;
+			opacity var(--motion-base) var(--ease-out),
+			scale var(--motion-fast) var(--ease-out);
 	}
 	img:global(.in) {
 		opacity: 1;
@@ -221,7 +221,7 @@
 		color: var(--on-photo);
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 		opacity: 0;
-		transition: opacity 120ms ease;
+		transition: opacity var(--motion-fast) var(--ease-out);
 	}
 	.tile:hover .pick,
 	.selecting .pick {
