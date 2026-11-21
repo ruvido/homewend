@@ -49,7 +49,7 @@
 		color: var(--accent);
 	}
 	.icon.live {
-		animation: pulse 1.6s ease-in-out infinite;
+		animation: pulse var(--motion-pulse) ease-in-out infinite;
 	}
 	@keyframes pulse {
 		50% {
@@ -57,7 +57,7 @@
 		}
 	}
 	.icon.spin {
-		animation: spin 1s linear infinite;
+		animation: spin var(--motion-spin) linear infinite;
 	}
 	@keyframes spin {
 		to {

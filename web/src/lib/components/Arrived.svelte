@@ -128,7 +128,7 @@
 	}
 	.spin {
 		display: grid;
-		animation: spin 1s linear infinite;
+		animation: spin var(--motion-spin) linear infinite;
 	}
 	@keyframes spin {
 		to {

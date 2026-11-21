@@ -154,6 +154,7 @@
 {#if menu}<ContextMenu items={menu.items} anchor={menu.anchor} onclose={() => (menu = null)} />{/if}
 
 <style>
+	/* One box for the block to open in: the listing's column, again inside it. */
 	.adding {
 		display: flex;
 		flex-direction: column;

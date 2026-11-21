@@ -14,11 +14,11 @@ const token = (name: string) =>
 const still = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /** A duration token in ms, 0 under reduced motion. */
-export const ms = (name: 'motion-fast' | 'motion-base') => (still() ? 0 : parseFloat(token(name)) || 0);
+const ms = (name: 'motion-fast' | 'motion-base') => (still() ? 0 : parseFloat(token(name)) || 0);
 
 /** A cubic-bezier token as an easing function: the curve the CSS uses. */
 function curve(name: 'ease-out' | 'ease-in'): (t: number) => number {
-	const [x1, y1, x2, y2] = (token(name).match(/[\d.]+/g) ?? []).map(Number);
+	const [x1, y1, x2, y2] = (token(name).match(/-?[\d.]+/g) ?? []).map(Number);
 	if ([x1, y1, x2, y2].some((n) => n === undefined || isNaN(n))) return cubicOut;
 	const at = (a: number, b: number, s: number) => 3 * a * s * (1 - s) ** 2 + 3 * b * s * s * (1 - s) + s ** 3;
 	return (t) => {
@@ -43,7 +43,7 @@ const timing = (leaving: boolean) =>
 export function reveal(node: Element, { leaving = false } = {}): TransitionConfig {
 	const opts = timing(leaving);
 	const open = slide(node, opts);
-	return { ...opts, css: (t, u) => `${open.css?.(t, u) ?? ''}opacity: ${t};` };
+	return { ...opts, css: (t, u) => `${open.css?.(t, u) ?? ''}; opacity: ${t}` };
 }
 
 /** One content giving way to another in the same place. */

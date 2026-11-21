@@ -9,6 +9,7 @@
 	import { onMount } from 'svelte';
 	import Whose from '#lib/components/Whose.svelte';
 	import { swap } from '#lib/motion.js';
+	import Skeleton from '#lib/components/Skeleton.svelte';
 	import { app, cards as cardList, lookCards, refresh, watchCards } from '#lib/app.svelte.js';
 	import {
 		ApiError,
@@ -332,7 +333,8 @@
 	<!-- Nothing until the engine has said where the import is: never the
 	     choice shown a moment before the copy under way. Then each step
 	     gives way to the next in place. -->
-	{#if ready}{#key view}<div class="step" in:swap out:swap={{ leaving: true }}>
+	{#if !ready}<Skeleton label={text.readingImport} />
+	{:else}{#key `${view}/${picking ?? ''}/${dating}`}<div class="step" in:swap out:swap={{ leaving: true }}>
 	{#if view === 'choose'}
 		<!-- J1: the library the photos go to, then a card or a folder, brought in at once. -->
 		<h1>{cards.length > 0 ? text.importChoose : text.importNoCard}</h1>
@@ -697,7 +699,7 @@
 	}
 	.spin {
 		display: grid;
-		animation: spin 1s linear infinite;
+		animation: spin var(--motion-spin) linear infinite;
 	}
 	@keyframes spin {
 		to {

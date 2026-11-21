@@ -12,7 +12,7 @@
 		height: 100%;
 		display: grid;
 		place-items: center;
-		animation: breathe 1.6s ease-in-out infinite;
+		animation: breathe var(--motion-pulse) ease-in-out infinite;
 	}
 	@keyframes breathe {
 		50% {

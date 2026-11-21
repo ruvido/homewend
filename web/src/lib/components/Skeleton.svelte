@@ -29,7 +29,7 @@
 		border-radius: 12px;
 		background: linear-gradient(90deg, var(--soft) 0%, var(--line) 50%, var(--soft) 100%);
 		background-size: 200% 100%;
-		animation: shimmer 1.4s ease-in-out infinite;
+		animation: shimmer var(--motion-pulse) ease-in-out infinite;
 	}
 	@keyframes appear {
 		to {

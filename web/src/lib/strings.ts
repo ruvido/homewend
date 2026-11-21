@@ -240,6 +240,7 @@ export const text = {
 	until: (d: string) => `Until ${d}`,
 	download: 'Download',
 	newTakeout: 'New takeout',
+	readingImport: 'Looking at the import',
 	readingTakeouts: 'Reading your takeouts from Google…',
 	takeoutsFailed: 'Google did not answer.',
 	noTakeouts: 'No takeouts on Google yet.',

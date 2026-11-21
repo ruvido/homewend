@@ -77,7 +77,7 @@
 	.spin {
 		display: grid;
 		margin-left: -4px;
-		animation: spin 1s linear infinite;
+		animation: spin var(--motion-spin) linear infinite;
 	}
 	@keyframes spin {
 		to {

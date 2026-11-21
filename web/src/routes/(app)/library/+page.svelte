@@ -97,12 +97,17 @@
 	// The whole list, a chunk at a time: the grid needs every photo's month to
 	// lay itself out, and the first chunk shows while the rest arrives.
 	const CHUNK = 5000;
+	// The place whose photos are shown, to tell a new place from a reload.
+	let shown = '';
 	$effect(() => {
 		const p = place;
 		void reload;
 		let stopped = false;
-		// The photos shown stay until the first chunk replaces them: no
-		// empty grid between two places.
+		// Another place starts empty, at its top: its title over the last
+		// place's photos would say a count, a take-out, a photo not its own.
+		// The same place loaded again keeps its photos until they come.
+		const here = urlOf(p);
+		if (here !== shown) ((photos = []), (shown = here));
 		loaded = false;
 		(async () => {
 			const q =
@@ -115,11 +120,17 @@
 						: p.kind === 'missing'
 							? { missing: true }
 							: {};
-			for (let offset = 0; !stopped; offset += CHUNK) {
-				const chunk = await getPhotos({ ...q, offset, limit: CHUNK });
-				if (stopped) return;
-				photos = offset === 0 ? chunk : photos.concat(chunk);
-				if (chunk.length < CHUNK) break;
+			try {
+				for (let offset = 0; !stopped; offset += CHUNK) {
+					const chunk = await getPhotos({ ...q, offset, limit: CHUNK });
+					if (stopped) return;
+					photos = offset === 0 ? chunk : photos.concat(chunk);
+					if (chunk.length < CHUNK) break;
+				}
+			} catch {
+				// No answer: nothing shown is better than another list.
+				if (!stopped) photos = [];
+				return;
 			}
 			loaded = true;
 			if (reopen) {
