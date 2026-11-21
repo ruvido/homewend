@@ -4,7 +4,6 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { text } from '#lib/strings.js';
 
-
 	let {
 		onclick,
 		waiting = false,

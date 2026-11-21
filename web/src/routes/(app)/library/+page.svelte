@@ -158,7 +158,7 @@
 					{#if where}
 						<span class="state {where.kind}">
 							·
-							{#if where.kind === 'ok'}<Icon name="check-circle" size={14} />{:else if where.kind === 'missing'}<Icon name="exclamation-circle" size={14} />{:else}<Icon name="arrow-repeat" size={14} />{/if}
+							{#if where.kind === 'ok'}<Icon name="check-circle" size={14} />{:else if where.kind === 'missing'}<Icon name="exclamation-circle" size={14} />{:else}<Icon name="hourglass-split" size={14} />{/if}
 							{where.label}
 						</span>
 					{/if}

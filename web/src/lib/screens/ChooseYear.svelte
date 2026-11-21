@@ -113,7 +113,7 @@
 						{#if asked.get(y.year)}
 							{@const a = asked.get(y.year)!}
 							<span class="asked {a.state}">
-								{#if a.state === 'downloaded'}<Icon name="check-circle" size={12} />{:else if a.state === 'expired'}<Icon name="calendar-x" size={12} />{:else if a.state === 'preparing'}<Icon name="arrow-repeat" size={12} />{:else}<Icon name="cloud-arrow-down" size={12} />{/if}
+								{#if a.state === 'downloaded'}<Icon name="check-circle" size={12} />{:else if a.state === 'expired'}<Icon name="calendar-x" size={12} />{:else if a.state === 'preparing'}<Icon name="hourglass-split" size={12} />{:else}<Icon name="cloud-arrow-down" size={12} />{/if}
 								{text.askedYear[a.state]} · {text.askedOn(a.day)}
 							</span>
 						{/if}

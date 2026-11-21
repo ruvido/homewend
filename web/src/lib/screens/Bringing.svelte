@@ -227,7 +227,7 @@
 						<span class="folder"><Icon name="folder" size={18} /></span>
 						<span class="name">{text.stillSorting}<small>{text.stillSortingDesc}</small></span>
 						<span class="count">{job.unassigned.toLocaleString('en')}</span>
-						<span class="state arriving"><Icon name="arrow-repeat" size={18} /></span>
+						<span class="state arriving"><Icon name="hourglass-split" size={18} /></span>
 					</div>
 				{/if}
 			</YearsPanel>

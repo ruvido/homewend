@@ -161,7 +161,7 @@
 						<span class="label">{year.label}</span>
 						<span class="count">{year.count.toLocaleString('en')}</span>
 						{#if year.state === 'arriving'}
-							<span class="state arriving"><Icon name="arrow-repeat" size={16} /></span>
+							<span class="state arriving"><Icon name="hourglass-split" size={16} /></span>
 						{/if}
 					</button>
 				{/each}
