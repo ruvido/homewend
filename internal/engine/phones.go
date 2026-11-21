@@ -307,15 +307,15 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 	return have, out, archived, err
 }
 
-// Archive archives the photos of hashes a phone's profile holds, or brings
-// them back to the grid, and says which those were.
-func Archive(phone Phone, hashes []string, archived bool) ([]string, error) {
+// Mark sets state on the photos of hashes a phone's profile holds, or
+// clears it, and says which those were.
+func Mark(phone Phone, state library.State, hashes []string, on bool) ([]string, error) {
 	c, _, err := openLibrary()
 	if err != nil || c == nil {
 		return []string{}, err
 	}
 	defer c.Close()
-	return c.Archive(hashes, phone.Profile, archived)
+	return c.Mark(state, hashes, phone.Profile, on)
 }
 
 // Received is what became of a photo a phone sent.

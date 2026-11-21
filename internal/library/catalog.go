@@ -117,6 +117,10 @@ CREATE INDEX IF NOT EXISTS photos_by_origin ON photos(origin, taken DESC);
 CREATE INDEX IF NOT EXISTS photos_by_path   ON photos(path);
 `
 
+// away is the SQL that says a photo is not in the library's lists: deleted
+// and kept out, or in the Trash.
+const away = "(out = 1 OR trashed = 1)"
+
 // catalogDSN is how the index at path is opened, with options after the
 // path's "?".
 func catalogDSN(path, options string) string {
@@ -148,10 +152,11 @@ func OpenCatalog(path string) (*Catalog, error) {
 		db.Close()
 		return nil, fmt.Errorf("preparing the catalog: %w", err)
 	}
-	// A photo turned by the person, in quarter turns, and one archived: out
-	// of the grid and the years, still in its albums, still backed up. Added
+	// A photo turned by the person, in quarter turns; one archived: out of
+	// the grid and the years, still in its albums, still backed up; one in
+	// the Trash: out of every list and every import until restored. Added
 	// the same way.
-	for _, column := range []string{"turn", "archived"} {
+	for _, column := range []string{"turn", string(Archived), string(Trashed)} {
 		if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			db.Close()
 			return nil, fmt.Errorf("preparing the catalog: %w", err)
@@ -374,6 +379,16 @@ func (c *Catalog) PathOf(hash string) (string, bool, error) {
 	return path, true, nil
 }
 
+// inTrash says whether the photo of hash is in the Trash.
+func (c *Catalog) inTrash(hash string) (bool, error) {
+	var in bool
+	err := c.db.QueryRow(`SELECT trashed FROM photos WHERE hash = ?`, hash).Scan(&in)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return in, err
+}
+
 // PathTaken reports whether some photo is recorded at this relative path.
 func (c *Catalog) PathTaken(path string) (bool, error) {
 	var n int
@@ -439,8 +454,9 @@ type Filter struct {
 	Year    string
 	NoDate  bool // only the photos whose date nobody knows
 	// Archived keeps only the archived photos; Grid leaves them out, as the
-	// main grid and its years do.
-	Archived, Grid bool
+	// main grid and its years do. Trashed keeps only those in the Trash,
+	// which are otherwise in no list.
+	Archived, Grid, Trashed bool
 	// Hashes keeps only these photos; nil is all, empty is none.
 	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
 	// photos not on the disk, a temporary table if a list ever grows past.
@@ -454,9 +470,8 @@ type Filter struct {
 // Page returns photos newest first, narrowed by the filter.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
 	query := `SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos`
-	where := []string{"out = 0"}
-	var args []any
-
+	where := []string{"out = 0", "trashed = ?"}
+	args := []any{f.Trashed}
 	if len(f.Origins) > 0 {
 		placeholders := ""
 		for i, origin := range f.Origins {
@@ -560,7 +575,7 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 // CountsByOrigin is what the filter chips show: how many of each, so nobody
 // clicks "WhatsApp" to find out it is empty.
 func (c *Catalog) CountsByOrigin() (map[Origin]int, error) {
-	rows, err := c.db.Query(`SELECT origin, COUNT(*) FROM photos WHERE out = 0 AND archived = 0 GROUP BY origin`)
+	rows, err := c.db.Query(`SELECT origin, COUNT(*) FROM photos WHERE NOT ` + away + ` AND archived = 0 GROUP BY origin`)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +596,7 @@ func (c *Catalog) CountsByOrigin() (map[Origin]int, error) {
 // AlbumNames lists the albums, with how many photos each holds.
 func (c *Catalog) AlbumNames() (map[string]int, error) {
 	rows, err := c.db.Query(
-		`SELECT album, COUNT(*) FROM album_members WHERE hash NOT IN (SELECT hash FROM photos WHERE out = 1) GROUP BY album ORDER BY album`)
+		`SELECT album, COUNT(*) FROM album_members WHERE hash NOT IN (SELECT hash FROM photos WHERE ` + away + `) GROUP BY album ORDER BY album`)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +617,7 @@ func (c *Catalog) AlbumNames() (map[string]int, error) {
 // CountsByYear is how many photos each year holds, and under "" those whose
 // date nobody knows.
 func (c *Catalog) CountsByYear(accounts []string) (map[string]int, error) {
-	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM photos WHERE out = 0 AND archived = 0`
+	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM photos WHERE NOT ` + away + ` AND archived = 0`
 	clause, args := ownedBy(accounts)
 	if clause != "" {
 		query += " AND " + clause
@@ -627,7 +642,7 @@ func (c *Catalog) CountsByYear(accounts []string) (map[string]int, error) {
 
 // CountsByOwner is how many photos each account brought, by address.
 func (c *Catalog) CountsByOwner() (map[string]int, error) {
-	rows, err := c.db.Query(`SELECT account, COUNT(*) FROM owners WHERE hash NOT IN (SELECT hash FROM photos WHERE out = 1) GROUP BY account`)
+	rows, err := c.db.Query(`SELECT account, COUNT(*) FROM owners WHERE hash NOT IN (SELECT hash FROM photos WHERE ` + away + `) GROUP BY account`)
 	if err != nil {
 		return nil, err
 	}
@@ -647,7 +662,7 @@ func (c *Catalog) CountsByOwner() (map[string]int, error) {
 // Latest are the photos recorded last, newest first: the first to arrive in
 // a download are the last of these once it is over, the latest while it runs.
 func (c *Catalog) Latest(n int) ([]Photo, error) {
-	rows, err := c.db.Query(`SELECT hash, name, turn FROM photos WHERE out = 0 ORDER BY rowid DESC LIMIT ?`, n)
+	rows, err := c.db.Query(`SELECT hash, name, turn FROM photos WHERE NOT `+away+` ORDER BY rowid DESC LIMIT ?`, n)
 	if err != nil {
 		return nil, err
 	}
@@ -663,10 +678,18 @@ func (c *Catalog) Latest(n int) ([]Photo, error) {
 	return out, rows.Err()
 }
 
-// Archive archives the photos of hashes filed in profile's folder, or brings
-// them back to the grid, and says which those were: a photo of another
-// profile, or not in the library, is left as it is.
-func (c *Catalog) Archive(hashes []string, profile string, archived bool) ([]string, error) {
+// State is what a photo's owner can set on it, by the catalog's column.
+type State string
+
+const (
+	Archived State = "archived"
+	Trashed  State = "trashed"
+)
+
+// Mark sets state on the photos of hashes filed in profile's folder, or
+// clears it, and says which those were: a photo of another profile, or not
+// in the library, is left as it is.
+func (c *Catalog) Mark(state State, hashes []string, profile string, on bool) ([]string, error) {
 	tx, err := c.db.Begin()
 	if err != nil {
 		return nil, err
@@ -682,7 +705,7 @@ func (c *Catalog) Archive(hashes []string, profile string, archived bool) ([]str
 		if err != nil {
 			return nil, err
 		}
-		if _, err := tx.Exec(`UPDATE photos SET archived = ? WHERE hash = ?`, archived, h); err != nil {
+		if _, err := tx.Exec(`UPDATE photos SET `+string(state)+` = ? WHERE hash = ?`, on, h); err != nil {
 			return nil, err
 		}
 		done = append(done, h)
@@ -738,7 +761,7 @@ func (c *Catalog) AlbumsByOwner() ([]AlbumCount, error) {
 	rows, err := c.db.Query(`
 		SELECT COALESCE(o.account, ''), m.album, COUNT(*)
 		FROM album_members m LEFT JOIN album_owners o ON o.album = m.album
-		WHERE m.hash NOT IN (SELECT hash FROM photos WHERE out = 1)
+		WHERE m.hash NOT IN (SELECT hash FROM photos WHERE ` + away + `)
 		GROUP BY 1, 2 ORDER BY 2, 1`)
 	if err != nil {
 		return nil, err
@@ -776,7 +799,7 @@ type Gone struct {
 // drops) is not missing, nor is any when the library itself went away
 // while it was looked at. A photo kept out whose file is back is in again.
 func (c *Catalog) Missing(root string) ([]Gone, error) {
-	rows, err := c.db.Query(`SELECT hash, path, COALESCE(strftime('%Y', taken, 'unixepoch'), ''), out FROM photos`)
+	rows, err := c.db.Query(`SELECT hash, path, COALESCE(strftime('%Y', taken, 'unixepoch'), ''), out FROM photos WHERE trashed = 0`)
 	if err != nil {
 		return nil, fmt.Errorf("reading the catalog: %w", err)
 	}

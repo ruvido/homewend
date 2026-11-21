@@ -201,14 +201,26 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		have, out, archived, err := engine.Have(hashes)
 		phoneReply(w, map[string][]string{"have": have, "out": out, "archived": archived}, err)
 	}))
-	for path, archive := range map[string]bool{"archive": true, "unarchive": false} {
-		mux.Handle("POST /v1/"+path, paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+	// What the phone's owner sets on its photos: the call, the state, on or
+	// off, and the reply's key.
+	for _, m := range []struct {
+		path  string
+		state library.State
+		on    bool
+		reply string
+	}{
+		{"archive", library.Archived, true, "archived"},
+		{"unarchive", library.Archived, false, "unarchived"},
+		{"trash", library.Trashed, true, "trashed"},
+		{"untrash", library.Trashed, false, "untrashed"},
+	} {
+		mux.Handle("POST /v1/"+m.path, paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 			hashes, ok := askedHashes(w, r)
 			if !ok {
 				return
 			}
-			done, err := engine.Archive(phone, hashes, archive)
-			phoneReply(w, map[string][]string{path + "d": done}, err)
+			done, err := engine.Mark(phone, m.state, hashes, m.on)
+			phoneReply(w, map[string][]string{m.reply: done}, err)
 		}))
 	}
 	mux.Handle("PUT /v1/photo/{hash}", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {

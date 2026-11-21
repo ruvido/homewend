@@ -6,6 +6,7 @@ package library
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -133,11 +134,11 @@ func TestAnArchivedPhoto(t *testing.T) {
 		}
 	}
 	c.addAlbum("Trip", "a", "")
-	if done, _ := c.Archive([]string{"a"}, "ann", true); len(done) != 0 {
+	if done, _ := c.Mark(Archived, []string{"a"}, "ann", true); len(done) != 0 {
 		t.Errorf("another profile archived %v", done)
 	}
 	for range 2 { // twice: archiving is idempotent
-		if done, err := c.Archive([]string{"a", "zz"}, "ron", true); err != nil || len(done) != 1 {
+		if done, err := c.Mark(Archived, []string{"a", "zz"}, "ron", true); err != nil || len(done) != 1 {
 			t.Fatalf("archived %v %v, want a", done, err)
 		}
 	}
@@ -151,10 +152,51 @@ func TestAnArchivedPhoto(t *testing.T) {
 	if len(grid) != 1 || grid[0].Hash != "b" || len(album) != 1 || len(archive) != 1 || archive[0].Hash != "a" || years["2020"] != 1 {
 		t.Errorf("grid %v album %v archive %v years %v", grid, album, archive, years)
 	}
-	if done, _ := c.Archive([]string{"a"}, "ron", false); len(done) != 1 {
+	if done, _ := c.Mark(Archived, []string{"a"}, "ron", false); len(done) != 1 {
 		t.Errorf("unarchived %v", done)
 	}
 	if grid, _ := c.Page(Filter{Grid: true}); len(grid) != 2 {
 		t.Errorf("back: %v", grid)
+	}
+}
+
+// A photo in the Trash is in no list, not even its album, and is held as
+// deleted: no import and no phone brings it in again; restored, it is back.
+func TestAPhotoInTheTrash(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, WorkDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c, err := OpenCatalog(filepath.Join(root, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, h := range []string{"a", "b"} {
+		if err := c.Put(Photo{Hash: h, Path: "ron/" + h, Name: h}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.addAlbum("Trip", "a", "")
+	if done, err := c.Mark(Trashed, []string{"a"}, "ron", true); err != nil || len(done) != 1 {
+		t.Fatalf("trashed %v %v", done, err)
+	}
+	every, _ := c.Page(Filter{})
+	album, _ := c.Page(Filter{Album: "Trip"})
+	trash, _ := c.Page(Filter{Trashed: true})
+	albums, _ := c.AlbumNames()
+	if len(every) != 1 || len(album) != 0 || len(trash) != 1 || albums["Trip"] != 0 {
+		t.Errorf("every %v album %v trash %v albums %v", every, album, trash, albums)
+	}
+	// Its file is still there: held as deleted all the same, and not missing.
+	if _, known, deleted, err := Holds(c, root, "a"); err != nil || !known || !deleted {
+		t.Errorf("held %v deleted %v %v, want deleted", known, deleted, err)
+	}
+	if gone, _ := c.Missing(root); len(gone) != 1 || gone[0].Hash != "b" {
+		t.Errorf("missing %v, want b only", gone)
+	}
+	c.Mark(Trashed, []string{"a"}, "ron", false)
+	if every, _ := c.Page(Filter{}); len(every) != 2 {
+		t.Errorf("restored: %v", every)
 	}
 }

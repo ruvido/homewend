@@ -155,7 +155,17 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		if err != nil {
 			return done, err
 		}
-		v := done.judge(seen, hash, f.Root, item.Path, known && !deleted, deleted, back(item.Path))
+		// A photo in the Trash comes back by Restore, never by an import:
+		// its file is still in the library.
+		wanted := back(item.Path)
+		if deleted && wanted {
+			trashed, err := catalog.inTrash(hash)
+			if err != nil {
+				return done, err
+			}
+			wanted = !trashed
+		}
+		v := done.judge(seen, hash, f.Root, item.Path, known && !deleted, deleted, wanted)
 		if v == staysOut {
 			continue
 		}
@@ -267,13 +277,18 @@ func kindOf(path string) string {
 }
 
 // Holds is where the library holds the photo of hash, below root,
-// and whether someone deleted it: listed in the catalog, gone from the disk.
+// and whether someone deleted it: listed in the catalog, gone from the disk
+// or in the Trash.
 // A disk that answers late is not a deletion. The look and the copy judge
 // a photo here, alike.
 func Holds(catalog *Catalog, root, hash string) (path string, known, deleted bool, err error) {
 	path, known, err = catalog.PathOf(hash)
 	if err != nil || !known {
 		return path, known, false, err
+	}
+	trashed, err := catalog.inTrash(hash)
+	if err != nil || trashed {
+		return path, true, trashed, err
 	}
 	_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(path)))
 	return path, true, errors.Is(gone, fs.ErrNotExist), nil
