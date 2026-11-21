@@ -783,7 +783,7 @@ func TestTheTwinOfAPhotoBroughtBackComesInWithIt(t *testing.T) {
 }
 
 // A photo in the Trash stays out of the look and the copy alike, even with
-// every deleted photo asked back, and is not offered by name.
+// every deleted photo asked back: in the library, not offered back.
 func TestAPhotoInTheTrashStaysOutOfAnImport(t *testing.T) {
 	card := t.TempDir()
 	write(t, card, "DCIM/100/A.JPG", exifPhoto("2019:07:14 10:00:00", "a"))
@@ -809,7 +809,7 @@ func TestAPhotoInTheTrashStaysOutOfAnImport(t *testing.T) {
 	plan, err := PlanImport(context.Background(), card, folder, catalog, PlanOptions{Root: root, Asked: asked}, nil)
 	done, err2 := Import(context.Background(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Fits: fits, Asked: asked}, nil)
 	for _, c := range []Counts{plan.Counts, done.Counts} {
-		if c.Deleted != 1 || c.BroughtBack != 0 || len(c.DeletedNames) != 0 {
+		if c.Deleted != 0 || c.BroughtBack != 0 || c.InLibrary != 1 {
 			t.Errorf("%+v, %v %v; want it left out, unnamed", c, err, err2)
 		}
 	}

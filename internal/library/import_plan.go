@@ -328,11 +328,12 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 			}
 		}
 		var held Held
+		var inLib bool // held, its file in place: a twin of it too
 		if catalog != nil {
 			if held, err = Holds(catalog, opt.Root, hash); err != nil {
 				return plan, err
 			}
-			if held.Known && !held.Deleted {
+			if inLib = held.Known && !held.Deleted; inLib {
 				group.InLibrary++
 			}
 		}
@@ -347,7 +348,7 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 		// A date given moves it, a twin too, as redateInLibrary decides:
 		// one another profile holds keeps the date that profile gives.
 		if dated {
-			if held.Known && !held.Deleted && !filedIn(held.Path, opt.Profile) {
+			if inLib && !filedIn(held.Path, opt.Profile) {
 				plan.NotRedated++
 			} else {
 				plan.Redated++

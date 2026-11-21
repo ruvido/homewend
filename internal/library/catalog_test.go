@@ -188,7 +188,7 @@ func TestAPhotoInTheTrash(t *testing.T) {
 		t.Errorf("every %v album %v albums %v", every, album, albums)
 	}
 	// Its file is still there: held as deleted all the same, and not missing.
-	if h, err := Holds(c, root, "a"); err != nil || !h.Known || !h.Deleted || !h.Trashed {
+	if h, err := Holds(c, root, "a"); err != nil || !h.Known || h.Deleted || !h.Trashed {
 		t.Errorf("held %+v %v, want it in the Trash", h, err)
 	}
 	if gone, _ := c.Missing(root); len(gone) != 1 || gone[0].Hash != "b" {

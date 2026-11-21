@@ -156,7 +156,6 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		if err != nil {
 			return done, err
 		}
-		relative, deleted := held.Path, held.Deleted
 		v := done.judge(seen, hash, f.Root, item.Path, held, back(item.Path))
 		if v == staysOut {
 			continue
@@ -167,8 +166,8 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			// handed the library's own file for that, never the folder's,
 			// so it cannot move it. In this profile, the card is a source
 			// too: hiding the account it came from first does not hide it.
-			if !filedIn(relative, opt.Profile) {
-				home := filepath.Join(root, filepath.FromSlash(relative))
+			if !filedIn(held.Path, opt.Profile) {
+				home := filepath.Join(root, filepath.FromSlash(held.Path))
 				if _, err := Organize([]Item{{Path: home}}, root, catalog, opt, nil); err != nil {
 					return done, err
 				}
@@ -192,7 +191,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		// halfway either.
 		var was Photo
 		var keptOut bool
-		if deleted {
+		if held.Deleted {
 			if was, err = catalog.photo(hash); err != nil {
 				return done, err
 			}
@@ -212,7 +211,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		if err != nil {
 			// Not in after all, it is deleted still: the next run leaves it
 			// out unless asked back again.
-			if _, in, looked := catalog.PathOf(hash); deleted && !in {
+			if _, in, looked := catalog.PathOf(hash); held.Deleted && !in {
 				err = errors.Join(err, looked, catalog.Put(was))
 				if keptOut {
 					err = errors.Join(err, catalog.TakeOut([]string{hash}, true))
@@ -270,7 +269,7 @@ func kindOf(path string) string {
 
 // Held is what the library knows of a photo: where it holds it, below its
 // root; Known, listed in the catalog; Deleted, listed and gone from the
-// disk, or in the Trash; Trashed, in the Trash, its file still there.
+// disk; Trashed, in the Trash, its file still there.
 type Held struct {
 	Path                    string
 	Known, Deleted, Trashed bool
@@ -289,7 +288,7 @@ func Holds(catalog *Catalog, root, hash string) (Held, error) {
 	}
 	h.Known = true
 	_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
-	h.Deleted = h.Trashed || errors.Is(gone, fs.ErrNotExist)
+	h.Deleted = !h.Trashed && errors.Is(gone, fs.ErrNotExist)
 	return h, nil
 }
 

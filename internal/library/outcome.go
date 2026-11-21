@@ -78,8 +78,8 @@ func (c *Counts) judge(seen map[string]bool, hash, root, path string, h Held, ba
 		c.Twins++
 		return twin
 	case h.Trashed:
-		// Back by Restore, never by an import: not offered by name.
-		c.Deleted++
+		// In the library's Trash: back by Restore, never by an import.
+		c.InLibrary++
 		return staysOut
 	case h.Deleted && !back:
 		// Not seen: its twin further on stays out too, not a twin in.

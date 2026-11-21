@@ -294,7 +294,7 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 			return have, out, archived, err
 		}
 		switch {
-		case held.Deleted:
+		case held.Deleted, held.Trashed:
 			out = append(out, h)
 		case held.Known:
 			have = append(have, h)
@@ -337,8 +337,8 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if catalog != nil {
 		held, err := library.Holds(catalog, root, hash)
 		catalog.Close()
-		if err != nil || held.Deleted {
-			return Received{Out: held.Deleted}, err
+		if out := held.Deleted || held.Trashed; err != nil || out {
+			return Received{Out: out}, err
 		}
 		if held.Known {
 			return Received{Path: held.Path}, nil
