@@ -203,3 +203,20 @@ func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 		t.Errorf("overview %+v %v", o, err)
 	}
 }
+
+// A phone gone once every byte is here, its request cancelled: the photo
+// is filed all the same.
+func TestAPhotoFiledAfterThePhoneWentAway(t *testing.T) {
+	config(t)
+	if err := SetDefaultLibrary(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	photo := []byte("sent, then gone")
+	sum := sha256.Sum256(photo)
+	got, err := ReceivePhoto(ctx, Phone{ID: "p1", Name: "Pixel", Profile: "ron"}, hex.EncodeToString(sum[:]), "IMG.JPG", int64(len(photo)), bytes.NewReader(photo))
+	if err != nil || !got.New {
+		t.Errorf("%+v %v, want it filed", got, err)
+	}
+}

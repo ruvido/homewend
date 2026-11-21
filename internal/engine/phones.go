@@ -377,7 +377,10 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	// card's look would set apart.
 	how := library.ImportOptions{Link: canLink(dir), Fits: func(n int64) error { return fits(root, n) },
 		Asked: library.Asked{Choice: &library.Choice{Pick: []string{filepath.Base(file)}}}}
-	done, err := library.Import(ctx, folder, root, rw, opt, how, nil)
+	// Every byte is here and checked: a phone that drops the connection now
+	// (a timeout, the Wi-Fi) does not throw the photo away; its next
+	// /v1/have finds it.
+	done, err := library.Import(context.WithoutCancel(ctx), folder, root, rw, opt, how, nil)
 	if err != nil {
 		return Received{}, err
 	}
