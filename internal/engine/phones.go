@@ -43,10 +43,22 @@ type Phone struct {
 	Photos  int       `json:"photos"`          // brought in, since paired
 }
 
-// Phones is phones.json: the phones, and the port they reach this computer on.
+// Phones is phones.json: the phones, the port they reach this computer on,
+// and the phones unpaired, kept as their history.
 type Phones struct {
-	Port   int     `json:"port,omitempty"`
-	Phones []Phone `json:"phones"`
+	Port     int        `json:"port,omitempty"`
+	Phones   []Phone    `json:"phones"`
+	Unpaired []Unpaired `json:"unpaired,omitempty"`
+}
+
+// Unpaired is a phone no longer paired: what it brought, and who ended it.
+type Unpaired struct {
+	Name    string    `json:"name"`
+	Profile string    `json:"profile"`
+	Paired  time.Time `json:"paired"`
+	Ended   time.Time `json:"unpaired"`
+	Photos  int       `json:"photos"`
+	By      string    `json:"by"` // "phone" or "computer"
 }
 
 var (
@@ -188,10 +200,17 @@ func PhoneOf(token string) (Phone, error) {
 	return phone, err
 }
 
-// Unpair forgets a phone: its token lets it in no more.
-func Unpair(id string) error {
+// Unpair forgets a phone, unpaired by "phone" or "computer": its token lets
+// it in no more, and its history stays.
+func Unpair(id, by string) error {
 	_, err := UpdatePhones(func(p *Phones) error {
-		p.Phones = slices.DeleteFunc(p.Phones, func(ph Phone) bool { return ph.ID == id })
+		i := slices.IndexFunc(p.Phones, func(ph Phone) bool { return ph.ID == id })
+		if i < 0 {
+			return nil
+		}
+		ph := p.Phones[i]
+		p.Unpaired = append(p.Unpaired, Unpaired{Name: ph.Name, Profile: ph.Profile, Paired: ph.Paired, Ended: time.Now(), Photos: ph.Photos, By: by})
+		p.Phones = slices.Delete(p.Phones, i, i+1)
 		return nil
 	})
 	return err

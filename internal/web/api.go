@@ -164,7 +164,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, nil, nil)
 	})
 	mux.HandleFunc("DELETE /api/phones/{id}", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, nil, engine.Unpair(r.PathValue("id")))
+		reply(w, nil, engine.Unpair(r.PathValue("id"), "computer"))
 	})
 	mux.HandleFunc("POST /api/turn/{hash}", func(w http.ResponseWriter, r *http.Request) {
 		turn, err := engine.TurnLeft(r.PathValue("hash"))

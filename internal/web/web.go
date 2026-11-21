@@ -118,7 +118,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.stop()
 	err := s.srv.Shutdown(ctx)
 	if s.phones != nil {
-		err = errors.Join(err, s.phones.srv.Shutdown(ctx))
+		err = errors.Join(err, s.phones.shutdown(ctx))
 	}
 	s.jobs.StopAll()
 	// An import stops between two files: what is in stays in, the file

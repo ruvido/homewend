@@ -42,8 +42,11 @@ func TestACodePairsOnePhoneOnce(t *testing.T) {
 	if strings.Contains(mustRead(t, "phones.json"), token) {
 		t.Error("phones.json holds the token itself")
 	}
-	if err := Unpair(phone.ID); err != nil {
+	if err := Unpair(phone.ID, "computer"); err != nil {
 		t.Fatal(err)
+	}
+	if p, _ := LoadPhones(); len(p.Unpaired) != 1 || p.Unpaired[0].Name != "Pixel" || p.Unpaired[0].By != "computer" {
+		t.Errorf("history %+v, want the Pixel unpaired by the computer", p.Unpaired)
 	}
 	if _, err := PhoneOf(token); !errors.Is(err, ErrNoPhone) {
 		t.Errorf("after unpairing: %v, want ErrNoPhone", err)

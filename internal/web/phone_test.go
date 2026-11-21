@@ -25,7 +25,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if err := engine.SetDefaultLibrary(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	h := phoneRoutes()
+	h := phoneRoutes(&phoneListener{port: 1})
 	call := func(method, target, token, body string) (int, map[string]any) {
 		r := httptest.NewRequest(method, target, strings.NewReader(body))
 		if token != "" {
@@ -73,7 +73,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}
-	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" {
+	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["hosts"] == nil {
 		t.Errorf("hello: %d %v", code, out)
 	}
 	if code, _ := call("POST", "/v1/unpair", token, ""); code != http.StatusOK {

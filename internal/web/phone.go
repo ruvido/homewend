@@ -4,6 +4,7 @@
 package web
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/mdns"
 	"github.com/ruvido/homewend/internal/engine"
 	"github.com/ruvido/homewend/internal/library"
 )
@@ -38,7 +40,13 @@ type phoneListener struct {
 	srv  *http.Server
 	port int
 	pin  []byte // SHA-256 of the certificate's public key
+	// The listener said on the local network by DNS-SD, for a phone whose
+	// addresses no longer answer; nil when multicast could not start.
+	mdns *mdns.Server
 }
+
+// service is the DNS-SD type the listener is advertised as (docs/phone.md).
+const service = "_homewend._tcp"
 
 // listenPhones binds the port kept in phones.json, or a free one the first
 // time, kept so the QR's address stays true across restarts.
@@ -70,19 +78,48 @@ func listenPhones() (*phoneListener, error) {
 	l := &phoneListener{port: port, pin: pin,
 		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})}
 	// No ReadTimeout: a video takes minutes. An idle connection is closed.
-	l.srv = &http.Server{Handler: phoneRoutes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
+	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
+	// shortcut: the addresses advertised are those at start; a new address
+	// is advertised after the app starts again, meanwhile /v1/hello tells it.
+	host, _ := os.Hostname()
+	var ips []net.IP
+	for _, a := range localAddresses() {
+		ips = append(ips, net.ParseIP(a))
+	}
+	zone, err := mdns.NewMDNSService(host, service, "", "", port, ips, []string{"k=" + l.key()})
+	if err == nil {
+		l.mdns, err = mdns.NewServer(&mdns.Config{Zone: zone})
+	}
+	if err != nil {
+		// The phone still finds the computer at the addresses it knows.
+		log.Printf("phones: not advertised on the network: %v", err)
+	}
 	return l, nil
 }
 
 // pairText is what the QR says: the addresses, the key's pin, the code.
 func (l *phoneListener) pairText(code string) string {
-	var hosts []string
+	q := url.Values{"h": {strings.Join(l.hosts(), ",")}, "k": {l.key()}, "c": {code}}
+	return "homewend://pair?" + q.Encode()
+}
+
+// hosts are where a phone reaches the listener now: every network's address.
+func (l *phoneListener) hosts() []string {
+	hosts := []string{}
 	for _, ip := range localAddresses() {
 		hosts = append(hosts, net.JoinHostPort(ip, strconv.Itoa(l.port)))
 	}
-	q := url.Values{"h": {strings.Join(hosts, ",")},
-		"k": {base64.RawURLEncoding.EncodeToString(l.pin)}, "c": {code}}
-	return "homewend://pair?" + q.Encode()
+	return hosts
+}
+
+// key is the pin a phone checks, as the QR and DNS-SD say it.
+func (l *phoneListener) key() string { return base64.RawURLEncoding.EncodeToString(l.pin) }
+
+func (l *phoneListener) shutdown(ctx context.Context) error {
+	if l.mdns != nil {
+		l.mdns.Shutdown()
+	}
+	return l.srv.Shutdown(ctx)
 }
 
 // localAddresses are this computer's IPv4 addresses on the networks it is
@@ -107,7 +144,7 @@ func localAddresses() []string {
 	return ips
 }
 
-func phoneRoutes() http.Handler {
+func phoneRoutes(l *phoneListener) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/pair", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Code, Name string }
@@ -123,14 +160,15 @@ func phoneRoutes() http.Handler {
 		host, _ := os.Hostname()
 		phoneReply(w, map[string]string{"phone": phone.ID, "token": token, "computer": host}, nil)
 	})
-	// The phone asks, when it opens, whether it is still paired, and with whom.
+	// The phone asks, when it opens, whether it is still paired, with whom,
+	// and where the computer is now: an address changed meanwhile heals.
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
 		host, _ := os.Hostname()
-		phoneReply(w, map[string]string{"computer": host}, nil)
+		phoneReply(w, map[string]any{"computer": host, "hosts": l.hosts()}, nil)
 	}))
 	// Unpaired from the phone: the computer forgets it as from its own menu.
 	mux.Handle("POST /v1/unpair", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
-		phoneReply(w, struct{}{}, engine.Unpair(phone.ID))
+		phoneReply(w, struct{}{}, engine.Unpair(phone.ID, "phone"))
 	}))
 	mux.Handle("POST /v1/have", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
 		var in struct{ Hashes []string }
