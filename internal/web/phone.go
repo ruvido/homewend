@@ -123,6 +123,15 @@ func phoneRoutes() http.Handler {
 		host, _ := os.Hostname()
 		phoneReply(w, map[string]string{"phone": phone.ID, "token": token, "computer": host}, nil)
 	})
+	// The phone asks, when it opens, whether it is still paired, and with whom.
+	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
+		host, _ := os.Hostname()
+		phoneReply(w, map[string]string{"computer": host}, nil)
+	}))
+	// Unpaired from the phone: the computer forgets it as from its own menu.
+	mux.Handle("POST /v1/unpair", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+		phoneReply(w, struct{}{}, engine.Unpair(phone.ID))
+	}))
 	mux.Handle("POST /v1/have", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
 		var in struct{ Hashes []string }
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAsk)).Decode(&in); err != nil || len(in.Hashes) > maxHave {

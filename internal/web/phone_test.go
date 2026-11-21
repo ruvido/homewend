@@ -73,4 +73,13 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}
+	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" {
+		t.Errorf("hello: %d %v", code, out)
+	}
+	if code, _ := call("POST", "/v1/unpair", token, ""); code != http.StatusOK {
+		t.Errorf("unpair: %d, want 200", code)
+	}
+	if code, _ := call("GET", "/v1/hello", token, ""); code != http.StatusUnauthorized {
+		t.Errorf("hello after unpairing: %d, want 401", code)
+	}
 }
