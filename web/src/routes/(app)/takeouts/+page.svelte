@@ -166,7 +166,7 @@
 	}
 </script>
 
-<div class="page listing">
+<div class="listing">
 	<header>
 		<div>
 			<h1>{text.takeoutsTitle}</h1>
@@ -243,17 +243,6 @@
 {#if menu}<ContextMenu items={menu.items} anchor={menu.anchor} onclose={() => (menu = null)} />{/if}
 
 <style>
-	.page {
-		padding: 32px 40px;
-		display: flex;
-		flex-direction: column;
-		gap: 24px;
-	}
-	h1 {
-		font-size: var(--text-display);
-		font-weight: 700;
-		color: var(--fg);
-	}
 	.who {
 		margin-top: 8px;
 		color: var(--muted);
@@ -285,16 +274,6 @@
 	}
 	th:nth-child(5) {
 		width: 96px;
-	}
-	/* Half a screen: the table scrolls sideways rather than break its lines. */
-	.page:has(table) {
-		overflow-x: auto;
-	}
-	:global(.narrow) .page {
-		padding: 24px;
-	}
-	.muted {
-		color: var(--muted);
 	}
 	.refused {
 		color: var(--err);

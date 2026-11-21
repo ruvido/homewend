@@ -11,10 +11,14 @@
 	import { text } from '#lib/strings.js';
 
 	// typed: a name chosen or typed; profile: the one in use, the parent's.
-	let { typed = $bindable(''), profile }: { typed?: string; profile: string } = $props();
+	// naming: a new name is being typed, for a parent that waits for it.
+	let {
+		typed = $bindable(''),
+		naming = $bindable(false),
+		profile
+	}: { typed?: string; naming?: boolean; profile: string } = $props();
 	const profiles = $derived(app.overview?.profiles ?? []);
 	let menu = $state<HTMLElement | null>(null);
-	let naming = $state(false);
 </script>
 
 <div class="whose">
@@ -54,18 +58,18 @@
 	.whose {
 		display: flex;
 		align-items: center;
-		gap: 12px;
+		gap: var(--space-12);
 		color: var(--muted);
 	}
 	/* The account pill of the status bar, opening the list of libraries. */
 	.account {
-		height: 32px;
+		height: var(--size-avatar);
 		display: inline-flex;
 		align-items: center;
-		gap: 8px;
-		padding: 0 12px 0 4px;
+		gap: var(--space-8);
+		padding: 0 var(--space-12) 0 var(--space-4);
 		border: 1px solid var(--border);
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		background: var(--soft);
 		color: var(--muted);
 	}
@@ -75,9 +79,9 @@
 	}
 	.whose input {
 		height: 36px;
-		padding: 0 12px;
+		padding: 0 var(--space-12);
 		border: 1px solid var(--border);
-		border-radius: 10px;
+		border-radius: var(--radius-10);
 		background: var(--bg);
 		color: var(--fg);
 		font: inherit;

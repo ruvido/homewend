@@ -8,18 +8,19 @@
 	import { text } from '#lib/strings.js';
 
 	let { code, oncancel }: { code: string; oncancel: () => void } = $props();
-	const qr = $derived(QRCode.create(code, { errorCorrectionLevel: 'M' }).modules);
+	// No code yet: the square stays, empty, so nothing moves when it comes.
+	const qr = $derived(code ? QRCode.create(code, { errorCorrectionLevel: 'M' }).modules : null);
 	// The dark modules, one rect each, in the code's own units.
 	const dark = $derived.by(() => {
 		const cells: { x: number; y: number }[] = [];
-		for (let y = 0; y < qr.size; y++) for (let x = 0; x < qr.size; x++) if (qr.get(y, x)) cells.push({ x, y });
+		if (qr) for (let y = 0; y < qr.size; y++) for (let x = 0; x < qr.size; x++) if (qr.get(y, x)) cells.push({ x, y });
 		return cells;
 	});
 </script>
 
 <div class="pair">
-	<svg viewBox="-2 -2 {qr.size + 4} {qr.size + 4}" shape-rendering="crispEdges" aria-hidden="true">
-		{#each dark as c (c.y * qr.size + c.x)}<rect x={c.x} y={c.y} width="1" height="1" />{/each}
+	<svg viewBox="-2 -2 {(qr?.size ?? 21) + 4} {(qr?.size ?? 21) + 4}" shape-rendering="crispEdges" aria-hidden="true">
+		{#each dark as c (`${c.x},${c.y}`)}<rect x={c.x} y={c.y} width="1" height="1" />{/each}
 	</svg>
 	<div class="text">
 		<h2>{text.scanThis}</h2>

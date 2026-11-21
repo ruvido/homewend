@@ -54,6 +54,7 @@ type Server struct {
 	// stop ends every request's context: Shutdown waits for the requests in
 	// flight, and a sign-in is one until the person has signed in.
 	stop context.CancelFunc
+	ctx  context.Context // what stop ends
 }
 
 // Listen binds the loopback and makes a token for this run.
@@ -64,7 +65,7 @@ func Listen() (*Server, error) {
 	}
 	token := rand.Text()
 	ctx, stop := context.WithCancel(context.Background())
-	s := &Server{token: token, host: ln.Addr().String(), ln: ln, jobs: &engine.Jobs{}, importing: &engine.Importing{}, stop: stop}
+	s := &Server{token: token, host: ln.Addr().String(), ln: ln, jobs: &engine.Jobs{}, importing: &engine.Importing{}, stop: stop, ctx: ctx}
 	s.URL = "http://" + s.host + "/?t=" + token
 	s.srv = &http.Server{Handler: s.handler(), ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(net.Listener) context.Context { return ctx }}
@@ -87,8 +88,12 @@ func (s *Server) KeepJobs() error {
 // pairing says why.
 func (s *Server) ListenPhones() error {
 	var err error
-	s.phones, err = listenPhones()
-	return err
+	if s.phones, err = listenPhones(); err != nil {
+		return err
+	}
+	// Quitting ends an upload under way too: the phone sends it again.
+	s.phones.srv.BaseContext = func(net.Listener) context.Context { return s.ctx }
+	return nil
 }
 
 // Serve answers until Shutdown.

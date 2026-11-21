@@ -22,8 +22,12 @@ import (
 	"github.com/ruvido/homewend/internal/engine"
 )
 
-// maxHave is how many hashes one /v1/have asks about (docs/phone.md).
-const maxHave = 1000
+// maxHave is how many hashes one /v1/have asks about (docs/phone.md), and
+// maxAsk the bytes a call's JSON may take: anyone on the network can call.
+const (
+	maxHave = 1000
+	maxAsk  = 128 << 10
+)
 
 // phoneListener is the second listener, on the local network, for the
 // phones' calls only: nothing of /api/ is reachable from it. Over TLS with
@@ -64,7 +68,8 @@ func listenPhones() (*phoneListener, error) {
 	}
 	l := &phoneListener{port: port, pin: pin,
 		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})}
-	l.srv = &http.Server{Handler: phoneRoutes(), ReadHeaderTimeout: 10 * time.Second}
+	// No ReadTimeout: a video takes minutes. An idle connection is closed.
+	l.srv = &http.Server{Handler: phoneRoutes(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	return l, nil
 }
 
@@ -105,7 +110,7 @@ func phoneRoutes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/pair", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Code, Name string }
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || in.Name == "" {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAsk)).Decode(&in); err != nil || in.Name == "" {
 			phoneError(w, http.StatusBadRequest, "a code and a name are needed")
 			return
 		}
@@ -119,7 +124,7 @@ func phoneRoutes() http.Handler {
 	})
 	mux.Handle("POST /v1/have", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
 		var in struct{ Hashes []string }
-		if err := json.NewDecoder(r.Body).Decode(&in); err != nil || len(in.Hashes) > maxHave {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAsk)).Decode(&in); err != nil || len(in.Hashes) > maxHave {
 			phoneError(w, http.StatusBadRequest, fmt.Sprintf("at most %d hashes", maxHave))
 			return
 		}
@@ -132,9 +137,10 @@ func phoneRoutes() http.Handler {
 			phoneError(w, http.StatusBadRequest, "the hash is SHA-256 in lowercase hex")
 			return
 		}
+		// A file's name, not a path: "..", "." or one with a slash is refused.
 		name := r.URL.Query().Get("name")
-		if name == "" || r.ContentLength < 0 {
-			phoneError(w, http.StatusBadRequest, "a name and a Content-Length are needed")
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) || len(name) > 255 || r.ContentLength < 0 {
+			phoneError(w, http.StatusBadRequest, "a file's name and a Content-Length are needed")
 			return
 		}
 		got, err := engine.ReceivePhoto(r.Context(), phone, hash, name, r.ContentLength, r.Body)

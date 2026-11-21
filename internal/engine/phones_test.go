@@ -109,6 +109,43 @@ func TestAPhotoFromAPhone(t *testing.T) {
 	}
 }
 
+// Two photos from one phone at once each come in: one request's upload is
+// not removed by the other's end.
+func TestTwoPhotosFromOnePhoneAtOnce(t *testing.T) {
+	config(t)
+	if err := SetDefaultLibrary(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	phone := Phone{ID: "p1", Name: "Pixel", Profile: "ron"}
+	// The catalog made first: two requests on a library with none yet is
+	// not this test's case.
+	first := []byte("the first photo")
+	sum := sha256.Sum256(first)
+	if _, err := ReceivePhoto(context.Background(), phone, hex.EncodeToString(sum[:]), "IMG.JPG", int64(len(first)), bytes.NewReader(first)); err != nil {
+		t.Fatal(err)
+	}
+	errs := make(chan error, 2)
+	for i := range 2 {
+		go func() {
+			photo := []byte(strings.Repeat("photo ", 100000) + string(rune('a'+i)))
+			sum := sha256.Sum256(photo)
+			for {
+				_, err := ReceivePhoto(context.Background(), phone, hex.EncodeToString(sum[:]), "IMG.JPG", int64(len(photo)), bytes.NewReader(photo))
+				// The other holds the library's turn: a phone sends again.
+				if !errors.Is(err, ErrLibraryBusy) {
+					errs <- err
+					return
+				}
+			}
+		}()
+	}
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+}
+
 func mustRead(t *testing.T, name string) string {
 	t.Helper()
 	dir, err := configDir()

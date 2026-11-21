@@ -54,6 +54,8 @@ var (
 	ErrBadCode = errors.New("the code is wrong, used, or too old")
 	// ErrNotThisHash is a file whose bytes are not the hash it was sent as.
 	ErrNotThisHash = errors.New("the bytes are not the photo named")
+	// ErrNotBroughtIn is a photo received whole that the import left out.
+	ErrNotBroughtIn = errors.New("the photo was received but not brought in")
 	// ErrNoPhone is a token no paired phone has.
 	ErrNoPhone = errors.New("this phone is not paired")
 )
@@ -300,8 +302,11 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if catalog != nil {
 		path, known, deleted, err := library.Holds(catalog, root, hash)
 		catalog.Close()
-		if err != nil || known {
-			return Received{Path: path, Out: deleted}, err
+		if err != nil || deleted {
+			return Received{Out: deleted}, err
+		}
+		if known {
+			return Received{Path: path}, nil
 		}
 	}
 	if root == "" {
@@ -310,9 +315,22 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if err := fits(root, size); err != nil {
 		return Received{}, err
 	}
-	// A folder of the phone's own, on the library's disk: placing is a rename.
-	dir := filepath.Join(root, library.WorkDir, "phone", phone.ID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// Busy now is said before a byte is read: a video is not sent again and
+	// again over the network while a card's import runs.
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		return Received{}, err
+	}
+	unlock()
+	// A folder of each request's own, on the library's disk: placing is a
+	// rename, and a phone that sends again before an answer, or two files
+	// at once, removes no other upload.
+	phones := filepath.Join(root, library.WorkDir, "phone")
+	if err := os.MkdirAll(phones, 0o755); err != nil {
+		return Received{}, err
+	}
+	dir, err := os.MkdirTemp(phones, phone.ID+"-")
+	if err != nil {
 		return Received{}, err
 	}
 	defer os.RemoveAll(dir)
@@ -320,8 +338,7 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if err := receive(file, hash, body); err != nil {
 		return Received{}, err
 	}
-	unlock, err := lockLibrary(root)
-	if err != nil {
+	if unlock, err = lockLibrary(root); err != nil {
 		return Received{}, err
 	}
 	defer unlock()
@@ -334,15 +351,23 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	opt := library.Options{Profile: phone.Profile, SeparateMessaging: true, Account: library.LocalSource + phone.Name}
 	// Picked: a phone's every photo comes in, a screenshot too, which a
 	// card's look would set apart.
-	how := library.ImportOptions{Link: true, Fits: func(n int64) error { return fits(root, n) },
+	how := library.ImportOptions{Link: canLink(dir), Fits: func(n int64) error { return fits(root, n) },
 		Asked: library.Asked{Choice: &library.Choice{Pick: []string{filepath.Base(file)}}}}
 	done, err := library.Import(ctx, folder, root, rw, opt, how, nil)
 	if err != nil {
 		return Received{}, err
 	}
 	path, _, err := rw.PathOf(hash)
-	if err != nil || done.Placed == 0 {
-		return Received{Path: path}, err
+	if err != nil {
+		return Received{}, err
+	}
+	// Not in, and no error: never answered as "already there", or the phone
+	// would not send it again.
+	if path == "" {
+		return Received{}, ErrNotBroughtIn
+	}
+	if done.Placed == 0 {
+		return Received{Path: path}, nil
 	}
 	_, err = UpdatePhones(func(p *Phones) error {
 		if i := slices.IndexFunc(p.Phones, func(ph Phone) bool { return ph.ID == phone.ID }); i >= 0 {

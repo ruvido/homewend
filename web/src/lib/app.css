@@ -73,6 +73,27 @@ a {
 
 /* A page that lists things in a table: Takeouts (C1), Phones (P1). Each page
    sets its own column widths. */
+.listing {
+	padding: var(--space-32) var(--space-40);
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-24);
+}
+.narrow .listing {
+	padding: var(--space-24);
+}
+/* Half a screen: the table scrolls sideways rather than break its lines. */
+.listing:has(table) {
+	overflow-x: auto;
+}
+.listing h1 {
+	font-size: var(--text-display);
+	font-weight: 700;
+	color: var(--fg);
+}
+.listing .muted {
+	color: var(--muted);
+}
 /* Fixed columns: every row's status and action fall on the same lines. */
 .listing table {
 	width: 100%;
