@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -81,14 +82,25 @@ func listenPhones() (*phoneListener, error) {
 	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	// shortcut: the addresses advertised are those at start; a new address
 	// is advertised after the app starts again, meanwhile /v1/hello tells it.
-	host, _ := os.Hostname()
 	var ips []net.IP
 	for _, a := range localAddresses() {
 		ips = append(ips, net.ParseIP(a))
 	}
-	zone, err := mdns.NewMDNSService(host, service, "", "", port, ips, []string{"k=" + l.key()})
+	// No network yet: nothing is advertised rather than the loopback the
+	// library would look up instead.
+	if len(ips) == 0 {
+		log.Printf("phones: not advertised on the network: no address yet")
+		return l, nil
+	}
+	// The instance is the host's first label: a dot in it ("Mac.local", a
+	// domain) would be read as part of the service type. Its address is
+	// said under .local, where a phone's resolver looks.
+	host, _ := os.Hostname()
+	inst, _, _ := strings.Cut(host, ".")
+	zone, err := mdns.NewMDNSService(inst, service, "", inst+".local.", port, ips, []string{"k=" + l.key()})
 	if err == nil {
-		l.mdns, err = mdns.NewServer(&mdns.Config{Zone: zone})
+		// The library logs every odd packet on the network: not ours to read.
+		l.mdns, err = mdns.NewServer(&mdns.Config{Zone: zone, Logger: log.New(io.Discard, "", 0)})
 	}
 	if err != nil {
 		// The phone still finds the computer at the addresses it knows.
