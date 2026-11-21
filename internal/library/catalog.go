@@ -379,16 +379,6 @@ func (c *Catalog) PathOf(hash string) (string, bool, error) {
 	return path, true, nil
 }
 
-// inTrash says whether the photo of hash is in the Trash.
-func (c *Catalog) inTrash(hash string) (bool, error) {
-	var in bool
-	err := c.db.QueryRow(`SELECT trashed FROM photos WHERE hash = ?`, hash).Scan(&in)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return in, err
-}
-
 // PathTaken reports whether some photo is recorded at this relative path.
 func (c *Catalog) PathTaken(path string) (bool, error) {
 	var n int
@@ -454,9 +444,8 @@ type Filter struct {
 	Year    string
 	NoDate  bool // only the photos whose date nobody knows
 	// Archived keeps only the archived photos; Grid leaves them out, as the
-	// main grid and its years do. Trashed keeps only those in the Trash,
-	// which are otherwise in no list.
-	Archived, Grid, Trashed bool
+	// main grid and its years do.
+	Archived, Grid bool
 	// Hashes keeps only these photos; nil is all, empty is none.
 	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
 	// photos not on the disk, a temporary table if a list ever grows past.
@@ -470,8 +459,8 @@ type Filter struct {
 // Page returns photos newest first, narrowed by the filter.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
 	query := `SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos`
-	where := []string{"out = 0", "trashed = ?"}
-	args := []any{f.Trashed}
+	where := []string{"NOT " + away}
+	var args []any
 	if len(f.Origins) > 0 {
 		placeholders := ""
 		for i, origin := range f.Origins {

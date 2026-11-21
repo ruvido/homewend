@@ -327,16 +327,12 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 				group.Last = camera
 			}
 		}
-		var held string // where the library holds it, "" not
-		var deleted bool
+		var held Held
 		if catalog != nil {
-			path, known, gone, err := Holds(catalog, opt.Root, hash)
-			if err != nil {
+			if held, err = Holds(catalog, opt.Root, hash); err != nil {
 				return plan, err
 			}
-			deleted = gone
-			if known && !gone {
-				held = path
+			if held.Known && !held.Deleted {
 				group.InLibrary++
 			}
 		}
@@ -344,14 +340,14 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 			continue
 		}
 		when, dated := dates[item.Path]
-		v := plan.judge(seen, hash, f.Root, item.Path, held != "", deleted, back(item.Path))
+		v := plan.judge(seen, hash, f.Root, item.Path, held, back(item.Path))
 		if v == staysOut {
 			continue
 		}
 		// A date given moves it, a twin too, as redateInLibrary decides:
 		// one another profile holds keeps the date that profile gives.
 		if dated {
-			if held != "" && !filedIn(held, opt.Profile) {
+			if held.Known && !held.Deleted && !filedIn(held.Path, opt.Profile) {
 				plan.NotRedated++
 			} else {
 				plan.Redated++

@@ -289,14 +289,14 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 	}
 	defer catalog.Close()
 	for _, h := range hashes {
-		_, known, deleted, err := library.Holds(catalog, root, h)
+		held, err := library.Holds(catalog, root, h)
 		if err != nil {
 			return have, out, archived, err
 		}
 		switch {
-		case deleted:
+		case held.Deleted:
 			out = append(out, h)
-		case known:
+		case held.Known:
 			have = append(have, h)
 		}
 	}
@@ -335,13 +335,13 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 		return Received{}, err
 	}
 	if catalog != nil {
-		path, known, deleted, err := library.Holds(catalog, root, hash)
+		held, err := library.Holds(catalog, root, hash)
 		catalog.Close()
-		if err != nil || deleted {
-			return Received{Out: deleted}, err
+		if err != nil || held.Deleted {
+			return Received{Out: held.Deleted}, err
 		}
-		if known {
-			return Received{Path: path}, nil
+		if held.Known {
+			return Received{Path: held.Path}, nil
 		}
 	}
 	if root == "" {

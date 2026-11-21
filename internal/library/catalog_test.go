@@ -183,14 +183,13 @@ func TestAPhotoInTheTrash(t *testing.T) {
 	}
 	every, _ := c.Page(Filter{})
 	album, _ := c.Page(Filter{Album: "Trip"})
-	trash, _ := c.Page(Filter{Trashed: true})
 	albums, _ := c.AlbumNames()
-	if len(every) != 1 || len(album) != 0 || len(trash) != 1 || albums["Trip"] != 0 {
-		t.Errorf("every %v album %v trash %v albums %v", every, album, trash, albums)
+	if len(every) != 1 || len(album) != 0 || albums["Trip"] != 0 {
+		t.Errorf("every %v album %v albums %v", every, album, albums)
 	}
 	// Its file is still there: held as deleted all the same, and not missing.
-	if _, known, deleted, err := Holds(c, root, "a"); err != nil || !known || !deleted {
-		t.Errorf("held %v deleted %v %v, want deleted", known, deleted, err)
+	if h, err := Holds(c, root, "a"); err != nil || !h.Known || !h.Deleted || !h.Trashed {
+		t.Errorf("held %+v %v, want it in the Trash", h, err)
 	}
 	if gone, _ := c.Missing(root); len(gone) != 1 || gone[0].Hash != "b" {
 		t.Errorf("missing %v, want b only", gone)

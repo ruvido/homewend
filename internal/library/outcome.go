@@ -70,15 +70,18 @@ const (
 
 // judge counts a file of the folder and says what becomes of it, for the
 // look and the copy alike, so that the two never count it apart: hash is
-// its content, path is below root; held, the library holds it; deleted,
-// someone deleted it from the library; back, it is asked back. seen holds
-// the photos met so far.
-func (c *Counts) judge(seen map[string]bool, hash, root, path string, held, deleted, back bool) verdict {
+// its content, path is below root; h, what the library knows of it; back,
+// it is asked back. seen holds the photos met so far.
+func (c *Counts) judge(seen map[string]bool, hash, root, path string, h Held, back bool) verdict {
 	switch {
 	case seen[hash]:
 		c.Twins++
 		return twin
-	case deleted && !back:
+	case h.Trashed:
+		// Back by Restore, never by an import: not offered by name.
+		c.Deleted++
+		return staysOut
+	case h.Deleted && !back:
 		// Not seen: its twin further on stays out too, not a twin in.
 		c.Deleted++
 		c.DeletedNames = append(c.DeletedNames, relativeTo(root, path))
@@ -86,10 +89,10 @@ func (c *Counts) judge(seen map[string]bool, hash, root, path string, held, dele
 	}
 	seen[hash] = true
 	switch {
-	case deleted:
+	case h.Deleted:
 		c.BroughtBack++
 		return comesIn
-	case held:
+	case h.Known:
 		c.InLibrary++
 		return inLibrary
 	}

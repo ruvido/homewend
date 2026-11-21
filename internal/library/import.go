@@ -5,6 +5,7 @@ package library
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -151,21 +152,12 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			continue
 		}
 		when, dated := dates[item.Path]
-		relative, known, deleted, err := Holds(catalog, root, hash)
+		held, err := Holds(catalog, root, hash)
 		if err != nil {
 			return done, err
 		}
-		// A photo in the Trash comes back by Restore, never by an import:
-		// its file is still in the library.
-		wanted := back(item.Path)
-		if deleted && wanted {
-			trashed, err := catalog.inTrash(hash)
-			if err != nil {
-				return done, err
-			}
-			wanted = !trashed
-		}
-		v := done.judge(seen, hash, f.Root, item.Path, known && !deleted, deleted, wanted)
+		relative, deleted := held.Path, held.Deleted
+		v := done.judge(seen, hash, f.Root, item.Path, held, back(item.Path))
 		if v == staysOut {
 			continue
 		}
@@ -276,22 +268,29 @@ func kindOf(path string) string {
 	return ""
 }
 
-// Holds is where the library holds the photo of hash, below root,
-// and whether someone deleted it: listed in the catalog, gone from the disk
-// or in the Trash.
-// A disk that answers late is not a deletion. The look and the copy judge
-// a photo here, alike.
-func Holds(catalog *Catalog, root, hash string) (path string, known, deleted bool, err error) {
-	path, known, err = catalog.PathOf(hash)
-	if err != nil || !known {
-		return path, known, false, err
+// Held is what the library knows of a photo: where it holds it, below its
+// root; Known, listed in the catalog; Deleted, listed and gone from the
+// disk, or in the Trash; Trashed, in the Trash, its file still there.
+type Held struct {
+	Path                    string
+	Known, Deleted, Trashed bool
+}
+
+// Holds is what the library knows of the photo of hash. A disk that answers
+// late is not a deletion. The look and the copy judge a photo here, alike.
+func Holds(catalog *Catalog, root, hash string) (Held, error) {
+	var h Held
+	err := catalog.db.QueryRow(`SELECT path, trashed FROM photos WHERE hash = ?`, hash).Scan(&h.Path, &h.Trashed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Held{}, nil
 	}
-	trashed, err := catalog.inTrash(hash)
-	if err != nil || trashed {
-		return path, true, trashed, err
+	if err != nil {
+		return Held{}, fmt.Errorf("reading the catalog: %w", err)
 	}
-	_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(path)))
-	return path, true, errors.Is(gone, fs.ErrNotExist), nil
+	h.Known = true
+	_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
+	h.Deleted = h.Trashed || errors.Is(gone, fs.ErrNotExist)
+	return h, nil
 }
 
 // filedIn is whether a path of the library is in profile's folder, where
