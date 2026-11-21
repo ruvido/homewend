@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Where the window is, as an address: the back button and a reload keep it.
-import type { Place } from './library.js';
+import { VIEWS, type Place } from './library.js';
 
 export function urlOf(p: Place): string {
 	switch (p.kind) {
@@ -13,11 +13,9 @@ export function urlOf(p: Place): string {
 		case 'album':
 			return `/library?account=${encodeURIComponent(p.account)}&album=${encodeURIComponent(p.name)}`;
 		case 'missing':
-			return '/library?missing';
 		case 'archive':
-			return '/library?archive';
 		case 'trash':
-			return '/library?trash';
+			return `/library?${p.kind}`;
 		case 'phones':
 			return '/phones';
 		case 'takeouts':
@@ -43,9 +41,8 @@ export function placeOf(url: { pathname: string; searchParams: { has(k: string):
 	if (url.pathname.startsWith('/takeouts')) return { kind: 'takeouts' };
 	if (!url.pathname.startsWith('/library')) return { kind: 'none' };
 	if (q.has('album')) return { kind: 'album', account: q.get('account') ?? '', name: q.get('album') ?? '' };
-	if (q.has('missing')) return { kind: 'missing' };
-	if (q.has('archive')) return { kind: 'archive' };
-	if (q.has('trash')) return { kind: 'trash' };
+	const view = VIEWS.find((v) => q.has(v));
+	if (view) return { kind: view };
 	if (q.has('year')) return { kind: 'year', label: q.get('year') ?? '' };
 	return { kind: 'all' };
 }

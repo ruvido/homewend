@@ -4,9 +4,9 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { app } from '#lib/app.svelte.js';
+	import { app, refresh } from '#lib/app.svelte.js';
 	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
-	import { refresh } from '#lib/app.svelte.js';
+	import { isView } from '#lib/library.js';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
@@ -52,6 +52,7 @@
 		void reload;
 		selected = new Set();
 		anchor = -1;
+		markFailed = '';
 	});
 	function select(i: number, range: boolean) {
 		const next = new Set(selected);
@@ -65,15 +66,17 @@
 	async function turnPicked() {
 		for (const p of picked) p.turn = (await turnLeft(p.hash)).turn;
 	}
-	// Archive and Delete (Q1, Q6); in the Archive, Unarchive (Q4); in the
-	// Trash, Restore (Q5). The photos not on the disk have none.
+	// Archive and Delete (Q1, Q6), Unarchive for photos all archived (Q4,
+	// and in an album); in the Trash, Restore (Q5). The photos not on the
+	// disk have none. Rotate and Change date… are not offered in the
+	// Archive and the Trash, in the bar and the viewer alike.
 	const archive: MarkAct = { icon: 'archive', label: text.archive, state: 'archived', on: true };
 	const unarchive: MarkAct = { icon: 'archive', label: text.unarchive, state: 'archived', on: false };
 	const del: MarkAct = { icon: 'trash', label: text.deleteIt, state: 'trashed', on: true, ask: true };
 	const restore: MarkAct = { icon: 'arrow-counterclockwise', label: text.restore, state: 'trashed', on: false };
-	const acts = $derived(
-		place.kind === 'trash' ? [restore] : place.kind === 'archive' ? [unarchive, del] : place.kind === 'missing' ? [] : [archive, del]
-	);
+	const actsOf = (ps: GridPhoto[]) =>
+		place.kind === 'trash' ? [restore] : place.kind === 'missing' ? [] : [ps.every((p) => p.archived) ? unarchive : archive, del];
+	const editable = $derived(place.kind !== 'archive' && place.kind !== 'trash');
 	// A photo archived, deleted or back leaves this list (an album keeps
 	// the archived): the list is loaded again, the viewer closed.
 	let asking = $state<{ act: MarkAct; hashes: string[] } | null>(null);
@@ -153,7 +156,7 @@
 						: { year: p.label }
 					: p.kind === 'album'
 						? { album: p.name }
-						: p.kind === 'missing' || p.kind === 'archive' || p.kind === 'trash'
+						: isView(p.kind)
 							? { view: p.kind }
 							: {};
 			try {
@@ -183,7 +186,7 @@
 
 {#if app.overview?.gone}
 	<!-- The strip under the titlebar says it (G4); there is nothing to show. -->
-{:else if app.overview && app.overview.total === 0}
+{:else if app.overview && app.overview.total + app.overview.archived + app.overview.trashed === 0}
 	<EmptyLibrary />
 {:else}
 	<!-- The bar over the grid, the grid in what is left. -->
@@ -193,11 +196,11 @@
 			<button class="close" aria-label={text.clearSelection} onclick={() => (selected = new Set())}><Icon name="x-lg" size={20} /></button>
 			<b>{text.selected(selected.size)}</b>
 			{#if markFailed && !asking}<span class="failed">{markFailed}</span>{/if}
-			{#if place.kind !== 'archive' && place.kind !== 'trash'}
+			{#if editable}
 				<SecondaryButton small onclick={turnPicked}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
 				<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
 			{/if}
-			{#each acts as a (a.label)}
+			{#each actsOf(picked) as a (a.label)}
 				<SecondaryButton small onclick={() => act(a, picked.map((p) => p.hash))}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>
 			{/each}
 		</div>
@@ -228,7 +231,7 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} {acts} onact={(a, hash) => act(a, [hash])} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
+	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, hash) => act(a, [hash])} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
 	{#if asking}
 		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
 		<Dialog title={text.trashAsk(asking.hashes.length)}>

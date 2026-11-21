@@ -14,15 +14,24 @@
 	let {
 		photos,
 		index = $bindable(),
-		acts = [],
+		actsOf = () => [],
+		editable = true,
+		held = false,
+		failed = '',
 		onact,
 		ontakenout,
 		ondated
 	}: {
 		photos: GridPhoto[];
 		index: number | null;
-		/** Archive, Delete, Restore…: the page's, beside Rotate and Change date… (Q6). */
-		acts?: MarkAct[];
+		/** Archive, Delete, Restore…: the page's for a photo, beside Rotate and Change date… (Q6). */
+		actsOf?: (ps: GridPhoto[]) => MarkAct[];
+		/** Rotate and Change date… offered. */
+		editable?: boolean;
+		/** A dialog of the page is over the viewer: the keys are its. */
+		held?: boolean;
+		/** What went wrong with the last act. */
+		failed?: string;
 		onact?: (a: MarkAct, hash: string) => void;
 		ontakenout?: () => void;
 		ondated?: (hash: string) => void;
@@ -155,6 +164,7 @@
 		if (index !== null) index = Math.max(0, Math.min(photos.length - 1, index + d));
 	};
 	function key(e: KeyboardEvent) {
+		if (held) return;
 		if (index === null) return;
 		// A dialog over it takes the keys; Esc closes it.
 		if (dating || takingOut) {
@@ -186,9 +196,12 @@
 				<button class="pill" onclick={() => (takingOut = true)}>{text.takeOutOne}</button>
 			{:else}
 				<!-- Clicked, it gives the focus back: ←, → and Space are the viewer's keys. -->
-				{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
-				<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
-				{#each acts as a (a.label)}
+				{#if failed}<span class="failed">{failed}</span>{/if}
+				{#if editable}
+					{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
+					<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
+				{/if}
+				{#each actsOf([p]) as a (a.label)}
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), onact?.(a, p.hash))}><Icon name={a.icon} size={14} />{a.label}</button>
 				{/each}
 			{/if}
@@ -433,5 +446,9 @@
 	}
 	.right {
 		right: 16px;
+	}
+	.failed {
+		color: var(--err);
+		font-size: var(--text-body);
 	}
 </style>

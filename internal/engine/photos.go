@@ -29,6 +29,8 @@ type GridPhoto struct {
 	Missing bool `json:"missing,omitempty"`
 	// Turn: quarter turns anticlockwise the person gave it.
 	Turn int `json:"turn,omitempty"`
+	// Archived: in the Archive, shown in an album.
+	Archived bool `json:"archived,omitempty"`
 }
 
 // ErrNoLibrary is asking for photos before a library folder was chosen.
@@ -139,7 +141,7 @@ func Photos(s Settings, year, album string, noDate bool, view string, offset, li
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn}
+		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived}
 	}
 	return out, nil
 }

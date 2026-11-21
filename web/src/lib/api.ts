@@ -4,6 +4,7 @@
 // The engine, as the page reaches it: one function per call of internal/web.
 
 import type { IconName } from './icons.js';
+import type { View } from './library.js';
 
 export type Theme = 'system' | 'light' | 'dark';
 
@@ -79,10 +80,9 @@ export interface GridPhoto {
 	missing?: boolean;
 	/** Quarter turns anticlockwise the person gave it. */
 	turn?: number;
+	/** In the Archive, shown in an album. */
+	archived?: boolean;
 }
-
-/** The views besides the grid, a year and an album. */
-export type View = 'missing' | 'archive' | 'trash';
 
 export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; view?: View; offset: number; limit: number }) {
 	const p = new URLSearchParams({ offset: String(q.offset), limit: String(q.limit) });
@@ -95,10 +95,11 @@ export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; 
 
 /** What a photo's owner sets on it, from the selection's bar or the viewer:
  *  archived or in the Trash (on), or back. ask: Delete asks first (Q2). */
-export type MarkAct = { icon: IconName; label: string; state: 'archived' | 'trashed'; on: boolean; ask?: boolean };
+export type MarkState = 'archived' | 'trashed';
+export type MarkAct = { icon: IconName; label: string; state: MarkState; on: boolean; ask?: boolean };
 
 /** Photos archived or put in the Trash (on), or brought back. */
-export const mark = (hashes: string[], state: 'archived' | 'trashed', on: boolean) =>
+export const mark = (hashes: string[], state: MarkState, on: boolean) =>
 	call<{ marked: number }>('POST', '/api/mark', { hashes, state, on });
 
 export interface JobState {

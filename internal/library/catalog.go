@@ -69,8 +69,12 @@ type Photo struct {
 	Albums []string
 	// Turn is how many quarter turns anticlockwise the person gave it: kept
 	// here, the file is never changed.
-	Turn int
+	Turn     int
+	Archived bool
 }
+
+// photoColumns are what scanPhotos reads, in its order.
+const photoColumns = `hash, path, name, bytes, taken, source, kind, origin, turn, archived`
 
 // Catalog is the index the interface reads: what there is, where it is, and
 // what can be said about it.
@@ -459,7 +463,7 @@ type Filter struct {
 
 // Page returns photos newest first, narrowed by the filter.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
-	query, args := f.where(`SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos`)
+	query, args := f.where(`SELECT ` + photoColumns + ` FROM photos`)
 	query += " ORDER BY taken DESC, name ASC"
 	if f.Limit > 0 {
 		query += " LIMIT ? OFFSET ?"
@@ -540,7 +544,7 @@ func (f Filter) where(query string) (string, []any) {
 
 // photo is the record of one photo.
 func (c *Catalog) photo(hash string) (Photo, error) {
-	rows, err := c.db.Query(`SELECT hash, path, name, bytes, taken, source, kind, origin, turn FROM photos WHERE hash = ?`, hash)
+	rows, err := c.db.Query(`SELECT `+photoColumns+` FROM photos WHERE hash = ?`, hash)
 	if err != nil {
 		return Photo{}, fmt.Errorf("reading the catalog: %w", err)
 	}
@@ -565,7 +569,7 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 		var taken sql.NullInt64
 		var source, kind, origin string
 		if err := rows.Scan(&photo.Hash, &photo.Path, &photo.Name, &photo.Bytes,
-			&taken, &source, &kind, &origin, &photo.Turn); err != nil {
+			&taken, &source, &kind, &origin, &photo.Turn, &photo.Archived); err != nil {
 			return nil, err
 		}
 		if taken.Valid {

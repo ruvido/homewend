@@ -9,12 +9,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"github.com/ruvido/homewend/internal/library"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ruvido/homewend/internal/library"
 )
 
 // A code pairs one phone, once, into the profile chosen before it.

@@ -41,16 +41,19 @@ export interface Sidebar {
 	missing: number;
 }
 
+/** The library's views besides the grid, a year and an album: the photos
+ *  whose file is gone, the archived (out of the grid, still in their
+ *  albums), those in the Trash. Each is its address's key. */
+export const VIEWS = ['missing', 'archive', 'trash'] as const;
+export type View = (typeof VIEWS)[number];
+export const isView = (kind: string): kind is View => (VIEWS as readonly string[]).includes(kind);
+
 /** Where the window is: one row of the sidebar is this. */
 export type Place =
 	| { kind: 'all' }
 	| { kind: 'year'; label: string }
 	| { kind: 'album'; account: string; name: string }
-	/** The photos whose file is gone from the library. */
-	| { kind: 'missing' }
-	/** Archived: out of the grid and the years, still in their albums. */
-	| { kind: 'archive' }
-	| { kind: 'trash' }
+	| { kind: View }
 	| { kind: 'phones' }
 	| { kind: 'takeouts' }
 	| { kind: 'settings' }
