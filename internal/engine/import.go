@@ -102,16 +102,7 @@ func Import(ctx context.Context, dir, profile string, how library.ImportOptions,
 	// Asked before each copy, of the new photos only: a copy that fills
 	// the disk helps nobody, and a card mostly in the library already needs
 	// room for what is new on it.
-	how.Fits = func(size int64) error {
-		free, err := Free(root)
-		if err != nil {
-			return err
-		}
-		if size > free {
-			return NoSpaceError{Need: size, Free: free}
-		}
-		return nil
-	}
+	how.Fits = func(size int64) error { return fits(root, size) }
 	opt := library.Options{Profile: profile, SeparateMessaging: true, Account: source}
 	done, err := library.Import(ctx, folder, root, catalog, opt, how, emit)
 	// A photo already in another profile is in this one too, given a name.

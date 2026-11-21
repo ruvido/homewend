@@ -231,6 +231,15 @@
 	<div class="pinned">
 		<button
 			class="row"
+			class:selected={is({ kind: 'phones' })}
+			title={rail ? text.phones : undefined}
+			onclick={() => go({ kind: 'phones' })}
+		>
+			<span class="lead"><Icon name="phone" size={20} /></span>
+			<span class="label">{text.phones}</span>
+		</button>
+		<button
+			class="row"
 			class:selected={is({ kind: 'takeouts' })}
 			title={rail ? text.takeouts : undefined}
 			onclick={() => go({ kind: 'takeouts' })}

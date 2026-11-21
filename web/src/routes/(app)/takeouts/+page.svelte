@@ -166,7 +166,7 @@
 	}
 </script>
 
-<div class="page">
+<div class="page listing">
 	<header>
 		<div>
 			<h1>{text.takeoutsTitle}</h1>
@@ -276,20 +276,6 @@
 		font-weight: 600;
 		color: var(--fg);
 	}
-	/* Fixed columns: every row's status and action fall on the same lines. */
-	table {
-		width: 100%;
-		border-collapse: collapse;
-		table-layout: fixed;
-	}
-	th {
-		text-align: left;
-		padding: 0 16px 8px 0;
-		font-size: var(--text-subheadline);
-		font-weight: 600;
-		letter-spacing: 0.8px;
-		color: var(--faint);
-	}
 	th:nth-child(1) {
 		width: 26%;
 	}
@@ -299,110 +285,6 @@
 	}
 	th:nth-child(5) {
 		width: 96px;
-	}
-	td {
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		padding: 12px 16px 12px 0;
-		border-top: 1px solid var(--line);
-		color: var(--text);
-	}
-	.name,
-	.status {
-		display: flex;
-		align-items: center;
-		gap: 12px;
-		color: var(--muted);
-	}
-	.status {
-		gap: 8px;
-	}
-	.name b {
-		display: block;
-		color: var(--fg);
-		font-weight: 600;
-	}
-	.status b {
-		display: block;
-		color: var(--text);
-		font-weight: 400;
-	}
-	small {
-		display: block;
-		font-size: var(--text-subheadline);
-		color: var(--faint);
-	}
-	.name small {
-		font-family: var(--font-mono);
-	}
-	.status i {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--c);
-		flex-shrink: 0;
-	}
-	/* A status's colour, on its dot and on its button. */
-	.ok {
-		--c: var(--ok);
-		--c-soft: var(--ok-soft);
-	}
-	.accent {
-		--c: var(--accent);
-		--c-soft: var(--accent-soft);
-	}
-	.warn {
-		--c: var(--warn);
-		--c-soft: var(--warn-soft);
-	}
-	.err {
-		--c: var(--err);
-		--c-soft: var(--err-soft);
-	}
-	.faint {
-		--c: var(--faint);
-	}
-	.act {
-		padding-right: 0;
-		overflow: visible;
-	}
-	/* Every action, button, timer or ⋯, sits in the same 96px slot, centred. */
-	.pill,
-	.slot {
-		width: 96px;
-		height: 28px;
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.pill {
-		border-radius: 999px;
-		background: var(--c-soft);
-		color: var(--c);
-		font-size: var(--text-callout);
-		font-weight: 700;
-	}
-	.pill:hover {
-		filter: brightness(1.1);
-	}
-	.timer {
-		gap: 6px;
-		color: var(--c);
-		font-size: var(--text-callout);
-		font-weight: 600;
-		font-variant-numeric: tabular-nums;
-	}
-	.more {
-		width: 28px;
-		height: 28px;
-		display: grid;
-		place-items: center;
-		border-radius: 50%;
-		color: var(--muted);
-	}
-	.more:hover {
-		background: var(--field);
 	}
 	/* Half a screen: the table scrolls sideways rather than break its lines. */
 	.page:has(table) {

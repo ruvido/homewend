@@ -13,6 +13,7 @@ import (
 	"embed"
 	"errors"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"path"
@@ -47,6 +48,9 @@ type Server struct {
 	jobs  *engine.Jobs
 	// the window's import from a card or a folder
 	importing *engine.Importing
+	// the phones' listener; nil when it could not start, and the window
+	// runs without it
+	phones *phoneListener
 	// stop ends every request's context: Shutdown waits for the requests in
 	// flight, and a sign-in is one until the person has signed in.
 	stop context.CancelFunc
@@ -79,8 +83,23 @@ func (s *Server) KeepJobs() error {
 	return nil
 }
 
+// ListenPhones opens the phones' listener; without it the window runs, and
+// pairing says why.
+func (s *Server) ListenPhones() error {
+	var err error
+	s.phones, err = listenPhones()
+	return err
+}
+
 // Serve answers until Shutdown.
 func (s *Server) Serve() error {
+	if s.phones != nil {
+		go func() {
+			if err := s.phones.srv.Serve(s.phones.ln); !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("phones: %v", err)
+			}
+		}()
+	}
 	if err := s.srv.Serve(s.ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
@@ -93,6 +112,9 @@ func (s *Server) Serve() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.stop()
 	err := s.srv.Shutdown(ctx)
+	if s.phones != nil {
+		err = errors.Join(err, s.phones.srv.Shutdown(ctx))
+	}
 	s.jobs.StopAll()
 	// An import stops between two files: what is in stays in, the file
 	// being copied is copied again next time.
@@ -102,7 +124,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) handler() http.Handler {
 	files, _ := fs.Sub(dist, "dist")
-	api := apiRoutes(s.jobs, s.importing)
+	api := apiRoutes(s.jobs, s.importing, func() *phoneListener { return s.phones })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A page on another site can resolve its own name to 127.0.0.1;
 		// the Host header is what tells that request apart from ours.

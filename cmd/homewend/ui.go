@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -28,6 +29,9 @@ func ui(args []string) int {
 	}
 	fmt.Println(srv.URL)
 	srv.KeepJobs()
+	if err := srv.ListenPhones(); err != nil {
+		log.Printf("phones: no listener: %v", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -195,6 +195,25 @@ export const text = {
 	speed: 'speed',
 
 	takeoutsTitle: 'Takeouts',
+	phones: 'Phones',
+	addPhone: 'Add a phone',
+	scanThis: 'Scan this with the phone.',
+	scanHow: 'Homewend on the phone → Scan the code',
+	waitingPhone: 'Waiting for the phone',
+	noPhones: 'No phone yet.',
+	phoneCol: 'PHONE',
+	accountCol: 'ACCOUNT',
+	lastBackupCol: 'LAST BACKUP',
+	backedUpCol: 'BACKED UP',
+	phoneBackedUp: 'Backed up',
+	phoneBackingUp: 'Backing up',
+	phoneNotSeen: 'Not seen',
+	phonePaired: 'Paired',
+	phonesLine: (n: { up: number; going: number; away: number; paired: number }) =>
+		[n.up && `${n.up} backed up`, n.going && `${n.going} backing up`, n.away && `${n.away} not seen`, n.paired && `${n.paired} paired`]
+			.filter(Boolean)
+			.join(' · '),
+	unpair: 'Unpair',
 	takeoutCol: 'TAKEOUT',
 	askedCol: 'ASKED',
 	sizeCol: 'SIZE',

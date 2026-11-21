@@ -19,7 +19,7 @@ import (
 
 // apiRoutes are the engine calls the page makes. Each is a thin translation
 // to JSON: what they do lives in the engine.
-func apiRoutes(jobs *engine.Jobs, importing *engine.Importing) http.Handler {
+func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *phoneListener) http.Handler {
 	mux := http.NewServeMux()
 	// One sign-in at a time: a second click must not open a second browser.
 	var signingIn sync.Mutex
@@ -132,6 +132,39 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing) http.Handler {
 			return
 		}
 		reply(w, nil, engine.EjectCard(body.Path))
+	})
+	// The phones paired, without their tokens, and whether a code waits.
+	mux.HandleFunc("GET /api/phones", func(w http.ResponseWriter, r *http.Request) {
+		p, err := engine.LoadPhones()
+		for i := range p.Phones {
+			p.Phones[i].Token = ""
+		}
+		if p.Phones == nil {
+			p.Phones = []engine.Phone{}
+		}
+		reply(w, map[string]any{"phones": p.Phones, "pairing": engine.Pairing()}, err)
+	})
+	// Add a phone: a code for the profile chosen, as the QR's text.
+	mux.HandleFunc("POST /api/phones/pair", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Profile string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		l := phones()
+		if l == nil {
+			http.Error(w, "the phones' listener did not start: see homewend.log", http.StatusServiceUnavailable)
+			return
+		}
+		code, err := engine.StartPairing(body.Profile)
+		reply(w, map[string]string{"qr": l.pairText(code)}, err)
+	})
+	mux.HandleFunc("DELETE /api/phones/pair", func(w http.ResponseWriter, r *http.Request) {
+		engine.StopPairing()
+		reply(w, nil, nil)
+	})
+	mux.HandleFunc("DELETE /api/phones/{id}", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, nil, engine.Unpair(r.PathValue("id")))
 	})
 	mux.HandleFunc("POST /api/turn/{hash}", func(w http.ResponseWriter, r *http.Request) {
 		turn, err := engine.TurnLeft(r.PathValue("hash"))

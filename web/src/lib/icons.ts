@@ -44,6 +44,8 @@ import moon from 'bootstrap-icons/icons/moon.svg?raw';
 import pauseFill from 'bootstrap-icons/icons/pause-fill.svg?raw';
 import person from 'bootstrap-icons/icons/person.svg?raw';
 import personPlus from 'bootstrap-icons/icons/person-plus.svg?raw';
+import phone from 'bootstrap-icons/icons/phone.svg?raw';
+import plug from 'bootstrap-icons/icons/plug.svg?raw';
 import playFill from 'bootstrap-icons/icons/play-fill.svg?raw';
 import plusLg from 'bootstrap-icons/icons/plus-lg.svg?raw';
 import sdCard from 'bootstrap-icons/icons/sd-card.svg?raw';
@@ -96,6 +98,8 @@ const raw = {
 	'pause-fill': pauseFill,
 	'person': person,
 	'person-plus': personPlus,
+	'phone': phone,
+	'plug': plug,
 	'play-fill': playFill,
 	'plus-lg': plusLg,
 	'sd-card': sdCard,

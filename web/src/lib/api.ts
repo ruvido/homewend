@@ -130,6 +130,12 @@ export interface YearCounts {
 }
 export const getYears = (account: string) => call<YearCounts>('GET', `/api/years?${q({ account })}`);
 export const countYears = (account: string) => call<Record<string, never>>('POST', `/api/years?${q({ account })}`);
+/** A phone paired with this computer (docs/phone.md). */
+export type Phone = { id: string; name: string; profile: string; paired: string; seen?: string; backup?: string; photos: number };
+export const getPhones = () => call<{ phones: Phone[]; pairing: boolean }>('GET', '/api/phones');
+export const startPairing = (profile: string) => call<{ qr: string }>('POST', '/api/phones/pair', { profile });
+export const stopPairing = () => call<null>('DELETE', '/api/phones/pair');
+export const unpair = (id: string) => call<null>('DELETE', `/api/phones/${encodeURIComponent(id)}`);
 export const getLibrary = () => call<{ dir: string; free: number }>('GET', '/api/library');
 /** Takes out of the library the photo of hash whose file is gone, or with none every one; keepOut keeps them out of the imports. */
 export const takeOutMissing = (hash: string | undefined, keepOut: boolean) =>

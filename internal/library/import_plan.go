@@ -330,7 +330,7 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 		var held string // where the library holds it, "" not
 		var deleted bool
 		if catalog != nil {
-			path, known, gone, err := libraryHolds(catalog, opt.Root, hash)
+			path, known, gone, err := Holds(catalog, opt.Root, hash)
 			if err != nil {
 				return plan, err
 			}

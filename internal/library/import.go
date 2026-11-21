@@ -151,7 +151,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			continue
 		}
 		when, dated := dates[item.Path]
-		relative, known, deleted, err := libraryHolds(catalog, root, hash)
+		relative, known, deleted, err := Holds(catalog, root, hash)
 		if err != nil {
 			return done, err
 		}
@@ -266,11 +266,11 @@ func kindOf(path string) string {
 	return ""
 }
 
-// libraryHolds is where the library holds the photo of hash, below root,
+// Holds is where the library holds the photo of hash, below root,
 // and whether someone deleted it: listed in the catalog, gone from the disk.
 // A disk that answers late is not a deletion. The look and the copy judge
 // a photo here, alike.
-func libraryHolds(catalog *Catalog, root, hash string) (path string, known, deleted bool, err error) {
+func Holds(catalog *Catalog, root, hash string) (path string, known, deleted bool, err error) {
 	path, known, err = catalog.PathOf(hash)
 	if err != nil || !known {
 		return path, known, false, err

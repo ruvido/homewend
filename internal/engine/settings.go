@@ -4,10 +4,7 @@
 package engine
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -145,20 +142,7 @@ func LoadSettings() (Settings, error) {
 	return loadSettings(path)
 }
 
-func loadSettings(path string) (Settings, error) {
-	var s Settings
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return s, nil
-	}
-	if err != nil {
-		return s, err
-	}
-	if err := json.Unmarshal(data, &s); err != nil {
-		return s, fmt.Errorf("reading %s: %w", path, err)
-	}
-	return s, nil
-}
+func loadSettings(path string) (Settings, error) { return readJSON[Settings](path) }
 
 // settingsMu holds one change of the settings at a time: an import
 // remembers its profile while the window may save its theme, and the

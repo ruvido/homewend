@@ -14,6 +14,8 @@ export function urlOf(p: Place): string {
 			return `/library?account=${encodeURIComponent(p.account)}&album=${encodeURIComponent(p.name)}`;
 		case 'missing':
 			return '/library?missing';
+		case 'phones':
+			return '/phones';
 		case 'takeouts':
 			return '/takeouts';
 		case 'settings':
@@ -33,6 +35,7 @@ export const chooseUrl = (account: string, year?: number) =>
 export function placeOf(url: { pathname: string; searchParams: { has(k: string): boolean; get(k: string): string | null } }): Place {
 	const q = url.searchParams;
 	if (url.pathname.startsWith('/settings')) return { kind: 'settings' };
+	if (url.pathname.startsWith('/phones')) return { kind: 'phones' };
 	if (url.pathname.startsWith('/takeouts')) return { kind: 'takeouts' };
 	if (!url.pathname.startsWith('/library')) return { kind: 'none' };
 	if (q.has('album')) return { kind: 'album', account: q.get('account') ?? '', name: q.get('album') ?? '' };

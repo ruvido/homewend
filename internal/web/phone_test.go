@@ -1,0 +1,76 @@
+// homewend — Copyright (C) 2026 ruvido
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+package web
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/ruvido/homewend/internal/engine"
+)
+
+// A phone pairs with the code, then asks and sends as docs/phone.md says,
+// each answer the status the contract names.
+func TestAPhoneTalksAsTheContractSays(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfg)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", cfg)
+	if err := engine.SetDefaultLibrary(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	h := phoneRoutes()
+	call := func(method, target, token, body string) (int, map[string]any) {
+		r := httptest.NewRequest(method, target, strings.NewReader(body))
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		var out map[string]any
+		json.NewDecoder(w.Body).Decode(&out)
+		return w.Code, out
+	}
+
+	if code, _ := call("POST", "/v1/pair", "", `{"code":"nope","name":"Pixel"}`); code != http.StatusForbidden {
+		t.Errorf("a wrong code: %d, want 403", code)
+	}
+	pairCode, err := engine.StartPairing("ron")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, paired := call("POST", "/v1/pair", "", `{"code":"`+pairCode+`","name":"Pixel"}`)
+	token, _ := paired["token"].(string)
+	if code != http.StatusOK || token == "" || paired["phone"] == "" {
+		t.Fatalf("pairing: %d %v", code, paired)
+	}
+	if code, _ := call("POST", "/v1/have", "", `{"hashes":[]}`); code != http.StatusUnauthorized {
+		t.Errorf("no token: %d, want 401", code)
+	}
+
+	photo := "the phone's photo"
+	sum := sha256.Sum256([]byte(photo))
+	hash := hex.EncodeToString(sum[:])
+	if code, _ := call("PUT", "/v1/photo/"+hash+"?name=IMG_1.JPG", token, "not it"); code != http.StatusUnprocessableEntity {
+		t.Errorf("wrong bytes: %d, want 422", code)
+	}
+	if code, out := call("PUT", "/v1/photo/"+hash+"?name=IMG_1.JPG", token, photo); code != http.StatusCreated || out["path"] == "" {
+		t.Errorf("sent: %d %v, want 201 and its path", code, out)
+	}
+	if code, out := call("PUT", "/v1/photo/"+hash+"?name=IMG_1.JPG", token, photo); code != http.StatusOK || out["path"] == "" {
+		t.Errorf("sent again: %d %v, want 200 and its path", code, out)
+	}
+	code, have := call("POST", "/v1/have", token, `{"hashes":["`+hash+`"]}`)
+	if list, _ := have["have"].([]any); code != http.StatusOK || len(list) != 1 {
+		t.Errorf("have: %d %v", code, have)
+	}
+	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
+		t.Errorf("an uppercase hash: %d, want 400", code)
+	}
+}

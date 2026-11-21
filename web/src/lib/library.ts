@@ -46,6 +46,7 @@ export type Place =
 	| { kind: 'album'; account: string; name: string }
 	/** The photos whose file is gone from the library. */
 	| { kind: 'missing' }
+	| { kind: 'phones' }
 	| { kind: 'takeouts' }
 	| { kind: 'settings' }
 	/** A screen of its own, no row of the sidebar: choose, the download. */
