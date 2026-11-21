@@ -29,8 +29,10 @@
 		>
 	{:else}
 		<!-- svelte-ignore a11y_autofocus -->
+		<!-- Typing is naming: the pill comes back on Enter or leaving the field, not at the first letter. -->
 		<input
 			bind:value={typed}
+			oninput={() => (naming = true)}
 			placeholder={text.yourName}
 			aria-label={text.yourName}
 			spellcheck="false"

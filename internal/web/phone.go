@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/library"
 )
 
 // maxHave is how many hashes one /v1/have asks about (docs/phone.md), and
@@ -141,6 +142,12 @@ func phoneRoutes() http.Handler {
 		name := r.URL.Query().Get("name")
 		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) || len(name) > 255 || r.ContentLength < 0 {
 			phoneError(w, http.StatusBadRequest, "a file's name and a Content-Length are needed")
+			return
+		}
+		// A kind of file the library does not take is said before its bytes
+		// are sent, not sent again at every backup.
+		if !library.IsMedia(name) {
+			phoneError(w, http.StatusUnsupportedMediaType, "not a photo or a video the library takes")
 			return
 		}
 		got, err := engine.ReceivePhoto(r.Context(), phone, hash, name, r.ContentLength, r.Body)

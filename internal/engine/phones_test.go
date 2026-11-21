@@ -94,8 +94,8 @@ func TestAPhotoFromAPhone(t *testing.T) {
 	if err != nil || again.New || again.Path != got.Path {
 		t.Errorf("sent twice: %+v %v, want the same path, not new", again, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".homewend", "phone", "p1")); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("the upload is left: %v", err)
+	if left, _ := os.ReadDir(filepath.Join(root, ".homewend", "phone")); len(left) > 0 {
+		t.Errorf("uploads left: %v", left)
 	}
 	// Deleted on the computer.
 	if err := os.Remove(filepath.Join(root, filepath.FromSlash(got.Path))); err != nil {

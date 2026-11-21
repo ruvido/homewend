@@ -115,7 +115,7 @@
 		<!-- P2: whose phone first, then its code. -->
 		<Whose bind:typed bind:naming {profile} />
 		<!-- At once, its code's place kept until the code comes. -->
-		<PairCard {code} oncancel={cancel} />
+		<PairCard code={naming ? '' : code} oncancel={cancel} />
 	{/if}
 	{#if phones?.length === 0 && !adding}
 		<p class="muted">{text.noPhones}</p>
