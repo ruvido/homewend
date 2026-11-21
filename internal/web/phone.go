@@ -26,7 +26,7 @@ import (
 	"github.com/ruvido/homewend/internal/library"
 )
 
-// maxHave is how many hashes one /v1/have asks about (docs/phone.md), and
+// maxHave is how many hashes one call asks about (docs/phone.md), and
 // maxAsk the bytes a call's JSON may take: anyone on the network can call.
 const (
 	maxHave = 1000
@@ -156,6 +156,17 @@ func localAddresses() []string {
 	return ips
 }
 
+// askedHashes reads the hashes a phone sends, at most maxHave, and answers
+// 400 when they are not that.
+func askedHashes(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	var in struct{ Hashes []string }
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAsk)).Decode(&in); err != nil || len(in.Hashes) > maxHave {
+		phoneError(w, http.StatusBadRequest, fmt.Sprintf("at most %d hashes", maxHave))
+		return nil, false
+	}
+	return in.Hashes, true
+}
+
 func phoneRoutes(l *phoneListener) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/pair", func(w http.ResponseWriter, r *http.Request) {
@@ -183,14 +194,23 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		phoneReply(w, struct{}{}, engine.Unpair(phone.ID, "phone"))
 	}))
 	mux.Handle("POST /v1/have", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
-		var in struct{ Hashes []string }
-		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAsk)).Decode(&in); err != nil || len(in.Hashes) > maxHave {
-			phoneError(w, http.StatusBadRequest, fmt.Sprintf("at most %d hashes", maxHave))
+		hashes, ok := askedHashes(w, r)
+		if !ok {
 			return
 		}
-		have, out, err := engine.Have(in.Hashes)
-		phoneReply(w, map[string][]string{"have": have, "out": out}, err)
+		have, out, archived, err := engine.Have(hashes)
+		phoneReply(w, map[string][]string{"have": have, "out": out, "archived": archived}, err)
 	}))
+	for path, archive := range map[string]bool{"archive": true, "unarchive": false} {
+		mux.Handle("POST /v1/"+path, paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+			hashes, ok := askedHashes(w, r)
+			if !ok {
+				return
+			}
+			done, err := engine.Archive(phone, hashes, archive)
+			phoneReply(w, map[string][]string{path + "d": done}, err)
+		}))
+	}
 	mux.Handle("PUT /v1/photo/{hash}", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		hash := r.PathValue("hash")
 		if b, err := hex.DecodeString(hash); err != nil || len(b) != 32 || strings.ToLower(hash) != hash {

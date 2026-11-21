@@ -148,10 +148,14 @@ func OpenCatalog(path string) (*Catalog, error) {
 		db.Close()
 		return nil, fmt.Errorf("preparing the catalog: %w", err)
 	}
-	// A photo turned by the person, in quarter turns: added the same way.
-	if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN turn INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		db.Close()
-		return nil, fmt.Errorf("preparing the catalog: %w", err)
+	// A photo turned by the person, in quarter turns, and one archived: out
+	// of the grid and the years, still in its albums, still backed up. Added
+	// the same way.
+	for _, column := range []string{"turn", "archived"} {
+		if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			db.Close()
+			return nil, fmt.Errorf("preparing the catalog: %w", err)
+		}
 	}
 	// A catalog from before sources named their service kept bare Google
 	// addresses.
@@ -434,6 +438,9 @@ type Filter struct {
 	Album   string
 	Year    string
 	NoDate  bool // only the photos whose date nobody knows
+	// Archived keeps only the archived photos; otherwise they are left out,
+	// except from an album and from a list of hashes.
+	Archived bool
 	// Hashes keeps only these photos; nil is all, empty is none.
 	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
 	// photos not on the disk, a temporary table if a list ever grows past.
@@ -474,6 +481,11 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 	}
 	if f.NoDate {
 		where = append(where, "taken IS NULL")
+	}
+	if f.Archived {
+		where = append(where, "archived = 1")
+	} else if f.Album == "" && f.Hashes == nil {
+		where = append(where, "archived = 0")
 	}
 	if f.Hashes != nil {
 		where = append(where, "hash IN (NULL"+strings.Repeat(",?", len(f.Hashes))+")")
@@ -548,7 +560,7 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 // CountsByOrigin is what the filter chips show: how many of each, so nobody
 // clicks "WhatsApp" to find out it is empty.
 func (c *Catalog) CountsByOrigin() (map[Origin]int, error) {
-	rows, err := c.db.Query(`SELECT origin, COUNT(*) FROM photos WHERE out = 0 GROUP BY origin`)
+	rows, err := c.db.Query(`SELECT origin, COUNT(*) FROM photos WHERE out = 0 AND archived = 0 GROUP BY origin`)
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +602,7 @@ func (c *Catalog) AlbumNames() (map[string]int, error) {
 // CountsByYear is how many photos each year holds, and under "" those whose
 // date nobody knows.
 func (c *Catalog) CountsByYear(accounts []string) (map[string]int, error) {
-	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM photos WHERE out = 0`
+	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM photos WHERE out = 0 AND archived = 0`
 	clause, args := ownedBy(accounts)
 	if clause != "" {
 		query += " AND " + clause
@@ -649,6 +661,33 @@ func (c *Catalog) Latest(n int) ([]Photo, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// Archive archives the photos of hashes filed in profile's folder, or brings
+// them back to the grid, and says which those were: a photo of another
+// profile, or not in the library, is left as it is.
+func (c *Catalog) Archive(hashes []string, profile string, archived bool) ([]string, error) {
+	tx, err := c.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	done := []string{}
+	for _, h := range hashes {
+		var path string
+		err := tx.QueryRow(`SELECT path FROM photos WHERE hash = ? AND out = 0`, h).Scan(&path)
+		if errors.Is(err, sql.ErrNoRows) || err == nil && !filedIn(path, profile) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if _, err := tx.Exec(`UPDATE photos SET archived = ? WHERE hash = ?`, archived, h); err != nil {
+			return nil, err
+		}
+		done = append(done, h)
+	}
+	return done, tx.Commit()
 }
 
 // TurnLeft gives the photo of hash a quarter turn more, anticlockwise, and

@@ -70,6 +70,15 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if list, _ := have["have"].([]any); code != http.StatusOK || len(list) != 1 {
 		t.Errorf("have: %d %v", code, have)
 	}
+	if code, out := call("POST", "/v1/archive", token, `{"hashes":["`+hash+`"]}`); code != http.StatusOK || len(out["archived"].([]any)) != 1 {
+		t.Errorf("archive: %d %v", code, out)
+	}
+	if _, have := call("POST", "/v1/have", token, `{"hashes":["`+hash+`"]}`); len(have["archived"].([]any)) != 1 {
+		t.Errorf("have after archive: %v", have)
+	}
+	if code, out := call("POST", "/v1/unarchive", token, `{"hashes":["`+hash+`"]}`); code != http.StatusOK || len(out["unarchived"].([]any)) != 1 {
+		t.Errorf("unarchive: %d %v", code, out)
+	}
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}

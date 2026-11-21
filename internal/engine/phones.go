@@ -279,18 +279,19 @@ func makeCert(certFile, keyFile string) (tls.Certificate, error) {
 }
 
 // Have splits the hashes a phone asks about: in the library with their file
-// in place, or deleted here and kept out of every import.
-func Have(hashes []string) (have, out []string, err error) {
-	have, out = []string{}, []string{}
+// in place, or deleted here and kept out of every import; archived are
+// those of have archived.
+func Have(hashes []string) (have, out, archived []string, err error) {
+	have, out, archived = []string{}, []string{}, []string{}
 	root, catalog, err := lookAtLibrary()
 	if err != nil || catalog == nil {
-		return have, out, err
+		return have, out, archived, err
 	}
 	defer catalog.Close()
 	for _, h := range hashes {
 		_, known, deleted, err := library.Holds(catalog, root, h)
 		if err != nil {
-			return have, out, err
+			return have, out, archived, err
 		}
 		switch {
 		case deleted:
@@ -299,7 +300,22 @@ func Have(hashes []string) (have, out []string, err error) {
 			have = append(have, h)
 		}
 	}
-	return have, out, nil
+	page, err := catalog.Page(library.Filter{Hashes: have, Archived: true})
+	for _, p := range page {
+		archived = append(archived, p.Hash)
+	}
+	return have, out, archived, err
+}
+
+// Archive archives the photos of hashes a phone's profile holds, or brings
+// them back to the grid, and says which those were.
+func Archive(phone Phone, hashes []string, archived bool) ([]string, error) {
+	c, _, err := openLibrary()
+	if err != nil || c == nil {
+		return []string{}, err
+	}
+	defer c.Close()
+	return c.Archive(hashes, phone.Profile, archived)
 }
 
 // Received is what became of a photo a phone sent.

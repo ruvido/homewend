@@ -117,3 +117,41 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 		t.Fatalf("an unknown photo turned: %v", err)
 	}
 }
+
+// An archived photo leaves the grid and the years, stays in its albums and
+// in the archive, and only its profile's folder archives it.
+func TestAnArchivedPhoto(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	taken := time.Date(2020, 5, 1, 0, 0, 0, 0, time.UTC)
+	for _, h := range []string{"a", "b"} {
+		if err := c.Put(Photo{Hash: h, Path: "ron/" + h, Name: h, Taken: taken}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.addAlbum("Trip", "a", "")
+	if done, _ := c.Archive([]string{"a"}, "ann", true); len(done) != 0 {
+		t.Errorf("another profile archived %v", done)
+	}
+	for range 2 { // twice: archiving is idempotent
+		if done, err := c.Archive([]string{"a", "zz"}, "ron", true); err != nil || len(done) != 1 {
+			t.Fatalf("archived %v %v, want a", done, err)
+		}
+	}
+	grid, _ := c.Page(Filter{})
+	album, _ := c.Page(Filter{Album: "Trip"})
+	archive, _ := c.Page(Filter{Archived: true})
+	years, _ := c.CountsByYear(nil)
+	if len(grid) != 1 || grid[0].Hash != "b" || len(album) != 1 || len(archive) != 1 || archive[0].Hash != "a" || years["2020"] != 1 {
+		t.Errorf("grid %v album %v archive %v years %v", grid, album, archive, years)
+	}
+	if done, _ := c.Archive([]string{"a"}, "ron", false); len(done) != 1 {
+		t.Errorf("unarchived %v", done)
+	}
+	if grid, _ := c.Page(Filter{}); len(grid) != 2 {
+		t.Errorf("back: %v", grid)
+	}
+}
