@@ -3,7 +3,7 @@
 <!-- K2: a day on the month, Monday first, and the time in two fields. The
      value is a clock, "2026-11-07T15:27", as the photos' dates are kept. -->
 <script lang="ts">
-	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import { text } from '#lib/strings.js';
 
 	let { value = $bindable() }: { value: string } = $props();
@@ -42,9 +42,9 @@
 
 <div class="date">
 	<div class="head">
-		<button aria-label={text.previousMonth} onclick={() => move(-1)}><ChevronLeft size={16} /></button>
+		<button aria-label={text.previousMonth} onclick={() => move(-1)}><Icon name="chevron-left" size={16} /></button>
 		<b>{month}</b>
-		<button aria-label={text.nextMonth} onclick={() => move(1)}><ChevronRight size={16} /></button>
+		<button aria-label={text.nextMonth} onclick={() => move(1)}><Icon name="chevron-right" size={16} /></button>
 	</div>
 	<div class="days">
 		{#each text.weekdays as w, i (i)}<span>{w}</span>{/each}

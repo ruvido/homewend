@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Before the first photo arrives: Apple Photos' empty state. -->
 <script lang="ts">
-	import { Images } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { text } from '#lib/strings.js';
 	import { shownJob } from '#lib/app.svelte.js';
@@ -12,7 +12,7 @@
 </script>
 
 <div class="empty">
-	<Images size={40} strokeWidth={1.5} />
+	<Icon name="images" size={40} />
 	<h2>{text.noPhotos}</h2>
 	<p>{text.noPhotosDesc}</p>
 	{#if job}

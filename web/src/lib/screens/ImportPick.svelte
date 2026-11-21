@@ -4,8 +4,8 @@
      picked one by one. The likely photos first; the rest, by kind, when
      asked. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { untrack } from 'svelte';
-	import { Check, ChevronRight, Film } from '@lucide/svelte';
 	import { importThumbUrl, type ImportFile, type ImportGroup } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
@@ -47,7 +47,7 @@
 </script>
 
 <div class="pick">
-	<button class="back" onclick={onback}><ChevronRight size={14} />{text.backToPlan}</button>
+	<button class="back" onclick={onback}><Icon name="chevron-right" size={14} />{text.backToPlan}</button>
 	<span class="pill">{group.folder}</span>
 	<h1>{text.whichAreYours}</h1>
 	<p class="lead">{text.pickLead(group.folder, group.kind)}</p>
@@ -61,8 +61,8 @@
 				{#each k.files as f (f.path)}
 					{@const on = picked.has(f.path)}
 					<button class="tile" class:on title={f.path} onclick={() => flip(f.path)}>
-						{#if f.video}<span class="video"><Film size={20} /></span>{:else}<img src={importThumbUrl(f.path)} alt={f.path} loading="lazy" />{/if}
-						{#if on}<span class="tick"><Check size={14} /></span>{/if}
+						{#if f.video}<span class="video"><Icon name="film" size={20} /></span>{:else}<img src={importThumbUrl(f.path)} alt={f.path} loading="lazy" />{/if}
+						{#if on}<span class="tick"><Icon name="check-lg" size={14} /></span>{/if}
 					</button>
 				{/each}
 			</div>

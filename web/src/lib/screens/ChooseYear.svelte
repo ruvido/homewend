@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- A2c, A2d: the years the account has on Google, how many photos each; one to bring home. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { app, sidebarOf, startFailure, startJob } from '#lib/app.svelte.js';
@@ -12,7 +13,6 @@
 	import { text } from '#lib/strings.js';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
-	import { ArrowLeft, Folder, Loader, CircleCheck, CalendarX, CloudDownload } from '@lucide/svelte';
 
 	// The account the address names; one that is gone, the first.
 	const accounts = $derived(app.overview ? sidebarOf(app.overview).accounts : []);
@@ -97,7 +97,7 @@
 	<div class="list" class:finding={years.finding}>
 		{#if years.finding}
 			<div class="wait">
-				<span class="spin"><Loader size={28} /></span>
+				<span class="spin"><Icon name="arrow-repeat" size={28} /></span>
 				<b>{text.findingYears}</b>
 				<time>{text.pleaseWait} {text.elapsed(years.seconds)}</time>
 				<p>{text.findingYearsWhy}</p>
@@ -108,12 +108,12 @@
 				{#each list as y (y.year)}
 					<button role="radio" aria-checked={year === y.year} class:on={year === y.year} onclick={() => (year = y.year)} use:reveal={year === y.year}>
 						<span class="radio"></span>
-						<span class="folder"><Folder size={18} fill="currentColor" /></span>
+						<span class="folder"><Icon name="folder-fill" size={18} /></span>
 						<span class="name">{y.year}</span>
 						{#if asked.get(y.year)}
 							{@const a = asked.get(y.year)!}
 							<span class="asked {a.state}">
-								{#if a.state === 'downloaded'}<CircleCheck size={12} />{:else if a.state === 'expired'}<CalendarX size={12} />{:else if a.state === 'preparing'}<Loader size={12} />{:else}<CloudDownload size={12} />{/if}
+								{#if a.state === 'downloaded'}<Icon name="check-circle" size={12} />{:else if a.state === 'expired'}<Icon name="calendar-x" size={12} />{:else if a.state === 'preparing'}<Icon name="arrow-repeat" size={12} />{:else}<Icon name="cloud-arrow-down" size={12} />{/if}
 								{text.askedYear[a.state]} · {text.askedOn(a.day)}
 							</span>
 						{/if}
@@ -132,7 +132,7 @@
 		</p>{/if}
 
 	<div class="go">
-		<SecondaryButton onclick={() => goto(chooseUrl(account))}><ArrowLeft size={16} />{text.back}</SecondaryButton>
+		<SecondaryButton onclick={() => goto(chooseUrl(account))}><Icon name="arrow-left" size={16} />{text.back}</SecondaryButton>
 		{#if running}
 			<PrimaryButton onclick={() => goto('/bringing')}>{text.seeDownload}</PrimaryButton>
 			<span class="hint">{text.alreadyBringing}</span>

@@ -4,7 +4,7 @@
      says, ticked, and given the day they were taken. Nothing is written
      here: the dates go with the copy, in a .xmp beside each photo. -->
 <script lang="ts">
-	import { Check, ChevronRight, Film } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import { importThumbUrl, type ImportFile, type Redate } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { takenAt, takenDay, takenTime } from '#lib/format.js';
@@ -82,7 +82,7 @@
 </script>
 
 <div class="dates">
-	<button class="back" onclick={onback}><ChevronRight size={14} />{text.backToPlan}</button>
+	<button class="back" onclick={onback}><Icon name="chevron-right" size={14} />{text.backToPlan}</button>
 	<h1>{text.anyDatesWrong}</h1>
 	<p class="lead">{text.anyDatesWrongLead}</p>
 	<div class="split">
@@ -99,7 +99,7 @@
 						aria-label={day ? takenDay(utc(day)) : text.noDate}
 					/>
 					<button class="name" onclick={() => (opened = flip(opened, [day], !open))}>
-						<ChevronRight size={16} />{day ? takenDay(utc(day)) : text.noDate}
+						<Icon name="chevron-right" size={16} />{day ? takenDay(utc(day)) : text.noDate}
 					</button>
 					<span class="count">{list.length.toLocaleString('en')}</span>
 				</div>
@@ -108,8 +108,8 @@
 						{#each list as f (f.path)}
 							{@const on = picked.has(f.path)}
 							<button class="tile" class:on title={f.path} onclick={() => (picked = flip(picked, [f.path], !on))}>
-								{#if f.video}<span class="video"><Film size={20} /></span>{:else}<img src={importThumbUrl(f.path)} alt={f.path} loading="lazy" />{/if}
-								{#if on}<span class="tick"><Check size={14} /></span>{/if}
+								{#if f.video}<span class="video"><Icon name="film" size={20} /></span>{:else}<img src={importThumbUrl(f.path)} alt={f.path} loading="lazy" />{/if}
+								{#if on}<span class="tick"><Icon name="check-lg" size={14} /></span>{/if}
 								{#if given.has(f.path)}<span class="given">{takenDay(utc(given.get(f.path)!))}</span>{/if}
 							</button>
 						{/each}

@@ -1,9 +1,9 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { text } from '#lib/strings.js';
 
-	import { LoaderCircle } from '@lucide/svelte';
 
 	let {
 		onclick,
@@ -43,7 +43,7 @@
 		</svg>
 	</span>
 	{waiting ? text.signInWaiting : text.signInButton}
-	{#if waiting}<span class="spin"><LoaderCircle size={18} /></span>{/if}
+	{#if waiting}<span class="spin"><Icon name="arrow-repeat" size={18} /></span>{/if}
 </button>
 
 <style>

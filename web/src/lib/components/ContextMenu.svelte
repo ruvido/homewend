@@ -3,11 +3,11 @@
 <!-- B1's menu: one bubble whose arrow touches the end of the row it is for,
      its first item on the row's centre line. Ours, the same on every system. -->
 <script module lang="ts">
-	import { FolderOpen, Copy } from '@lucide/svelte';
-	import type { Component } from 'svelte';
+	import Icon from '#lib/components/Icon.svelte';
+	import type { IconName } from '#lib/icons.js';
 	import { text } from '#lib/strings.js';
 
-	export type MenuItem = { icon: Component; label: string; run: () => void | Promise<void> };
+	export type MenuItem = { icon: IconName; label: string; run: () => void | Promise<void> };
 
 	/** A folder's two items, or a photo's: open it, copy its path. The path
 	 *  may be asked of the engine only when an item is chosen. */
@@ -15,7 +15,7 @@
 		const where = async () => (typeof path === 'string' ? path : path());
 		return [
 			{
-				icon: FolderOpen,
+				icon: 'folder2-open',
 				label: text.openInFolder,
 				// A photo's folder opens with the photo picked in it.
 				run: async () => {
@@ -25,7 +25,7 @@
 				}
 			},
 			{
-				icon: Copy,
+				icon: 'copy',
 				label: text.copyFolderPath,
 				// The folder's path, as the item says, also for a photo.
 				run: async () => {
@@ -131,7 +131,7 @@
 	bind:this={bubble}
 	class="menu" class:flip style:left="{flip ? at.left - 7 - WIDTH : x + 7}px" style:top="{y - 24}px" role="menu">
 	{#each items as item (item.label)}
-		<button role="menuitem" onclick={() => pick(item)}><item.icon size={16} />{item.label}</button>
+		<button role="menuitem" onclick={() => pick(item)}><Icon name={item.icon} size={16} />{item.label}</button>
 	{/each}
 </div>
 

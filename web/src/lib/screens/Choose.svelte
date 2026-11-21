@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- A2: everything, one year, or a takeout already made. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
@@ -12,7 +13,6 @@
 	import { text } from '#lib/strings.js';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
-	import { Plus, Folder, ArrowRight } from '@lucide/svelte';
 	import { bytes } from '#lib/format.js';
 	import { sidebarOf } from '#lib/app.svelte.js';
 
@@ -75,7 +75,7 @@
 				<b>{a.email}</b>
 			</button>
 		{/each}
-		<button class="add" onclick={() => goto('/add')}><Plus size={14} />{text.addAccount}</button>
+		<button class="add" onclick={() => goto('/add')}><Icon name="plus-lg" size={14} />{text.addAccount}</button>
 	</div>
 
 	<div class="cards" role="radiogroup">
@@ -91,12 +91,12 @@
 		<div role="radio" tabindex="0" aria-checked={kind === 'asked'} class="card" class:on={kind === 'asked'} onclick={() => (kind = 'asked')} onkeydown={(e) => e.key === 'Enter' && (kind = 'asked')}>
 			<span class="title"><span class="radio"></span><h2>{text.oneAsked}</h2></span>
 			<p>{text.oneAskedDesc}</p>
-			<span class="link">{text.seeTakeouts}<ArrowRight size={14} /></span>
+			<span class="link">{text.seeTakeouts}<Icon name="arrow-right" size={14} /></span>
 		</div>
 	</div>
 
 	<div class="dest">
-		<span class="folder"><Folder size={20} fill="currentColor" /></span>
+		<span class="folder"><Icon name="folder-fill" size={20} /></span>
 		<span class="label">{text.photosGoTo}</span>
 		<span class="path" title={dir}>{dir || text.noLibraryYet}</span>
 		{#if dir && free}<span class="free">{text.free(bytes(free))}</span>{/if}

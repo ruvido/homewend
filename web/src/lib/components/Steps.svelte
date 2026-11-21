@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- The first run's three steps, under the titlebar (A2–A5). -->
 <script lang="ts">
-	import { Check } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 
 	let { steps, at }: { steps: string[]; at: number } = $props();
 </script>
@@ -10,7 +10,7 @@
 <ol>
 	{#each steps as label, i (i)}
 		<li class:done={i < at} class:now={i === at}>
-			<span class="dot">{#if i < at}<Check size={14} strokeWidth={3} />{:else}{i + 1}{/if}</span>
+			<span class="dot">{#if i < at}<Icon name="check-lg" size={14} />{:else}{i + 1}{/if}</span>
 			{label}
 		</li>
 	{/each}

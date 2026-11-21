@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- The download, in one line under every screen of the library. -->
 <script lang="ts">
-	import { Download, ChevronUp, Pause, Play, CircleAlert, Loader } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import type { JobState } from '#lib/api.js';
 	import { stopJob } from '#lib/api.js';
 	import { bytes } from '#lib/format.js';
@@ -20,7 +20,7 @@
 </script>
 
 <span class="icon" class:err={job.error && job.problem !== 'not-offered'} class:warn={job.problem === 'not-offered'} class:live={job.running && !busy(job)} class:spin={busy(job)}>
-	{#if job.error}<CircleAlert size={16} />{:else if busy(job)}<Loader size={16} />{:else}<Download size={16} />{/if}
+	{#if job.error}<Icon name="exclamation-circle" size={16} />{:else if busy(job)}<Icon name="arrow-repeat" size={16} />{:else}<Icon name="download" size={16} />{/if}
 </span>
 <span class="what">{headline(job)}</span>
 {#if email}<span class="who"><Avatar account={{ id: account, name: email, email, shown: true }} />{email}</span>{/if}
@@ -34,12 +34,12 @@
 {#if job.error}<span class="note" class:err={job.problem !== 'not-offered'} title={failure(job)}>{failure(job)}</span>{/if}
 {#if job.running && !job.retry}<span class="note sleep">{text.pickUpAfterSleep}</span>{/if}
 <span class="spacer"></span>
-<button class="details" onclick={ondetails}>{text.details}<ChevronUp size={14} /></button>
+<button class="details" onclick={ondetails}>{text.details}<Icon name="chevron-up" size={14} /></button>
 {#if job.running}
-	<button class="ctl" aria-label={text.pause} onclick={() => stopJob(account)}><Pause size={16} /></button>
+	<button class="ctl" aria-label={text.pause} onclick={() => stopJob(account)}><Icon name="pause-fill" size={16} /></button>
 {:else if !job.finished && job.problem !== 'not-offered'}
 	<button class="ctl" aria-label={text.resume} onclick={() => resumeJob(account, job)}
-		><Play size={16} /></button
+		><Icon name="play-fill" size={16} /></button
 	>
 {/if}
 

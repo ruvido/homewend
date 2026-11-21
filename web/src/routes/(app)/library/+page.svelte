@@ -1,6 +1,7 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { app } from '#lib/app.svelte.js';
@@ -14,7 +15,6 @@
 	import TakeOut from '#lib/components/TakeOut.svelte';
 	import GiveDate from '#lib/components/GiveDate.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
-	import { Calendar, CircleCheck, CircleAlert, Loader, RotateCcw, X } from '@lucide/svelte';
 
 	let open = $state<number | null>(null);
 
@@ -142,10 +142,10 @@
 	<div class="lib">
 	{#if selected.size > 0}
 		<div class="selbar">
-			<button class="close" aria-label={text.clearSelection} onclick={() => (selected = new Set())}><X size={20} /></button>
+			<button class="close" aria-label={text.clearSelection} onclick={() => (selected = new Set())}><Icon name="x-lg" size={20} /></button>
 			<b>{text.selected(selected.size)}</b>
-			<SecondaryButton small onclick={turnPicked}><RotateCcw size={14} />{text.rotateLeft}</SecondaryButton>
-			<SecondaryButton small onclick={() => (dating = true)}><Calendar size={14} />{text.changeDateEllipsis}</SecondaryButton>
+			<SecondaryButton small onclick={turnPicked}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
+			<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
 		</div>
 	{/if}
 	<div class="fill">
@@ -158,7 +158,7 @@
 					{#if where}
 						<span class="state {where.kind}">
 							·
-							{#if where.kind === 'ok'}<CircleCheck size={14} />{:else if where.kind === 'missing'}<CircleAlert size={14} />{:else}<Loader size={14} />{/if}
+							{#if where.kind === 'ok'}<Icon name="check-circle" size={14} />{:else if where.kind === 'missing'}<Icon name="exclamation-circle" size={14} />{:else}<Icon name="arrow-repeat" size={14} />{/if}
 							{where.label}
 						</span>
 					{/if}

@@ -3,8 +3,8 @@
 <!-- The photos, by month, newest first. Only the rows on screen exist: the
      grid has to scroll through hundreds of thousands of tiles. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import type { Snippet } from 'svelte';
-	import { Circle, CircleCheck, ImageOff, Play } from '@lucide/svelte';
 	import { pathOf, turned, type GridPhoto } from '#lib/api.js';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { Opener } from '#lib/menu.svelte.js';
@@ -144,10 +144,10 @@
 							decoding="async"
 							onload={(e) => (e.currentTarget as HTMLElement).classList.add('in')}
 						/>
-						{#if p.video}<span class="video"><Play size={14} fill="currentColor" /></span>{/if}
-						{#if p.missing}<span class="gone" title={text.notOnDisk}><ImageOff size={14} /></span>{/if}
+						{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
+						{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
 						{#if onselect}
-							<span class="pick">{#if selected?.has(p.hash)}<CircleCheck size={20} />{:else}<Circle size={20} />{/if}</span>
+							<span class="pick">{#if selected?.has(p.hash)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
 						{/if}
 					</button>
 				{/each}

@@ -5,9 +5,9 @@
      one tile at random fades to a newer photo (the canvas note "View 4
      behaviour"). A tile shows its photo only once loaded: never a hole. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
-	import { ArrowRight, Loader } from '@lucide/svelte';
 	import { turned, type GridPhoto } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 
@@ -56,7 +56,7 @@
 <div class="strip">
 	<div class="head">
 		<span>{label}</span>
-		<button class="link" onclick={() => goto('/library')}>{text.seeLibrary}<ArrowRight size={14} /></button>
+		<button class="link" onclick={() => goto('/library')}>{text.seeLibrary}<Icon name="arrow-right" size={14} /></button>
 	</div>
 	<div class="tiles">
 		{#each tiles as t, i (i)}
@@ -67,7 +67,7 @@
 						<img src="/api/thumb/{t.now.hash}" alt={t.now.name} style:transform={turned(t.now)} class:in={loaded.has(t.now.hash)} onload={() => shown(t.now!.hash)} />
 					{/key}
 				{/if}
-				{#if !t.now || (!t.was && !loaded.has(t.now.hash))}<span class="spin"><Loader size={16} /></span>{/if}
+				{#if !t.now || (!t.was && !loaded.has(t.now.hash))}<span class="spin"><Icon name="arrow-repeat" size={16} /></span>{/if}
 			</div>
 		{/each}
 	</div>

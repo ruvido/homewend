@@ -4,7 +4,7 @@
      may have nobody to show its notifications. Nothing is downloaded until
      the person asks. -->
 <script lang="ts">
-	import { RefreshCw } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import { app } from '#lib/app.svelte.js';
 	import { text } from '#lib/strings.js';
 	import Strip from './Strip.svelte';
@@ -22,6 +22,6 @@
 		action={app.updating ? undefined : text.update}
 		onaction={update}
 	>
-		{#snippet icon()}<RefreshCw size={18} />{/snippet}
+		{#snippet icon()}<Icon name="arrow-clockwise" size={18} />{/snippet}
 	</Strip>
 {/if}

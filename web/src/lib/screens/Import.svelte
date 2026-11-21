@@ -4,9 +4,9 @@
      Each title answers what a person wants to know there; the numbers that
      matter are the biggest thing on the screen. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import { Check, ChevronDown, ChevronRight, CircleCheck, Folder, HardDrive, Loader, TriangleAlert, User, UserPlus } from '@lucide/svelte';
 	import ContextMenu from '#lib/components/ContextMenu.svelte';
 	import { app, cards as cardList, lookCards, refresh, watchCards } from '#lib/app.svelte.js';
 	import {
@@ -291,11 +291,11 @@
 			{#each years as y (y)}
 				{@const videos = im?.filedVideos?.[y] ?? 0}
 				<div class="year">
-					<span class="folder"><Folder size={18} /></span>
+					<span class="folder"><Icon name="folder" size={18} /></span>
 					<span class="name">{y || text.noDate}</span>
 					<span class="count n" class:done>{(filedIn(filed, y) - videos).toLocaleString('en')}</span>
 					<span class="count n" class:done>{videos.toLocaleString('en')}</span>
-					{#if done}<span class="state"><CircleCheck size={18} /></span>{/if}
+					{#if done}<span class="state"><Icon name="check-circle" size={18} /></span>{/if}
 				</div>
 			{/each}
 		</YearsPanel>
@@ -311,7 +311,7 @@
 			{#each years as y (y.year)}
 				{@const open = opened.has(y.year)}
 				<button class="row year" class:open disabled={!y.months?.length} onclick={() => toggle(y.year)}>
-					<span class="chev">{#if y.months?.length}<ChevronRight size={16} />{/if}</span>
+					<span class="chev">{#if y.months?.length}<Icon name="chevron-right" size={16} />{/if}</span>
 					<span class="grow name">{y.year || text.noDate}</span>
 					<span class="count">{counts(y)}</span>
 				</button>
@@ -338,7 +338,7 @@
 			<span>{text.libraryLabel}</span>
 			{#if profile && !naming}
 				<button class="account" aria-haspopup="menu" onclick={(e) => (menu = menu ? null : e.currentTarget)}
-					><Avatar account={{ id: profile, name: profile, email: '', shown: true }} /><b>{profile}</b><ChevronDown size={14} /></button
+					><Avatar account={{ id: profile, name: profile, email: '', shown: true }} /><b>{profile}</b><Icon name="chevron-down" size={14} /></button
 				>
 			{:else}
 				<!-- svelte-ignore a11y_autofocus -->
@@ -361,19 +361,19 @@
 				anchor={menu}
 				onclose={() => (menu = null)}
 				items={[
-					...profiles.map((p) => ({ icon: p === profile ? Check : User, label: p, run: () => void (typed = p) })),
-					{ icon: UserPlus, label: text.someoneElse, run: () => void ((typed = ''), (naming = true)) }
+					...profiles.map((p) => ({ icon: p === profile ? ('check-lg' as const) : ('person' as const), label: p, run: () => void (typed = p) })),
+					{ icon: 'person-plus' as const, label: text.someoneElse, run: () => void ((typed = ''), (naming = true)) }
 				]}
 			/>
 		{/if}
 		<!-- One grid: the buttons share one width and one edge. -->
 		<div class="sources">
 			{#each cards as c (c.path)}
-				<span class="tile"><HardDrive size={22} /></span>
+				<span class="tile"><Icon name="hdd" size={22} /></span>
 				<span class="what"><b>{c.name}</b><small class="mono">{c.path}</small></span>
 				<span class="act"><PrimaryButton disabled={!profile} onclick={() => bringIn(c.path)}>{text.bringIn}</PrimaryButton></span>
 			{/each}
-			<span class="tile"><Folder size={22} /></span>
+			<span class="tile"><Icon name="folder" size={22} /></span>
 			<span class="what"><b>{text.anotherFolder}</b><small>{text.anotherFolderDesc}</small></span>
 			<!-- The system's own window picks the folder: the desktop app has it, a browser does not. -->
 			<span class="act"
@@ -382,7 +382,7 @@
 		</div>
 	{:else if view === 'reading' && im}
 		<!-- I2: every file read once, to know it; nothing copied yet. -->
-		<span class="pill live"><span class="spin"><Loader size={14} /></span>{text.importReading(name)}</span>
+		<span class="pill live"><span class="spin"><Icon name="arrow-repeat" size={14} /></span>{text.importReading(name)}</span>
 		<h1>{text.importReadingTitle}</h1>
 		<p class="lead">{text.importReadingLead}</p>
 		<div class="track"><b style:width="{share * 100}%"></b></div>
@@ -482,7 +482,7 @@
 						>
 					</fieldset>
 				{/if}
-				{#if !fits && !link}<p class="problem"><TriangleAlert size={16} />{text.importNoRoom}</p>{/if}
+				{#if !fits && !link}<p class="problem"><Icon name="exclamation-triangle" size={16} />{text.importNoRoom}</p>{/if}
 				<div class="actions">
 					<PrimaryButton
 						disabled={(!fits && !link) || plan.outcome !== 'new' && plan.outcome !== 'redated'}
@@ -504,7 +504,7 @@
 		<!-- J2: each file copied and read back, one at a time; the years fill beside, as a download's. -->
 		<div class="end">
 			<div class="main">
-				<span class="pill live"><span class="spin"><Loader size={14} /></span>{text.importBringing(name)}</span>
+				<span class="pill live"><span class="spin"><Icon name="arrow-repeat" size={14} /></span>{text.importBringing(name)}</span>
 				<h1 class="hero">{isCard ? text.importCopying : text.importCopyingFolder}</h1>
 				<div class="track"><b style:width="{share * 100}%"></b></div>
 				<div class="numbers">
@@ -540,7 +540,7 @@
 		{@const done = im.imported}
 		<div class="end">
 			<div class="main">
-				<span class="pill" class:ok={view === 'done'}>{#if view === 'done'}<CircleCheck size={14} />{/if}{name}</span>
+				<span class="pill" class:ok={view === 'done'}>{#if view === 'done'}<Icon name="check-circle" size={14} />{/if}{name}</span>
 				<!-- How it ended, as the engine says it. -->
 				{#if view === 'stopped'}
 					<h1 class="hero">{text.importStopped}</h1>

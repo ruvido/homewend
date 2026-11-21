@@ -1,17 +1,7 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
-	import {
-		Images,
-		Archive,
-		Settings as SettingsIcon,
-		Loader,
-		Check,
-		ChevronDown,
-		ChevronRight,
-		MemoryStick,
-		Eject
-	} from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Avatar from './Avatar.svelte';
@@ -112,14 +102,14 @@
 					<span class="label">{account.name}</span>
 					{#if many}
 						<span class="check" class:on={account.shown}>
-							{#if account.shown}<Check size={12} strokeWidth={3.5} />{/if}
+							{#if account.shown}<Icon name="check-lg" size={12} />{/if}
 						</span>
 					{/if}
 				</button>
 			{/each}
 			{#if data.accounts.length > FOLD.accounts && !rail}
 				<button class="row more" onclick={() => (allAccounts = !allAccounts)}>
-					<span class="lead"><ChevronDown size={16} /></span>
+					<span class="lead"><Icon name="chevron-down" size={16} /></span>
 					<span class="label"
 						>{allAccounts ? text.fewer : text.more(data.accounts.length - FOLD.accounts)}</span
 					>
@@ -134,11 +124,11 @@
 				{#each cards as c (c.path)}
 					<div class="row card">
 						<button class="open" onclick={() => goto('/import')}>
-							<span class="lead"><MemoryStick size={20} /></span>
+							<span class="lead"><Icon name="sd-card" size={20} /></span>
 							<span class="label">{c.name}{#if stuck === c.path}<small>{text.ejectFailed}</small>{/if}</span>
 						</button>
 						<button class="eject" aria-label={text.ejectCard(c.name)} title={text.ejectCard(c.name)} onclick={() => eject(c)}
-							><Eject size={16} /></button
+							><Icon name="eject" size={16} /></button
 						>
 					</div>
 				{/each}
@@ -149,7 +139,7 @@
 
 		{#if !rail}
 			<button class="row" class:selected={is({ kind: 'all' })} onclick={() => go({ kind: 'all' })}>
-				<span class="lead"><Images size={20} /></span>
+				<span class="lead"><Icon name="images" size={20} /></span>
 				<span class="label">{text.allPhotos}</span>
 				<!-- None counted is no number: a library whose disk does not answer is not empty. -->
 				{#if data.total > 0}<span class="count">{data.total.toLocaleString('en')}</span>{/if}
@@ -171,7 +161,7 @@
 						<span class="label">{year.label}</span>
 						<span class="count">{year.count.toLocaleString('en')}</span>
 						{#if year.state === 'arriving'}
-							<span class="state arriving"><Loader size={16} /></span>
+							<span class="state arriving"><Icon name="arrow-repeat" size={16} /></span>
 						{/if}
 					</button>
 				{/each}
@@ -203,7 +193,7 @@
 								aria-expanded={open}
 								onclick={() => (folded[key] = open)}
 							>
-								{#if open}<ChevronDown size={12} />{:else}<ChevronRight size={12} />{/if}
+								{#if open}<Icon name="chevron-down" size={12} />{:else}<Icon name="chevron-right" size={12} />{/if}
 								{g.account.name}
 							</button>
 						{/if}
@@ -245,7 +235,7 @@
 			title={rail ? text.takeouts : undefined}
 			onclick={() => go({ kind: 'takeouts' })}
 		>
-			<span class="lead"><Archive size={20} /></span>
+			<span class="lead"><Icon name="archive" size={20} /></span>
 			<span class="label">{text.takeouts}</span>
 			{#if data.takeouts > 0}<span class="count">{data.takeouts}</span>{/if}
 		</button>
@@ -255,7 +245,7 @@
 			title={rail ? text.settings : undefined}
 			onclick={() => go({ kind: 'settings' })}
 		>
-			<span class="lead"><SettingsIcon size={20} /></span>
+			<span class="lead"><Icon name="gear" size={20} /></span>
 			<span class="label">{text.settings}</span>
 		</button>
 	</div>

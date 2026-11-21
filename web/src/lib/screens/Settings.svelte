@@ -2,9 +2,10 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- C4: where the photos go, how the window looks, each account's cookies. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
+	import type { IconName } from '#lib/icons.js';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import { Monitor, Sun, Moon, Trash2, Code } from '@lucide/svelte';
 	import { bytes } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
 	import { theme, setTheme } from '#lib/theme.svelte.js';
@@ -13,10 +14,10 @@
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
 
-	const choices: { value: Theme; label: string; icon: typeof Sun }[] = [
-		{ value: 'system', label: text.themeSystem, icon: Monitor },
-		{ value: 'light', label: text.themeLight, icon: Sun },
-		{ value: 'dark', label: text.themeDark, icon: Moon }
+	const choices: { value: Theme; label: string; icon: IconName }[] = [
+		{ value: 'system', label: text.themeSystem, icon: 'display' },
+		{ value: 'light', label: text.themeLight, icon: 'sun' },
+		{ value: 'dark', label: text.themeDark, icon: 'moon' }
 	];
 
 	let dir = $state('');
@@ -76,7 +77,7 @@
 							role="radio"
 							aria-checked={theme.value === c.value}
 							class:on={theme.value === c.value}
-							onclick={() => setTheme(c.value)}><c.icon size={14} />{c.label}</button
+							onclick={() => setTheme(c.value)}><Icon name={c.icon} size={14} />{c.label}</button
 						>
 					{/each}
 				</div>
@@ -99,7 +100,7 @@
 					<div class="text">
 						<h3>{a.email}</h3>
 					</div>
-					<button class="danger" onclick={() => purge(a.id)}><Trash2 size={14} />{text.purge}</button>
+					<button class="danger" onclick={() => purge(a.id)}><Icon name="trash" size={14} />{text.purge}</button>
 				</div>
 			{/each}
 		</div>
@@ -114,7 +115,7 @@
 					<p>{text.aboutDesc}</p>
 				</div>
 				<a class="link" href="https://github.com/ruvido/homewend" target="_blank" rel="noreferrer"
-					><Code size={14} />{text.sourceCode}</a
+					><Icon name="code-slash" size={14} />{text.sourceCode}</a
 				>
 			</div>
 		</div>

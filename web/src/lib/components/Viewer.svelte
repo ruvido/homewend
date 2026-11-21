@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- B7: one photo, over the grid. ← and → move, Esc or Space closes; a click zooms in. -->
 <script lang="ts">
-	import { Calendar, ChevronLeft, ChevronRight, ImageOff, Loader, RotateCcw } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { fade } from 'svelte/transition';
@@ -176,8 +176,8 @@
 				<button class="pill" onclick={() => (takingOut = true)}>{text.takeOutOne}</button>
 			{:else}
 				<!-- Clicked, it gives the focus back: ←, → and Space are the viewer's keys. -->
-				{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><RotateCcw size={14} />{text.rotateLeft}</button>{/if}
-				<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Calendar size={14} />{text.changeDateEllipsis}</button>
+				{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
+				<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
 			{/if}
 		</header>
 		<div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
@@ -186,7 +186,7 @@
 					<!-- Its file is gone: what is left is its thumbnail, faded. -->
 					<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
 					<div class="said">
-						<span class="badge"><ImageOff size={16} />{text.notOnDisk}</span>
+						<span class="badge"><Icon name="file-earmark-x" size={16} />{text.notOnDisk}</span>
 						<span>{text.missingInViewer(wasAt)}</span>
 					</div>
 				{:else if video}
@@ -222,13 +222,13 @@
 					/>
 					{#if asked}
 						<img class="probe" src={zoomSrc} alt="" onload={loaded} />
-						<span class="waiting"><Loader size={20} /></span>
+						<span class="waiting"><Icon name="arrow-repeat" size={20} /></span>
 					{/if}
 				{/if}
 			{/key}
 		</div>
-		<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><ChevronLeft size={20} /></button>
-		<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><ChevronRight size={20} /></button>
+		<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><Icon name="chevron-left" size={20} /></button>
+		<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><Icon name="chevron-right" size={20} /></button>
 	</div>
 	{#if dating}
 		<GiveDate

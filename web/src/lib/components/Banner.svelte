@@ -2,9 +2,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- D1: when Homewend needs the person, one strip under the titlebar. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import Strip from './Strip.svelte';
-	import { KeyRound, HardDrive, CalendarX, WifiOff, CircleCheck } from '@lucide/svelte';
 	import type { JobState } from '#lib/api.js';
 	import { bytes } from '#lib/format.js';
 	import { resumeJob, signInAgain, signingInAgain } from '#lib/app.svelte.js';
@@ -83,11 +83,11 @@
 						: [undefined, undefined]}
 	<Strip {tone} {title} {detail} {action} {onaction}>
 		{#snippet icon()}
-			{#if kind === 'password' || kind === 'signed-out'}<KeyRound size={18} />
-			{:else if kind === 'no-space'}<HardDrive size={18} />
-			{:else if kind === 'expired'}<CalendarX size={18} />
-			{:else if kind === 'network'}<WifiOff size={18} />
-			{:else}<CircleCheck size={18} />{/if}
+			{#if kind === 'password' || kind === 'signed-out'}<Icon name="key" size={18} />
+			{:else if kind === 'no-space'}<Icon name="hdd" size={18} />
+			{:else if kind === 'expired'}<Icon name="calendar-x" size={18} />
+			{:else if kind === 'network'}<Icon name="wifi-off" size={18} />
+			{:else}<Icon name="check-circle" size={18} />{/if}
 		{/snippet}
 	</Strip>
 {/if}

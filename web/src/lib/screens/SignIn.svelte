@@ -1,7 +1,7 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
-	import { LogIn, ListChecks, HardDriveDownload } from '@lucide/svelte';
+	import Icon from '#lib/components/Icon.svelte';
 	import Titlebar from '#lib/components/Titlebar.svelte';
 	import GoogleButton from '#lib/components/GoogleButton.svelte';
 	import Mark from '#lib/components/Mark.svelte';
@@ -11,10 +11,10 @@
 	const signing = signingHere();
 
 	const steps = [
-		{ icon: LogIn, title: text.stepSignIn, desc: text.stepSignInDesc },
-		{ icon: ListChecks, title: text.stepChoose, desc: text.stepChooseDesc },
-		{ icon: HardDriveDownload, title: text.stepBringHome, desc: text.stepBringHomeDesc }
-	];
+		{ icon: 'box-arrow-in-right', title: text.stepSignIn, desc: text.stepSignInDesc },
+		{ icon: 'list-check', title: text.stepChoose, desc: text.stepChooseDesc },
+		{ icon: 'house-down', title: text.stepBringHome, desc: text.stepBringHomeDesc }
+	] as const;
 </script>
 
 <div class="window">
@@ -39,7 +39,7 @@
 		<ol class="steps">
 			{#each steps as step (step.title)}
 				<li>
-					<step.icon size={20} />
+					<Icon name={step.icon} size={20} />
 					<div>
 						<h3>{step.title}</h3>
 						<p>{step.desc}</p>

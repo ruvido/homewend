@@ -2,8 +2,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- A3, A4, A5: Google preparing, the parts arriving, or paused. -->
 <script lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
-	import { Folder, CircleCheck, ArrowRight, Loader, Hourglass, Circle, X, RotateCcw } from '@lucide/svelte';
 	import { app, jobsKnown, resumeJob, shownJob } from '#lib/app.svelte.js';
 	import { getLatest, getTakeouts, stopJob, type GridPhoto, type Takeout } from '#lib/api.js';
 	import { onMount } from 'svelte';
@@ -130,7 +130,7 @@
 	{:else}
 		<div class="left">
 			<span class="pill" class:err={job.error && !notOffered} class:warn={notOffered} class:live={job.running}
-				>{#if busy(job) || (waiting && job.running)}<span class="spin"><Loader size={14} /></span>{headline(job)} · {waiting ? waited : elapsed}{:else}<i></i>{headline(job)}{/if}</span
+				>{#if busy(job) || (waiting && job.running)}<span class="spin"><Icon name="arrow-repeat" size={14} /></span>{headline(job)} · {waiting ? waited : elapsed}{:else}<i></i>{headline(job)}{/if}</span
 			>
 			<h1>{title}</h1>
 			<p class="lead">{job.error ? failure(job) : lead}</p>
@@ -148,7 +148,7 @@
 				<ol class="steps">
 					{#each text.askingSteps as st, i (i)}
 						<li class:now={i === askingStep} class:done={i < askingStep}>
-							{#if i < askingStep}<CircleCheck size={20} />{:else if i === askingStep}<span class="spin"><Loader size={20} /></span>{:else}<Circle size={20} />{/if}
+							{#if i < askingStep}<Icon name="check-circle" size={20} />{:else if i === askingStep}<span class="spin"><Icon name="arrow-repeat" size={20} /></span>{:else}<Icon name="circle" size={20} />{/if}
 							{i < askingStep ? st.done : st.now}
 							{#if i === askingStep}<time>{elapsed}</time>{/if}
 						</li>
@@ -192,17 +192,17 @@
 				<h2>{text.canClose}</h2>
 				<p>{text.canCloseDesc}</p>
 				{#if mac}
-					<div class="close"><SecondaryButton onclick={() => window.shell?.closeWindow()}><X size={16} />{text.closeWindow}</SecondaryButton></div>
-					<p class="quit"><RotateCcw size={16} />{text.quitStops}</p>
+					<div class="close"><SecondaryButton onclick={() => window.shell?.closeWindow()}><Icon name="x-lg" size={16} />{text.closeWindow}</SecondaryButton></div>
+					<p class="quit"><Icon name="arrow-counterclockwise" size={16} />{text.quitStops}</p>
 				{/if}
 				<ol>
-					{#if asking}<li class="now"><span class="spin"><Loader size={16} /></span>{text.stepAsks}</li>{/if}
-					<li class:now={waiting}>{#if waiting}<span class="spin"><Loader size={16} /></span>{:else}<Hourglass size={16} />{/if}{text.stepPrepares}</li>
-					<li><Folder size={16} />{text.stepDownloads}</li>
-					<li><CircleCheck size={16} />{text.stepLands}</li>
-					<li><CircleCheck size={16} />{text.stepNotify}</li>
+					{#if asking}<li class="now"><span class="spin"><Icon name="arrow-repeat" size={16} /></span>{text.stepAsks}</li>{/if}
+					<li class:now={waiting}>{#if waiting}<span class="spin"><Icon name="arrow-repeat" size={16} /></span>{:else}<Icon name="hourglass-split" size={16} />{/if}{text.stepPrepares}</li>
+					<li><Icon name="folder" size={16} />{text.stepDownloads}</li>
+					<li><Icon name="check-circle" size={16} />{text.stepLands}</li>
+					<li><Icon name="check-circle" size={16} />{text.stepNotify}</li>
 				</ol>
-				{#if waiting}<a class="link" href="https://takeout.google.com/manage" target="_blank" rel="noreferrer">{text.seeOnTakeout}<ArrowRight size={14} /></a>{/if}
+				{#if waiting}<a class="link" href="https://takeout.google.com/manage" target="_blank" rel="noreferrer">{text.seeOnTakeout}<Icon name="arrow-right" size={14} /></a>{/if}
 			</section>
 		{/if}
 		{#if !waiting && !asking && (job.years.length > 0 || job.unassigned > 0)}
@@ -213,21 +213,21 @@
 					     this year alone moves with the bytes, any year by its spinner. -->
 					{@const share = job.year && String(job.year) === y.year ? Math.max(fraction(job), y.of ? y.arrived / y.of : 0) : y.of ? y.arrived / y.of : 0}
 					<div class="year">
-						<span class="folder"><Folder size={18} /></span>
+						<span class="folder"><Icon name="folder" size={18} /></span>
 						<span class="name">{y.year || text.noDate}</span>
 						<span class="count" class:done>{y.arrived.toLocaleString('en')} / {y.of.toLocaleString('en')}</span>
-						{#if !done && job.running}<span class="spin turning"><Loader size={16} /></span>{/if}
+						{#if !done && job.running}<span class="spin turning"><Icon name="arrow-repeat" size={16} /></span>{/if}
 						<span class="state">
-							{#if done}<CircleCheck size={18} />{:else}<span class="bar"><b style:width="{share * 100}%"></b></span>{/if}
+							{#if done}<Icon name="check-circle" size={18} />{:else}<span class="bar"><b style:width="{share * 100}%"></b></span>{/if}
 						</span>
 					</div>
 				{/each}
 				{#if job.unassigned > 0}
 					<div class="year sorting">
-						<span class="folder"><Folder size={18} /></span>
+						<span class="folder"><Icon name="folder" size={18} /></span>
 						<span class="name">{text.stillSorting}<small>{text.stillSortingDesc}</small></span>
 						<span class="count">{job.unassigned.toLocaleString('en')}</span>
-						<span class="state arriving"><Loader size={18} /></span>
+						<span class="state arriving"><Icon name="arrow-repeat" size={18} /></span>
 					</div>
 				{/if}
 			</YearsPanel>

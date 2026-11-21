@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- C1: the exports on Google Takeout, each account's. -->
 <script module lang="ts">
+	import Icon from '#lib/components/Icon.svelte';
 	import type { Takeout as Seen } from '#lib/api.js';
 	// Each account's list as last read, kept while the window is open.
 	const seen = new Map<string, Seen[]>();
@@ -10,7 +11,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
-	import { Archive, Ellipsis, RotateCw, Timer } from '@lucide/svelte';
 	import ContextMenu, { folderItems, type MenuItem } from '#lib/components/ContextMenu.svelte';
 	import { app, signIn, sidebarOf, signInAgain, signingInAgain, startFailure, startJob } from '#lib/app.svelte.js';
 	import { ApiError, folderOf, getTakeouts, readContents, type Takeout } from '#lib/api.js';
@@ -144,8 +144,8 @@
 		const anchor = e.currentTarget as HTMLElement;
 		const items: MenuItem[] =
 			t.status === 'expired'
-				? [{ icon: RotateCw, label: text.askAgain, run: () => askAgain(t) }]
-				: [{ icon: RotateCw, label: text.downloadAgain, run: () => download(t, true) }];
+				? [{ icon: 'arrow-clockwise', label: text.askAgain, run: () => askAgain(t) }]
+				: [{ icon: 'arrow-clockwise', label: text.downloadAgain, run: () => download(t, true) }];
 		// Where its photos are: the profile it went in, which a rename of the
 		// account's does not move.
 		const local = t.local;
@@ -211,7 +211,7 @@
 					{@const r = rowOf(t)}
 					<tr>
 						<td>
-							<span class="name"><Archive size={16} /><span><b>{holds(t)}</b><small>{t.id}</small></span></span>
+							<span class="name"><Icon name="archive" size={16} /><span><b>{holds(t)}</b><small>{t.id}</small></span></span>
 						</td>
 						<td>{day(new Date(t.Created))}, {clock(new Date(t.Created))}</td>
 						<td>{t.Bytes ? bytes(t.Bytes) : '—'}{t.Parts?.length ? ` · ${text.parts(t.Parts.length)}` : ''}</td>
@@ -222,14 +222,14 @@
 							{#if r.act === 'download'}<button class="pill" onclick={() => download(t)}>{text.download}</button>
 							{:else if r.act === 'resume'}<button class="pill" onclick={() => download(t)}>{text.resume}</button>
 							{:else if r.act === 'retry'}<button class="pill" onclick={() => download(t, true)}>{text.retry}</button>
-							{:else if r.act === 'timer'}<span class="slot timer"><Timer size={14} />{since(t.Created)}</span>
+							{:else if r.act === 'timer'}<span class="slot timer"><Icon name="stopwatch" size={14} />{since(t.Created)}</span>
 							{:else if r.act === 'more'}
 								<span class="slot"
 									><button
 										class="more"
 										aria-haspopup="menu"
 										aria-label={text.moreActions}
-										onclick={(e) => more(e, t)}><Ellipsis size={16} /></button></span
+										onclick={(e) => more(e, t)}><Icon name="three-dots" size={16} /></button></span
 								>
 							{/if}
 						</td>
