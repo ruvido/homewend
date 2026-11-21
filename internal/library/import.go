@@ -275,6 +275,10 @@ type Held struct {
 	Known, Deleted, Trashed bool
 }
 
+// Out is whether the photo is kept out of what comes in: deleted, or in
+// the Trash.
+func (h Held) Out() bool { return h.Deleted || h.Trashed }
+
 // Holds is what the library knows of the photo of hash. A disk that answers
 // late is not a deletion. The look and the copy judge a photo here, alike.
 func Holds(catalog *Catalog, root, hash string) (Held, error) {
