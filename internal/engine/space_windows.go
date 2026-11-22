@@ -5,15 +5,16 @@ package engine
 
 import "golang.org/x/sys/windows"
 
-// freeBytes is the space the current user may still write under dir.
-func freeBytes(dir string) (int64, error) {
+// diskSpace is the space the current user may still write under dir, and
+// the size of its disk.
+func diskSpace(dir string) (free, total int64, err error) {
 	path, err := windows.UTF16PtrFromString(dir)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	var available, total, free uint64
-	if err := windows.GetDiskFreeSpaceEx(path, &available, &total, &free); err != nil {
-		return 0, err
+	var available, size, all uint64
+	if err := windows.GetDiskFreeSpaceEx(path, &available, &size, &all); err != nil {
+		return 0, 0, err
 	}
-	return int64(available), nil
+	return int64(available), int64(size), nil
 }

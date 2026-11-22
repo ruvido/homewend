@@ -175,16 +175,23 @@ func saveSettings(path string, s Settings) error {
 
 func validTheme(t string) bool { return slices.Contains(Themes, t) }
 
-// Free is how many bytes the disk of dir has free, or of the nearest folder
-// above it that exists: a library not created yet has its disk too.
+// Free is how many bytes the disk of dir has free.
 func Free(dir string) (int64, error) {
+	free, _, err := Space(dir)
+	return free, err
+}
+
+// Space is how many bytes the disk of dir has free, and its size, or those
+// of the nearest folder above it that exists: a library not created yet
+// has its disk too.
+func Space(dir string) (free, total int64, err error) {
 	for {
 		if _, err := os.Stat(dir); err == nil {
-			return freeBytes(dir)
+			return diskSpace(dir)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return freeBytes(dir)
+			return diskSpace(dir)
 		}
 		dir = parent
 	}

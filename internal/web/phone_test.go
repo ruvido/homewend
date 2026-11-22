@@ -91,7 +91,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}
-	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["hosts"] == nil {
+	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["hosts"] == nil || out["photos"] != float64(1) || out["disk"].(map[string]any)["total"].(float64) <= 0 {
 		t.Errorf("hello: %d %v", code, out)
 	}
 	if code, _ := call("POST", "/v1/unpair", token, ""); code != http.StatusOK {

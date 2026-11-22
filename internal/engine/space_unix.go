@@ -7,11 +7,12 @@ package engine
 
 import "golang.org/x/sys/unix"
 
-// freeBytes is the space an ordinary user may still write under dir.
-func freeBytes(dir string) (int64, error) {
+// diskSpace is the space an ordinary user may still write under dir, and
+// the size of its disk.
+func diskSpace(dir string) (free, total int64, err error) {
 	var st unix.Statfs_t
 	if err := unix.Statfs(dir, &st); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	return int64(uint64(st.Bavail) * uint64(st.Bsize)), nil
+	return int64(uint64(st.Bavail) * uint64(st.Bsize)), int64(uint64(st.Blocks) * uint64(st.Bsize)), nil
 }

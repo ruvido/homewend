@@ -199,3 +199,20 @@ func TestAPhotoInTheTrash(t *testing.T) {
 		t.Errorf("restored: %v", every)
 	}
 }
+
+// A profile's photos are those in its folder, by its exact name.
+func TestTheProfilesPhotos(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, p := range []string{"ron/a", "ron/2020/b", "Ron/c", "ronald/d", "ron"} {
+		if err := c.Put(Photo{Hash: p, Path: p, Name: p}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n, err := c.Count(Filter{Profile: "ron"}); err != nil || n != 2 {
+		t.Errorf("%d %v, want 2", n, err)
+	}
+}

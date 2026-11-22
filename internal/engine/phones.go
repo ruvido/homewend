@@ -307,6 +307,36 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 	return have, out, archived, err
 }
 
+// PhoneLibrary is what a phone is told of the library it backs up into:
+// its disk, and how many photos its profile holds there. Known is false
+// when there is no library, or its disk is away.
+type PhoneLibrary struct {
+	Known  bool
+	Free   int64
+	Total  int64
+	Photos int
+}
+
+// LibraryOf is what the library is for phone.
+func LibraryOf(phone Phone) (PhoneLibrary, error) {
+	root, catalog, err := lookAtLibrary()
+	if err != nil || root == "" {
+		return PhoneLibrary{}, err
+	}
+	if catalog != nil {
+		defer catalog.Close()
+	}
+	if _, err := os.Stat(root); err != nil {
+		return PhoneLibrary{}, nil
+	}
+	l := PhoneLibrary{Known: true}
+	if l.Free, l.Total, err = Space(root); err != nil || catalog == nil {
+		return l, err
+	}
+	l.Photos, err = catalog.Count(library.Filter{Profile: phone.Profile})
+	return l, err
+}
+
 // Received is what became of a photo a phone sent.
 type Received struct {
 	Path string `json:"path,omitempty"` // where the library holds it

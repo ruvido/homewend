@@ -451,6 +451,8 @@ type Filter struct {
 	// main grid and its years do; Trashed keeps only those in the Trash,
 	// which are otherwise in no list.
 	Archived, Grid, Trashed bool
+	// Profile keeps the photos filed in this profile's folder.
+	Profile string
 	// Hashes keeps only these photos; nil is all, empty is none.
 	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
 	// photos not on the disk, a temporary table if a list ever grows past.
@@ -520,6 +522,12 @@ func (f Filter) where(query string) (string, []any) {
 		where = append(where, "archived = 1")
 	} else if f.Grid {
 		where = append(where, "archived = 0")
+	}
+	if f.Profile != "" {
+		// "<profile>/" up to "<profile>0", '0' coming right after '/': every
+		// path in its folder, by the bytes (LIKE would ignore the case).
+		where = append(where, "path >= ? AND path < ?")
+		args = append(args, f.Profile+"/", f.Profile+"0")
 	}
 	if f.Hashes != nil {
 		where = append(where, "hash IN (NULL"+strings.Repeat(",?", len(f.Hashes))+")")

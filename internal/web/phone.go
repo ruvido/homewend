@@ -187,7 +187,13 @@ func phoneRoutes(l *phoneListener) http.Handler {
 	// and where the computer is now: an address changed meanwhile heals.
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		host, _ := os.Hostname()
-		phoneReply(w, map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts()}, nil)
+		hello := map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts()}
+		lib, err := engine.LibraryOf(phone)
+		if lib.Known {
+			hello["disk"] = map[string]int64{"free": lib.Free, "total": lib.Total}
+			hello["photos"] = lib.Photos
+		}
+		phoneReply(w, hello, err)
 	}))
 	// Unpaired from the phone: the computer forgets it as from its own menu.
 	mux.Handle("POST /v1/unpair", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
