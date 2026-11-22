@@ -478,6 +478,29 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 	return scanPhotos(rows)
 }
 
+// BytesByKind is how many bytes the library's files take, by what they are
+// (kindOf: "video", "raw", "" for a photo), from the sizes the catalog
+// keeps: those in the Trash too, their files still there.
+// shortcut: every row is read on each call, milliseconds for 100,000
+// photos; a sum kept by kind when measured slow.
+func (c *Catalog) BytesByKind() (map[string]int64, error) {
+	rows, err := c.db.Query(`SELECT name, bytes FROM photos WHERE out = 0`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	by := map[string]int64{}
+	for rows.Next() {
+		var name string
+		var n int64
+		if err := rows.Scan(&name, &n); err != nil {
+			return nil, err
+		}
+		by[kindOf(name)] += n
+	}
+	return by, rows.Err()
+}
+
 // Count is how many photos the filter keeps, its Limit aside.
 func (c *Catalog) Count(f Filter) (int, error) {
 	query, args := f.where(`SELECT COUNT(*) FROM photos`)

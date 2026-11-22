@@ -191,7 +191,8 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		// The library unanswered (its disk away, a catalog not read): hello
 		// still says the phone is paired and where the computer is.
 		if lib, err := engine.LibraryOf(phone); err == nil && lib.Known {
-			hello["disk"] = map[string]int64{"free": lib.Free, "total": lib.Total}
+			hello["disk"] = map[string]int64{"free": lib.Free, "total": lib.Total,
+				"photos": lib.Bytes[""], "raw": lib.Bytes["raw"], "videos": lib.Bytes["video"]}
 			hello["photos"] = lib.Photos
 		}
 		phoneReply(w, hello, nil)

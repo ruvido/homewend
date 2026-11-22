@@ -114,9 +114,11 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	}
 }
 
-// hasDisk is whether a hello answered the library's disk, with a size.
+// hasDisk is whether a hello answered the library's disk, with a size and
+// the bytes of the one photo sent.
 func hasDisk(out map[string]any) bool {
 	disk, _ := out["disk"].(map[string]any)
 	total, _ := disk["total"].(float64)
-	return total > 0
+	photos, _ := disk["photos"].(float64)
+	return total > 0 && photos > 0
 }

@@ -315,6 +315,8 @@ type PhoneLibrary struct {
 	Free   int64
 	Total  int64
 	Photos int
+	// Bytes the library's files take, by kind: "video", "raw", "" photos.
+	Bytes map[string]int64
 }
 
 // LibraryOf is what the library is for phone.
@@ -330,7 +332,10 @@ func LibraryOf(phone Phone) (PhoneLibrary, error) {
 	if l.Free, l.Total, err = Space(root); err != nil || catalog == nil {
 		return l, err
 	}
-	l.Photos, err = catalog.Count(library.Filter{Profile: phone.Profile})
+	if l.Photos, err = catalog.Count(library.Filter{Profile: phone.Profile}); err != nil {
+		return l, err
+	}
+	l.Bytes, err = catalog.BytesByKind()
 	return l, err
 }
 

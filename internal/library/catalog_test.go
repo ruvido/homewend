@@ -216,3 +216,23 @@ func TestTheProfilesPhotos(t *testing.T) {
 		t.Errorf("%d %v, want 2", n, err)
 	}
 }
+
+// The library's bytes by kind: photos, raw files, videos, the Trash's too.
+func TestBytesByKind(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, p := range []Photo{{Hash: "a", Path: "ron/a.jpg", Name: "a.jpg", Bytes: 10}, {Hash: "b", Path: "ron/b.dng", Name: "b.dng", Bytes: 100},
+		{Hash: "c", Path: "ron/c.mp4", Name: "c.mp4", Bytes: 1000}, {Hash: "d", Path: "ron/d.heic", Name: "d.heic", Bytes: 5}} {
+		if err := c.Put(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.Mark(Trashed, []string{"d"}, "", true)
+	by, err := c.BytesByKind()
+	if err != nil || by[""] != 15 || by["raw"] != 100 || by["video"] != 1000 {
+		t.Errorf("%v %v", by, err)
+	}
+}
