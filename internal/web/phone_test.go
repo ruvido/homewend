@@ -93,7 +93,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}
-	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["hosts"] == nil || out["photos"] != float64(1) || out["disk"].(map[string]any)["total"].(float64) <= 0 {
+	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["hosts"] == nil || out["photos"] != float64(1) || !hasDisk(out) {
 		t.Errorf("hello: %d %v", code, out)
 	}
 	// The library's disk away: hello still answers, without the disk.
@@ -112,4 +112,11 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, _ := call("GET", "/v1/hello", token, ""); code != http.StatusUnauthorized {
 		t.Errorf("hello after unpairing: %d, want 401", code)
 	}
+}
+
+// hasDisk is whether a hello answered the library's disk, with a size.
+func hasDisk(out map[string]any) bool {
+	disk, _ := out["disk"].(map[string]any)
+	total, _ := disk["total"].(float64)
+	return total > 0
 }

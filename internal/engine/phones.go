@@ -309,7 +309,7 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 
 // PhoneLibrary is what a phone is told of the library it backs up into:
 // its disk, and how many photos its profile holds there. Known is false
-// when there is no library, or its disk is away.
+// when there is no library.
 type PhoneLibrary struct {
 	Known  bool
 	Free   int64
