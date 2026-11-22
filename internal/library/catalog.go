@@ -125,6 +125,23 @@ CREATE INDEX IF NOT EXISTS photos_by_path   ON photos(path);
 // and kept out, or in the Trash.
 const away = "(out = 1 OR trashed = 1)"
 
+// Changes is a token that moves each time the catalog at path is written,
+// by whoever: a phone's backup, a card, a download, the window, a command in
+// a terminal. It is read from the files alone, holding none open, so a
+// library's disk can still be ejected: a commit grows or rewrites the -wal,
+// a checkpoint rewrites the catalog. An empty -wal is left out: SQLite makes
+// one at every opening and removes it at the last closing, reads included.
+// A file gone (the disk ejected) is a change, not an error.
+func Changes(path string) string {
+	token := ""
+	for i, name := range []string{path, path + "-wal"} {
+		if fi, err := os.Stat(name); err == nil && (i == 0 || fi.Size() > 0) {
+			token += fmt.Sprintf("%d.%d;", fi.ModTime().UnixNano(), fi.Size())
+		}
+	}
+	return token
+}
+
 // catalogDSN is how the index at path is opened, with options after the
 // path's "?".
 func catalogDSN(path, options string) string {

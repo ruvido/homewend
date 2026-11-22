@@ -67,6 +67,8 @@ export const putSettings = (s: Settings) => call<Settings>('PUT', '/api/settings
 export const putProfile = (account: string, profile: string) =>
 	call<{ profile: string }>('PUT', `/api/profile?account=${encodeURIComponent(account)}`, { profile });
 export const getOverview = () => call<Overview>('GET', '/api/overview');
+/** Moves each time the library's catalog changes, whoever changed it. */
+export const getChanges = () => call<{ changes: string }>('GET', '/api/changes');
 /** Opens the system browser on Google's sign-in and waits for it. */
 export const login = (account?: string) =>
 	call<AccountInfo>('POST', '/api/login' + (account ? `?account=${encodeURIComponent(account)}` : ''));

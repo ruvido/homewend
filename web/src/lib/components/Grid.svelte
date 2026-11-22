@@ -4,7 +4,7 @@
      grid has to scroll through hundreds of thousands of tiles. -->
 <script lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
-	import type { Snippet } from 'svelte';
+	import { tick, untrack, type Snippet } from 'svelte';
 	import { pathOf, turned, type GridPhoto } from '#lib/api.js';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { Opener } from '#lib/menu.svelte.js';
@@ -109,10 +109,48 @@
 		for (let r = lo; r < rows.length && rows[r].top < to; r++) out.push(rows[r]);
 		return out;
 	});
+	// The tiles on screen, one list keyed by photo: a photo that moves to
+	// another row keeps its tile and its picture, it is not drawn again.
+	const tiles = $derived(
+		visible.flatMap((r) => (r.kind === 'photos' ? r.items.map((p, c) => ({ p, x: c * (tile + GAP), y: r.top })) : []))
+	);
+
+	// The photos come again with some new (a phone's backup): the new ones
+	// fade in slowly, and the photo at the top of the screen stays where it
+	// is, nothing moving under the finger. At the very top the new ones show.
+	let scroller: HTMLElement;
+	let drawn: { rows: Row[]; total: number } = { rows: [], total: 0 };
+	let before: GridPhoto[] = [];
+	let arrived = $state(new Set<string>());
+	$effect(() => {
+		drawn = layout;
+	});
+	$effect.pre(() => {
+		const now = photos;
+		untrack(() => {
+			const was = before;
+			before = now;
+			// The rest of a first reading, chunk by chunk, is no arrival.
+			if (was.length === 0 || now === was || was.every((p, i) => now[i]?.hash === p.hash)) return;
+			const known = new Set(was.map((p) => p.hash));
+			arrived = new Set(now.filter((p) => !known.has(p.hash)).map((p) => p.hash));
+			if (!scroller || scroller.scrollTop === 0) return;
+			const top = scroller.scrollTop - headerHeight;
+			const row = drawn.rows.find((r) => r.kind === 'photos' && r.top + tile > top);
+			if (row?.kind !== 'photos') return;
+			const hash = row.items[0].hash;
+			const offset = row.top - top;
+			tick().then(() => {
+				const moved = layout.rows.find((r) => r.kind === 'photos' && r.items.some((p) => p.hash === hash));
+				if (moved) scroller.scrollTop = moved.top - offset + headerHeight;
+			});
+		});
+	});
 </script>
 
 <div
 	class="scroller"
+	bind:this={scroller}
 	bind:clientHeight={height}
 	onscroll={(e) => (scrollTop = (e.currentTarget as HTMLElement).scrollTop)}
 >
@@ -123,35 +161,35 @@
 				<h3 style:transform="translateY({row.top}px)">
 					{row.label} <span>{row.count.toLocaleString('en')}</span>
 				</h3>
-			{:else}
-				{#each row.items as p, c (p.hash)}
-					<button
-						class="tile"
-						class:on={selected?.has(p.hash)}
-						style:width="{tile}px"
-						style:height="{tile}px"
-						style:transform="translate({c * (tile + GAP)}px, {row.top}px)"
-						onclick={(e) => click(e, p)}
-						oncontextmenu={(e) => context(e, p.hash)}
-						draggable={!!window.shell}
-						ondragstart={(e) => drag(e, p.hash)}
-					>
-						<img
-							src="/api/thumb/{p.hash}"
-							alt={p.name}
-							style:transform={turned(p)}
-							loading="lazy"
-							decoding="async"
-							onload={(e) => (e.currentTarget as HTMLElement).classList.add('in')}
-						/>
-						{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
-						{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
-						{#if onselect}
-							<span class="pick">{#if selected?.has(p.hash)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
-						{/if}
-					</button>
-				{/each}
 			{/if}
+		{/each}
+		{#each tiles as { p, x, y } (p.hash)}
+			<button
+				class="tile"
+				class:on={selected?.has(p.hash)}
+				class:arrived={arrived.has(p.hash)}
+				style:width="{tile}px"
+				style:height="{tile}px"
+				style:transform="translate({x}px, {y}px)"
+				onclick={(e) => click(e, p)}
+				oncontextmenu={(e) => context(e, p.hash)}
+				draggable={!!window.shell}
+				ondragstart={(e) => drag(e, p.hash)}
+			>
+				<img
+					src="/api/thumb/{p.hash}"
+					alt={p.name}
+					style:transform={turned(p)}
+					loading="lazy"
+					decoding="async"
+					onload={(e) => (e.currentTarget as HTMLElement).classList.add('in')}
+				/>
+				{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
+				{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
+				{#if onselect}
+					<span class="pick">{#if selected?.has(p.hash)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
+				{/if}
+			</button>
 		{/each}
 	</div>
 </div>
@@ -203,6 +241,10 @@
 	}
 	img:global(.in) {
 		opacity: 1;
+	}
+	/* A photo that has just arrived in the library fades in slowly. */
+	.arrived img {
+		transition-duration: var(--motion-ambient), var(--motion-fast);
 	}
 	.video {
 		position: absolute;

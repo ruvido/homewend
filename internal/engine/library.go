@@ -64,6 +64,16 @@ func catalogPath(dir string) string {
 	return filepath.Join(dir, library.WorkDir, "catalog.db")
 }
 
+// LibraryChanges moves each time the chosen library's catalog changes,
+// whoever changed it (library.Changes).
+func LibraryChanges() (string, error) {
+	root, err := DefaultLibrary()
+	if err != nil || root == "" {
+		return "", err
+	}
+	return library.Changes(catalogPath(root)), nil
+}
+
 // LibraryOverview reads the catalog of every shown account. An account with no
 // library yet counts nothing; that is not an error.
 func LibraryOverview(s Settings) (Overview, error) {

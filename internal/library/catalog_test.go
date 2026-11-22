@@ -238,3 +238,70 @@ func TestBytesByKind(t *testing.T) {
 		t.Errorf("%v %v", by, err)
 	}
 }
+
+// Changes moves when the catalog is written, through the catalog's own pool
+// or from a second catalog opened on the same file, as another process
+// would; opening the catalog and reading it do not move it, or a screen that
+// follows Changes would read the library again forever. A catalog gone, its
+// disk ejected, moves it once and then holds.
+func TestChangesFollowEveryWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := Changes(path)
+	step := func(what string, moves bool) {
+		t.Helper()
+		// The clock of a file's time may be coarse: the next write is later.
+		time.Sleep(20 * time.Millisecond)
+		n := Changes(path)
+		if (n != last) != moves {
+			t.Fatalf("%s: Changes went from %q to %q", what, last, n)
+		}
+		last = n
+	}
+
+	other, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.CountsByYear(nil); err != nil {
+		t.Fatal(err)
+	}
+	other.Close()
+	step("opened and read", false)
+
+	if err := c.Put(Photo{Hash: "a", Path: "ron/2026/11/a.jpg", Name: "a.jpg"}); err != nil {
+		t.Fatal(err)
+	}
+	step("a photo put", true)
+	step("nothing done", false)
+
+	other, err = OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := other.Mark(Archived, []string{"a"}, "ron", true); err != nil {
+		t.Fatal(err)
+	}
+	other.Close()
+	step("a photo archived by another catalog", true)
+
+	c.Close()
+	step("the last one closed", true) // its -wal checkpointed into the catalog
+	if c, err = OpenCatalog(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CountsByYear(nil); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	step("opened, read and closed alone", false)
+
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		os.Remove(name)
+	}
+	step("the catalog gone", true)
+	step("still gone", false)
+}

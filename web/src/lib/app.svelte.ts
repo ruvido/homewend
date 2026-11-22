@@ -9,6 +9,7 @@ import { onDestroy } from 'svelte';
 import {
 	ApiError,
 	getCards,
+	getChanges,
 	getJob,
 	getOverview,
 	getSettings,
@@ -37,6 +38,9 @@ export const app = $state<{
 	/** The takeout picked from the list, per account: a download of it is
 	 *  named for it, not for the year 0 it carries. */
 	picked: Record<string, string>;
+	/** Grows each time the library changed (getChanges), whoever changed it:
+	 *  a screen that shows the library reads it again. */
+	libraryMoved: number;
 }>({
 	settings: {},
 	overview: null,
@@ -45,7 +49,8 @@ export const app = $state<{
 	error: '',
 	update: '',
 	updating: false,
-	picked: {}
+	picked: {},
+	libraryMoved: 0
 });
 
 function measure(account: string, j: JobState) {
@@ -76,9 +81,11 @@ export function watchCards(): () => void {
 	};
 }
 
-/** Asks every second where each account's download stands. */
+/** Asks every second where each account's download stands, and whether
+ *  the library changed. */
 export function watchJobs(): () => void {
 	let wasRunning = false;
+	let changes: string | undefined;
 	const tick = async () => {
 		const accounts = app.overview?.accounts ?? [];
 		// An account signed out has no download left to ask about or show.
@@ -99,9 +106,14 @@ export function watchJobs(): () => void {
 				// The engine went away: the window says so elsewhere.
 			}
 		}
-		// Photos arrive while a job runs: the counts follow them.
+		// Photos arrive from a download, a card, a phone: the counts follow
+		// the catalog, whoever wrote it. A job's end changes its takeouts too.
 		const running = Object.values(app.jobs).some((j) => j.running);
-		if (running || wasRunning) app.overview = await getOverview();
+		const now = await getChanges().then((c) => c.changes).catch(() => changes);
+		const moved = changes !== undefined && now !== changes;
+		changes = now;
+		if (moved) app.libraryMoved++;
+		if (running || wasRunning || moved) app.overview = await getOverview();
 		// A computer asleep downloads nothing: awake while photos come home.
 		if (running !== wasRunning) window.shell?.keepAwake(running);
 		wasRunning = running;

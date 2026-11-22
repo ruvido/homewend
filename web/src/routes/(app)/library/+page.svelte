@@ -4,6 +4,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
 	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
 	import { isView } from '#lib/library.js';
@@ -139,6 +140,19 @@
 		return text.photosAndVideos(photos.length - videos, videos);
 	});
 
+	// The library changed under the page (a phone's backup, a download): the
+	// list is read again where it is, nothing picked let go, the viewer kept
+	// on its photo. One change during a reading is read after it.
+	let live = $state(0);
+	let reading = false;
+	let stale = false;
+	let first = true;
+	$effect(() => {
+		void app.libraryMoved;
+		if (first) return void (first = false);
+		untrack(() => (reading ? (stale = true) : live++));
+	});
+
 	// The whole list, a chunk at a time: the grid needs every photo's month to
 	// lay itself out, and the first chunk shows while the rest arrives.
 	const CHUNK = 5000;
@@ -147,13 +161,16 @@
 	$effect(() => {
 		const p = place;
 		void reload;
+		void live;
 		let stopped = false;
 		// Another place starts empty, at its top: its title over the last
 		// place's photos would say a count, a take-out, a photo not its own.
-		// The same place loaded again keeps its photos until they come.
+		// The same place loaded again keeps its photos until all have come:
+		// a first chunk alone would shorten the grid under the finger.
 		const here = urlOf(p);
-		if (here !== shown) ((photos = []), (shown = here));
-		loaded = false;
+		const again = here === shown;
+		if (!again) ((photos = []), (shown = here), (loaded = false));
+		reading = true;
 		(async () => {
 			const q =
 				p.kind === 'year'
@@ -166,18 +183,26 @@
 							? { view: p.kind }
 							: {};
 			try {
+				let got: GridPhoto[] = [];
 				for (let offset = 0; !stopped; offset += CHUNK) {
 					const chunk = await getPhotos({ ...q, offset, limit: CHUNK });
 					if (stopped) return;
-					photos = offset === 0 ? chunk : photos.concat(chunk);
+					got = offset === 0 ? chunk : got.concat(chunk);
+					if (!again) photos = got;
 					if (chunk.length < CHUNK) break;
 				}
+				// The photo in the viewer, found again in the new list.
+				const viewing = open !== null ? photos[open]?.hash : undefined;
+				photos = got;
+				if (viewing && !reopen) reopen = viewing;
 			} catch {
 				// No answer: nothing shown is better than another list.
-				if (!stopped) photos = [];
+				if (!stopped) ((photos = []), (reading = false));
 				return;
 			}
 			loaded = true;
+			reading = false;
+			if (stale) ((stale = false), live++);
 			if (reopen) {
 				const i = photos.findIndex((x) => x.hash === reopen);
 				open = i >= 0 ? i : null;
