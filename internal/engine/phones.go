@@ -326,9 +326,6 @@ func LibraryOf(phone Phone) (PhoneLibrary, error) {
 	if catalog != nil {
 		defer catalog.Close()
 	}
-	if _, err := os.Stat(root); err != nil {
-		return PhoneLibrary{}, nil
-	}
 	l := PhoneLibrary{Known: true}
 	if l.Free, l.Total, err = Space(root); err != nil || catalog == nil {
 		return l, err

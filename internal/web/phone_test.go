@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -22,7 +23,8 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", cfg)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("AppData", cfg)
-	if err := engine.SetDefaultLibrary(t.TempDir()); err != nil {
+	lib := t.TempDir()
+	if err := engine.SetDefaultLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
 	h := phoneRoutes(&phoneListener{port: 1})
@@ -93,6 +95,16 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	}
 	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["hosts"] == nil || out["photos"] != float64(1) || out["disk"].(map[string]any)["total"].(float64) <= 0 {
 		t.Errorf("hello: %d %v", code, out)
+	}
+	// The library's disk away: hello still answers, without the disk.
+	if err := os.Rename(lib, lib+"-away"); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["disk"] != nil {
+		t.Errorf("hello, the disk away: %d %v, want 200 without the disk", code, out)
+	}
+	if err := os.Rename(lib+"-away", lib); err != nil {
+		t.Fatal(err)
 	}
 	if code, _ := call("POST", "/v1/unpair", token, ""); code != http.StatusOK {
 		t.Errorf("unpair: %d, want 200", code)

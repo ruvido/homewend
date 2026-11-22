@@ -188,12 +188,13 @@ func phoneRoutes(l *phoneListener) http.Handler {
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		host, _ := os.Hostname()
 		hello := map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts()}
-		lib, err := engine.LibraryOf(phone)
-		if lib.Known {
+		// The library unanswered (its disk away, a catalog not read): hello
+		// still says the phone is paired and where the computer is.
+		if lib, err := engine.LibraryOf(phone); err == nil && lib.Known {
 			hello["disk"] = map[string]int64{"free": lib.Free, "total": lib.Total}
 			hello["photos"] = lib.Photos
 		}
-		phoneReply(w, hello, err)
+		phoneReply(w, hello, nil)
 	}))
 	// Unpaired from the phone: the computer forgets it as from its own menu.
 	mux.Handle("POST /v1/unpair", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
