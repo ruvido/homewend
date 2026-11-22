@@ -230,7 +230,9 @@ func TestBytesByKind(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	c.Mark(Trashed, []string{"d"}, "", true)
+	if _, err := c.Mark(Trashed, []string{"d"}, "", true); err != nil {
+		t.Fatal(err)
+	}
 	by, err := c.BytesByKind()
 	if err != nil || by[""] != 15 || by["raw"] != 100 || by["video"] != 1000 {
 		t.Errorf("%v %v", by, err)
