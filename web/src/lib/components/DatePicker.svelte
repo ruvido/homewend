@@ -61,11 +61,11 @@
 		{/each}
 	</div>
 	{#if withTime}
-	<div class="time">
-		<span>{text.time}</span>
-		<input value={parts.h} aria-label={text.hour} inputmode="numeric" maxlength="2" onchange={(e) => time('h', e.currentTarget.value)} />:
-		<input value={parts.min} aria-label={text.minute} inputmode="numeric" maxlength="2" onchange={(e) => time('min', e.currentTarget.value)} />
-	</div>
+		<div class="time">
+			<span>{text.time}</span>
+			<input value={parts.h} aria-label={text.hour} inputmode="numeric" maxlength="2" onchange={(e) => time('h', e.currentTarget.value)} />:
+			<input value={parts.min} aria-label={text.minute} inputmode="numeric" maxlength="2" onchange={(e) => time('min', e.currentTarget.value)} />
+		</div>
 	{/if}
 </div>
 

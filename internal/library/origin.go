@@ -28,7 +28,7 @@ const (
 	OriginTelegram   Origin = "telegram"
 	OriginInstagram  Origin = "instagram"
 	OriginScreenshot Origin = "screenshot"
-	OriginApp        Origin = "app"   // an app Google names, none of the above
+	OriginApp        Origin = "app"   // an app Google names, none of the above, its name no convention either
 	OriginOther      Origin = "other" // nothing says
 )
 
@@ -60,7 +60,6 @@ var packageOrigins = map[string]Origin{
 	"com.android.camera2":             OriginCamera,
 	"com.sec.android.app.camera":      OriginCamera, // Samsung
 	"net.sourceforge.opencamera":      OriginCamera,
-	"com.google.android.apps.photos":  OriginOther, // saved by Google Photos itself
 }
 
 // The names apps give their files, the fallback for iOS exports and for the
@@ -107,7 +106,8 @@ func OriginOf(packageName, filename string) Origin {
 			return candidate.origin
 		}
 	}
-	if packageName != "" {
+	// Google Photos itself says nothing of where a file came from.
+	if packageName != "" && packageName != "com.google.android.apps.photos" {
 		// A package we do not recognise is still not a camera, and pretending
 		// otherwise would file a banking app's receipt among the holidays.
 		return OriginApp

@@ -14,35 +14,42 @@ export const isFiltering = (f: Filter) => !!f.start || !!f.end || f.badges.lengt
 
 export type Badge = { id: string; label: string; icon?: IconName; count: number };
 
-// The apps with a badge of their own, and its logo.
-const apps = { whatsapp: 'whatsapp', telegram: 'telegram', signal: 'signal', instagram: 'instagram' } as const;
-export const isApp = (origin?: string): origin is keyof typeof apps => !!origin && origin in apps;
+// The apps with a badge of their own, each with its logo under the same name.
+const apps = ['whatsapp', 'telegram', 'signal', 'instagram'] as const;
+type App = (typeof apps)[number];
+const isApp = (origin?: string): origin is App => apps.includes(origin as App);
 
 /** A photo's own badge, by its origin: none for a camera's. */
-export function badgeOf(origin: GridPhoto['origin']): { id: string; label: string; icon?: IconName } | null {
-	if (isApp(origin)) return { id: origin, label: text.badgeNames[origin], icon: apps[origin] };
+export function badgeOf(origin: GridPhoto['origin']): Omit<Badge, 'count'> | null {
+	if (isApp(origin)) return { id: origin, label: text.badgeNames[origin], icon: origin };
 	return origin === 'screenshot' ? { id: origin, label: text.badgeNames.screenshot, icon: 'phone' } : null;
 }
 
 const TOP = 3;
 
-/** The badges of a page, those that have photos: the three apps with the
- *  most, Screenshots, Other (every other app), Estimated. */
-export function badgesOf(photos: GridPhoto[]): Badge[] {
+/** How many photos of a page each badge could have. */
+export function countBadges(photos: GridPhoto[]): Record<string, number> {
 	const n: Record<string, number> = {};
-	let estimated = 0;
 	for (const p of photos) {
 		if (p.origin) n[p.origin] = (n[p.origin] ?? 0) + 1;
-		if (p.guessed) estimated++;
+		if (p.guessed) n.estimated = (n.estimated ?? 0) + 1;
 	}
-	const ranked = Object.keys(n).filter(isApp).sort((a, b) => n[b] - n[a]);
-	const other = [...ranked.slice(TOP), 'app'].reduce((sum, id) => sum + (n[id] ?? 0), 0);
-	const own = [...ranked.slice(0, TOP), 'screenshot'] as GridPhoto['origin'][];
+	return n;
+}
+
+/** The badges of a page, those that have photos: the three apps with the
+ *  most, Screenshots, Other (every other app), Estimated. One picked stays
+ *  while it is, whatever happens to its photos. */
+export function badgesOf(n: Record<string, number>, picked: string[]): Badge[] {
+	const ranked = [...apps].sort((a, b) => (n[b] ?? 0) - (n[a] ?? 0));
+	const own = ranked.filter((id, i) => i < TOP || picked.includes(id));
+	const other = ['app', ...ranked.filter((id) => !own.includes(id))].reduce((sum, id) => sum + (n[id] ?? 0), 0);
 	return [
-		...own.map((id) => ({ ...badgeOf(id)!, count: n[id!] ?? 0 })),
+		...own.map((id) => ({ ...badgeOf(id)!, count: n[id] ?? 0 })),
+		{ id: 'screenshot', label: text.badgeNames.screenshots, icon: 'phone' as const, count: n.screenshot ?? 0 },
 		{ id: 'other', label: text.badgeNames.other, count: other },
-		{ id: 'estimated', label: text.estimatedTag, count: estimated }
-	].filter((b) => b.count > 0);
+		{ id: 'estimated', label: text.estimatedTag, count: n.estimated ?? 0 }
+	].filter((b) => b.count > 0 || picked.includes(b.id));
 }
 
 /** The photos a search keeps. Two apps are either; Estimated and the dates

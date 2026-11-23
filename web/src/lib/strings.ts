@@ -423,8 +423,11 @@ export const text = {
 	searchFrom: 'From',
 	searchTo: 'To',
 	chooseDay: 'Choose',
-	dropDate: 'Remove the date',
-	badgeNames: { whatsapp: 'WhatsApp', telegram: 'Telegram', signal: 'Signal', instagram: 'Instagram', screenshot: 'Screenshots', other: 'Other' },
+	dropDate: (label: string) => `Remove ${label}`,
+	searchDay: (label: string, day: string) => `${label}: ${day}`,
+	searchPicked: (picked: string) => `Search: ${picked}`,
+	searchNone: 'No photos match.',
+	badgeNames: { whatsapp: 'WhatsApp', telegram: 'Telegram', signal: 'Signal', instagram: 'Instagram', screenshot: 'Screenshot', screenshots: 'Screenshots', other: 'Other' },
 	previousYear: 'Previous year',
 	nextYear: 'Next year',
 	// Where a photo's date comes from, by its source in the catalog.

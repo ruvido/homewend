@@ -16,7 +16,8 @@
 		onopen,
 		selected,
 		onselect,
-		withYear = true
+		withYear = true,
+		view
 	}: {
 		photos: GridPhoto[];
 		header?: Snippet;
@@ -27,6 +28,8 @@
 		onselect?: (index: number, range: boolean) => void;
 		/** On a year's page the months need no year. */
 		withYear?: boolean;
+		/** What chose these photos: another, and the grid starts again at its top. */
+		view?: unknown;
 	} = $props();
 
 	// The design's tile: at least 104px, as many columns as fit, gap 8.
@@ -125,11 +128,20 @@
 	$effect(() => {
 		drawn = layout;
 	});
+	let viewed: unknown = undefined;
 	$effect.pre(() => {
 		const now = photos;
+		const by = view;
 		untrack(() => {
 			const was = before;
 			before = now;
+			if (by !== viewed) {
+				// Other photos of the same library: none of them arrived.
+				viewed = by;
+				arrived = new Set();
+				if (scroller) scroller.scrollTop = 0;
+				return;
+			}
 			// The rest of a first reading, chunk by chunk, is no arrival.
 			if (was.length === 0 || now === was || was.every((p, i) => now[i]?.hash === p.hash)) return;
 			const known = new Set(was.map((p) => p.hash));

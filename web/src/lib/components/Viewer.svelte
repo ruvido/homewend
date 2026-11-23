@@ -145,9 +145,9 @@
 		return guessed === 'day' ? takenDay(d) : takenAt(d);
 	}
 	const date = $derived(p?.taken ? when(p.taken, p.guessed) : text.noDate);
+	const badge = $derived(badgeOf(p?.origin));
 	// "Taken 14 July 2019, 18:32", as the design writes it, or
 	// "26 August 2026, 15:21 · estimated".
-	const badge = $derived(badgeOf(p?.origin));
 	const taken = $derived(!p?.taken ? date : p.guessed ? text.estimated(date) : text.taken(date));
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.

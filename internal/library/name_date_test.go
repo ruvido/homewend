@@ -237,6 +237,7 @@ func TestAnAppIsNotAnUnknownFile(t *testing.T) {
 		{"com.instagram.android", "IMG_20190401_101010_123.jpg", OriginInstagram},
 		{"com.canva.editor", "design.png", OriginApp},
 		{"com.google.android.apps.photos", "20260826_152150.jpg", OriginOther},
+		{"com.google.android.apps.photos", "IMG-20190714-WA0001.jpg", OriginWhatsApp},
 		{"", "20260826_152150.jpg", OriginOther},
 	} {
 		if got := OriginOf(c.app, c.name); got != c.want {

@@ -3,10 +3,9 @@
 <!-- S1–S8: the library's search. The field grows to show the dates and the
      badges, and the grid moves down; closed, it holds what is picked. -->
 <script lang="ts">
-	import { untrack } from 'svelte';
 	import { noFilter, isFiltering, type Badge, type Filter } from '#lib/filter.js';
 	import { takenDay } from '#lib/format.js';
-	import { reveal } from '#lib/motion.js';
+	import { reveal, swap } from '#lib/motion.js';
 	import { text } from '#lib/strings.js';
 	import AppBadge from './AppBadge.svelte';
 	import DatePicker from './DatePicker.svelte';
@@ -18,14 +17,15 @@
 	let {
 		filter = $bindable(),
 		badges,
-		first,
-		last
+		dated,
+		bounds
 	}: {
 		filter: Filter;
 		badges: Badge[];
+		/** The page's photos have dates to search by. */
+		dated: boolean;
 		/** The page's first and last day: where the calendars start. */
-		first: string;
-		last: string;
+		bounds: () => { start: string; end: string };
 	} = $props();
 
 	let open = $state(false);
@@ -41,7 +41,7 @@
 		filter = { ...filter, badges: on ? filter.badges.filter((b) => b !== id) : [...filter.badges, id] };
 	}
 	function ask(which: 'start' | 'end') {
-		value = untrack(() => filter[which] || (which === 'start' ? first : last)) + 'T00:00';
+		value = (filter[which] || bounds()[which]) + 'T00:00';
 		asking = which;
 	}
 	function choose() {
@@ -52,44 +52,53 @@
 		filter = next;
 		asking = null;
 	}
-	// The calendar takes Esc before the page does.
+	// The calendar takes the page's keys; Esc closes it, or the field when
+	// the focus is in it.
+	let field = $state<HTMLElement>();
 	function key(e: KeyboardEvent) {
-		if (e.key !== 'Escape' || !asking) return;
-		e.stopPropagation();
-		asking = null;
+		if (asking) {
+			e.stopPropagation();
+			if (e.key === 'Escape') asking = null;
+		} else if (e.key === 'Escape' && open && field?.contains(document.activeElement)) {
+			e.stopPropagation();
+			open = false;
+		}
 	}
+	const said = $derived([range, ...picked.map((b) => b.label)].filter(Boolean).join(', '));
 </script>
 
 <svelte:window onkeydowncapture={key} />
 
 {#snippet day(which: 'start' | 'end', label: string)}
-	<button class="field" class:on={!!filter[which]} onclick={() => ask(which)}><Icon name="calendar3" size={14} />{filter[which] ? say(filter[which]) : label}</button>
+	<button class="field" class:on={!!filter[which]} aria-label={filter[which] ? text.searchDay(label, say(filter[which])) : label} onclick={() => ask(which)}><Icon name="calendar3" size={14} />{filter[which] ? say(filter[which]) : label}</button>
 	{#if filter[which]}
-		<button class="drop" aria-label={text.dropDate} onclick={() => (filter = { ...filter, [which]: '' })}><Icon name="x-lg" size={12} /></button>
+		<button class="drop" in:swap aria-label={text.dropDate(label)} onclick={() => (filter = { ...filter, [which]: '' })}><Icon name="x-lg" size={12} /></button>
 	{/if}
 {/snippet}
 
-<div class="search">
+<div class="search" bind:this={field}>
 	<div class="input">
-		<button class="toggle" aria-label={text.search} aria-expanded={open} onclick={() => (open = !open)}></button>
+		<button class="toggle" aria-label={said ? text.searchPicked(said) : text.search} aria-expanded={open} onclick={() => (open = !open)}></button>
 		<Icon name="search" size={16} />
 		{#if !open}
 			{#if range}
-				<span class="field on">
+				<span class="field on" in:swap>
 					<Icon name="calendar3" size={14} />{range}
-					<button class="drop" aria-label={text.dropDate} onclick={() => (filter = { ...filter, start: '', end: '' })}><Icon name="x-lg" size={12} /></button>
+					<button class="drop" aria-label={text.dropDate(range)} onclick={() => (filter = { ...filter, start: '', end: '' })}><Icon name="x-lg" size={12} /></button>
 				</span>
 			{/if}
-			{#each picked as b (b.id)}<AppBadge id={b.id} label={b.label} icon={b.icon} on />{/each}
+			{#each picked as b (b.id)}<span in:swap><AppBadge id={b.id} label={b.label} icon={b.icon} on /></span>{/each}
 		{/if}
-		{#if open || !isFiltering(filter)}<span>{text.search}</span>{/if}
-		{#if isFiltering(filter)}<button class="clear" onclick={() => (filter = noFilter)}>{text.clearSearch}</button>{/if}
+		{#if open || !isFiltering(filter)}<span in:swap>{text.search}</span>{/if}
+		{#if isFiltering(filter)}<button class="clear" in:swap onclick={() => (filter = noFilter)}>{text.clearSearch}</button>{/if}
 	</div>
 	{#if open}
 		<div in:reveal out:reveal={{ leaving: true }}>
 			<dl>
-				<dt>{text.searchDate}</dt>
-				<dd>{@render day('start', text.searchFrom)}<em>–</em>{@render day('end', text.searchTo)}</dd>
+				{#if dated}
+					<dt>{text.searchDate}</dt>
+					<dd>{@render day('start', text.searchFrom)}<em>–</em>{@render day('end', text.searchTo)}</dd>
+				{/if}
 				{#if badges.length > 0}
 					<dt>{text.searchBadge}</dt>
 					<dd>

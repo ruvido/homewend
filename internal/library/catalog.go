@@ -524,10 +524,9 @@ func ownedBy(accounts []string) (string, []any) {
 
 // Filter is what the interface asks for: a page of the grid, narrowed.
 type Filter struct {
-	Origins []Origin // empty means all
-	Album   string
-	Year    string
-	NoDate  bool // only the photos whose date nobody knows
+	Album  string
+	Year   string
+	NoDate bool // only the photos whose date nobody knows
 	// Archived keeps only the archived photos; Grid leaves them out, as the
 	// main grid and its years do; Trashed keeps only those in the Trash,
 	// which are otherwise in no list.
@@ -597,17 +596,6 @@ func (f Filter) where(query string) (string, []any) {
 		where = []string{"out = 0", "trashed = 1"}
 	}
 	var args []any
-	if len(f.Origins) > 0 {
-		placeholders := ""
-		for i, origin := range f.Origins {
-			if i > 0 {
-				placeholders += ","
-			}
-			placeholders += "?"
-			args = append(args, string(origin))
-		}
-		where = append(where, "origin IN ("+placeholders+")")
-	}
 	if f.Album != "" {
 		where = append(where,
 			"hash IN (SELECT hash FROM album_members WHERE album = ?)")
@@ -691,27 +679,6 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 		photos = append(photos, photo)
 	}
 	return photos, rows.Err()
-}
-
-// CountsByOrigin is what the filter chips show: how many of each, so nobody
-// clicks "WhatsApp" to find out it is empty.
-func (c *Catalog) CountsByOrigin() (map[Origin]int, error) {
-	rows, err := c.db.Query(`SELECT origin, COUNT(*) FROM photos WHERE NOT ` + away + ` AND archived = 0 GROUP BY origin`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	counts := map[Origin]int{}
-	for rows.Next() {
-		var origin string
-		var n int
-		if err := rows.Scan(&origin, &n); err != nil {
-			return nil, err
-		}
-		counts[Origin(origin)] = n
-	}
-	return counts, rows.Err()
 }
 
 // AlbumNames lists the albums, with how many photos each holds.

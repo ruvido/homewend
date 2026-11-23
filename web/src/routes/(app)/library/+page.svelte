@@ -19,7 +19,7 @@
 	import GiveDate from '#lib/components/GiveDate.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import LibraryFilter from '#lib/components/LibraryFilter.svelte';
-	import { badgesOf, noFilter, search } from '#lib/filter.js';
+	import { badgesOf, countBadges, isFiltering, noFilter, search } from '#lib/filter.js';
 
 	let open = $state<number | null>(null);
 
@@ -27,14 +27,20 @@
 	// The place's photos, and those the search keeps of them: the grid, the
 	// viewer and the selection know only these.
 	let list = $state<GridPhoto[]>([]);
-	let filter = $state(noFilter);
-	const badges = $derived(badgesOf(list));
-	const photos = $derived(search(list, filter, badges));
-	const today = new Date().toISOString().slice(0, 10);
-	const days = $derived(list.map((p) => p.taken?.slice(0, 10)).filter((d): d is string => !!d));
-	// The photos not on the disk are all taken out, or none.
-	const searchable = $derived(place.kind !== 'missing' && list.length > 0);
 	let loaded = $state(false);
+	let filter = $state(noFilter);
+	// Counted once the list is whole, not at each chunk.
+	const counts = $derived(loaded ? countBadges(list) : {});
+	const badges = $derived(badgesOf(counts, filter.badges));
+	const photos = $derived(search(list, filter, badges));
+	const dated = $derived(!(place.kind === 'year' && place.label === text.noDate));
+	// The first and the last day; with none, today by this computer's clock.
+	function bounds() {
+		const now = new Date();
+		const today = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString();
+		const at = (p?: GridPhoto) => (p?.taken ?? today).slice(0, 10);
+		return { start: at(list.findLast((p) => p.taken)), end: at(list.find((p) => p.taken)) };
+	}
 	const title = $derived(
 		place.kind === 'year'
 			? place.label
@@ -116,7 +122,7 @@
 	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
 	// Ctrl+A or ⌘A picks all the photos shown.
 	function key(e: KeyboardEvent) {
-		if (e.key === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
+		if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
 			e.preventDefault();
 			selected = new Set(photos.map((p) => p.hash));
 			return;
@@ -150,6 +156,7 @@
 	// they are is the sidebar's. The photos with no date say why they have none.
 	const subtitle = $derived.by(() => {
 		const n = photos.length.toLocaleString('en');
+		if (loaded && photos.length === 0 && isFiltering(filter)) return text.searchNone;
 		if (place.kind === 'missing') return text.missingDetail;
 		if (place.kind === 'archive') return text.archiveSub(photos.length);
 		if (place.kind === 'trash') return text.trashSub(photos.length);
@@ -255,11 +262,11 @@
 		</div>
 	{/if}
 	<div class="fill">
-	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)} {selected} onselect={select}>
+	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)} {selected} onselect={select} view={filter}>
 		{#snippet header()}
 			<div class="head">
 				<h1>{title}</h1>
-				<p>
+				<p aria-live="polite">
 					{subtitle}{loaded ? '' : '…'}
 					{#if where}
 						<span class="state {where.kind}">
@@ -269,8 +276,11 @@
 						</span>
 					{/if}
 				</p>
-				{#if searchable}
-					<LibraryFilter bind:filter {badges} first={days[days.length - 1] ?? today} last={days[0] ?? today} />
+				<!-- The photos not on the disk are all taken out, or none; with no date and no badge there is nothing to search by. -->
+				{#if place.kind !== 'missing' && (dated || badges.length > 0)}
+					{#key urlOf(place)}
+						<LibraryFilter bind:filter {badges} {bounds} {dated} />
+					{/key}
 				{/if}
 				{#if place.kind === 'missing' && list.length > 0}
 					<div class="out">
