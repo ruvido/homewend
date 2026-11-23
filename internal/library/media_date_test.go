@@ -123,3 +123,46 @@ func TestAChatVideoWasReceived(t *testing.T) {
 		t.Errorf("kind %q, want %q", got, DateReceived)
 	}
 }
+
+// Google's date is an instant: a photo taken travelling keeps the hour and
+// the day the camera had there. A date corrected in Google stands.
+func TestAPhotoTakenElsewhereKeepsTheCamerasClock(t *testing.T) {
+	rome, err := time.LoadLocation("Europe/Rome")
+	if err != nil {
+		t.Skip("no timezone database")
+	}
+	was := time.Local
+	time.Local = rome
+	t.Cleanup(func() { time.Local = was })
+	dir := t.TempDir()
+	for _, c := range []struct {
+		name, camera, google string
+		source               DateSource
+	}{
+		{"MVIMG_20181117_204031.jpg", "2018:11:17 20:40:31", "2018:11:18 02:40:31", FromEXIF},                           // New York
+		{"00100dPORTRAIT_00100_BURST20190615155046958_COV.jpg", "2019:06:15 15:50:46", "2019:06:15 14:50:46", FromEXIF}, // Greece
+		{"IMG_20100829_095919.jpg", "2010:08:29 09:59:19", "2010:08:29 11:59:19", FromEXIF},                             // Google read it as UTC
+		{"nepal.jpg", "2019:06:15 18:35:46", "2019:06:15 14:50:46", FromEXIF},
+		{"home.jpg", "2019:06:15 15:50:46", "2019:06:15 15:50:46", FromSidecar},
+		{"DSCF5827.JPG", "2020:08:08 19:48:17", "2020:08:08 07:48:00", FromSidecar}, // corrected by a person
+		{"IMG_20181113_072400-COLLAGE.jpg", "2018:11:13 07:24:00", "2018:11:13 07:52:23", FromSidecar},
+		{"days.jpg", "2019:06:15 15:50:46", "2019:06:14 15:50:46", FromSidecar},
+		{"none.jpg", "", "2019:06:14 15:50:46", FromSidecar},
+		{"20181117_204031.mp4", "2018:11:17 20:40:31", "2018:11:18 02:40:31", FromSidecar}, // a video has no clock
+	} {
+		google, err := time.ParseInLocation("2006:01:02 15:04:05", c.google, rome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(t, dir, c.name, exifPhoto(c.camera, c.name))
+		sidecar(t, dir, c.name, google.Unix())
+		got := DateOf(filepath.Join(dir, c.name), "", filepath.Join(dir, c.name+".supplemental-metadata.json"))
+		want := c.google
+		if c.source == FromEXIF {
+			want = c.camera
+		}
+		if at := got.Local(rome).Format("2006:01:02 15:04:05"); got.Source != c.source || at != want {
+			t.Errorf("%s: %s %s, want %s %s", c.name, at, got.Source, want, c.source)
+		}
+	}
+}

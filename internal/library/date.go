@@ -4,6 +4,7 @@
 package library
 
 import (
+	"bytes"
 	"encoding/binary"
 	"io"
 	"os"
@@ -93,8 +94,12 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 	name := filepath.Base(mediaPath)
 	origin := OriginOf(note.AppSource.AndroidPackageName, name)
 	if taken, ok := note.taken(); ok {
-		if when, source, ok := uploadedLate(name, asClock(taken.In(time.Local))); ok {
+		google := asClock(taken.In(time.Local))
+		if when, source, ok := uploadedLate(name, google); ok {
 			return Capture{When: when, Source: source, Origin: origin}
+		}
+		if when, ok := elsewhere(mediaPath, google); ok {
+			return Capture{When: when, Source: FromEXIF, Origin: origin}
 		}
 		return Capture{When: taken, Source: FromSidecar, Origin: origin}
 	}
@@ -125,6 +130,22 @@ func uploadedLate(name string, google time.Time) (time.Time, DateSource, bool) {
 	day := func(t time.Time) time.Time { return t.Truncate(24 * time.Hour) }
 	late := ok && OriginOf("", name) == OriginWhatsApp && day(google).Sub(day(when)) > 24*time.Hour
 	return when, source, late
+}
+
+// elsewhere is the camera's clock in a photo, when it and Google's, on this
+// computer's, are a time zone apart: taken travelling, 20:40 in New York is
+// not 02:40 of the next day. Google has the camera's clock moved by a zone,
+// so the two are whole quarters of an hour apart, to the second: 622 photos
+// of a real export are, and the 18 that are seconds off were dated by a
+// person in Google, or are collages it made. More than 14 hours is no zone.
+// A video's header has no clock of its own place, and says nothing here.
+func elsewhere(path string, google time.Time) (time.Time, bool) {
+	if IsVideo(path) {
+		return time.Time{}, false
+	}
+	when, _, ok := cameraDate(path)
+	apart := when.Sub(google)
+	return when, ok && apart != 0 && apart.Abs() <= 14*time.Hour && apart%(15*time.Minute) == 0
 }
 
 // dateNamed is c with the date name says, when c has none or only Google's
@@ -282,8 +303,7 @@ func exifHeader(data []byte) (int, binary.ByteOrder, bool) {
 			return 0, binary.BigEndian, true
 		}
 	}
-	marker := []byte("Exif\x00\x00")
-	at := indexOf(data, marker)
+	at := bytes.Index(data, []byte("Exif\x00\x00"))
 	if at < 0 || at+6+4 > len(data) {
 		return 0, nil, false
 	}
@@ -376,23 +396,6 @@ func readTagOffset(data []byte, tiff, ifd int, want uint16, order binary.ByteOrd
 		return true
 	})
 	return found, ok
-}
-
-func indexOf(haystack, needle []byte) int {
-	limit := len(haystack) - len(needle)
-	for i := 0; i <= limit; i++ {
-		match := true
-		for j := range needle {
-			if haystack[i+j] != needle[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return i
-		}
-	}
-	return -1
 }
 
 const tagOrientation = 0x0112
