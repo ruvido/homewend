@@ -3,11 +3,13 @@
 <!-- B7: one photo, over the grid. ← and → move, Esc or Space closes; a click zooms in. -->
 <script lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
+	import AppBadge from './AppBadge.svelte';
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { pane, swap } from '#lib/motion.js';
 	import { getAbout, pathOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
+	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
 	import { app } from '#lib/app.svelte.js';
 
@@ -145,6 +147,7 @@
 	const date = $derived(p?.taken ? when(p.taken, p.guessed) : text.noDate);
 	// "Taken 14 July 2019, 18:32", as the design writes it, or
 	// "26 August 2026, 15:21 · estimated".
+	const badge = $derived(badgeOf(p?.origin));
 	const taken = $derived(!p?.taken ? date : p.guessed ? text.estimated(date) : text.taken(date));
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.
@@ -199,7 +202,7 @@
 <svelte:window onkeydown={key} />
 
 {#if p}
-	<div class="viewer" in:swap out:swap={{ leaving: true }}>
+	<div class="viewer" data-theme="dark" in:swap out:swap={{ leaving: true }}>
 		<header>
 			<div class="meta">
 				<b>{taken}</b>
@@ -282,7 +285,12 @@
 								<dd>
 									{date}
 									{#if about && text.dated[about.dated]}<small>{text.dated[about.dated]}</small>{/if}
-									{#if p.guessed}<span class="tag">{text.estimatedTag}</span>{/if}
+									{#if p.guessed || badge}
+										<span class="tags">
+											{#if p.guessed}<AppBadge id="estimated" label={text.estimatedTag} on small />{/if}
+											{#if badge}<AppBadge id={badge.id} label={badge.label} icon={badge.icon} on small />{/if}
+										</span>
+									{/if}
 								</dd>
 							</div>
 							{#if about}
@@ -543,13 +551,10 @@
 		font-size: var(--text-callout);
 		color: #ffffff99;
 	}
-	.tag {
-		padding: 0 8px;
-		border-radius: var(--radius-full);
-		background: var(--warn-soft);
-		color: var(--warn);
-		font-size: var(--text-subheadline);
-		font-weight: 600;
+	.tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-4);
 	}
 	.nav {
 		position: absolute;

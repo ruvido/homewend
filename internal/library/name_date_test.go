@@ -226,3 +226,21 @@ func TestAWhatsAppFileUploadedLateTakesItsNamesDay(t *testing.T) {
 		t.Errorf("a camera's name: %s, want the sidecar's", c.Source)
 	}
 }
+
+// Only an app Google names and no badge knows is another app: a camera's
+// file whose name no app imposes comes from nowhere known.
+func TestAnAppIsNotAnUnknownFile(t *testing.T) {
+	for _, c := range []struct {
+		app, name string
+		want      Origin
+	}{
+		{"com.instagram.android", "IMG_20190401_101010_123.jpg", OriginInstagram},
+		{"com.canva.editor", "design.png", OriginApp},
+		{"com.google.android.apps.photos", "20260826_152150.jpg", OriginOther},
+		{"", "20260826_152150.jpg", OriginOther},
+	} {
+		if got := OriginOf(c.app, c.name); got != c.want {
+			t.Errorf("%s %s: %q, want %q", c.app, c.name, got, c.want)
+		}
+	}
+}

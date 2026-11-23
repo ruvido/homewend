@@ -415,6 +415,18 @@ export const text = {
 	infoFrom: 'From',
 	infoFile: 'File',
 	estimatedTag: 'Estimated',
+	// The library's search: a photo's badges and its dates.
+	search: 'Search',
+	clearSearch: 'Clear',
+	searchDate: 'Date',
+	searchBadge: 'Badge',
+	searchFrom: 'From',
+	searchTo: 'To',
+	chooseDay: 'Choose',
+	dropDate: 'Remove the date',
+	badgeNames: { whatsapp: 'WhatsApp', telegram: 'Telegram', signal: 'Signal', instagram: 'Instagram', screenshot: 'Screenshots', other: 'Other' },
+	previousYear: 'Previous year',
+	nextYear: 'Next year',
 	// Where a photo's date comes from, by its source in the catalog.
 	dated: {
 		sidecar: 'From Google Photos',

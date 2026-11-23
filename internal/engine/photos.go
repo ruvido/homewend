@@ -34,6 +34,9 @@ type GridPhoto struct {
 	Turn int `json:"turn,omitempty"`
 	// Archived: in the Archive, shown in an album.
 	Archived bool `json:"archived,omitempty"`
+	// Origin: the app it came through, or a screenshot; empty when it came
+	// from a camera or nothing says.
+	Origin library.Origin `json:"origin,omitempty"`
 }
 
 // ErrNoLibrary is asking for photos before a library folder was chosen.
@@ -145,6 +148,9 @@ func Photos(s Settings, year, album string, noDate bool, view string, offset, li
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
 		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived}
+		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
+			out[i].Origin = p.Origin
+		}
 	}
 	return out, nil
 }

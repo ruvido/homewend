@@ -6,7 +6,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { text } from '#lib/strings.js';
 
-	let { value = $bindable() }: { value: string } = $props();
+	let { value = $bindable(), time: withTime = true }: { value: string; /** The hour and minute too. */ time?: boolean } = $props();
 
 	const parts = $derived({
 		y: +value.slice(0, 4),
@@ -42,9 +42,11 @@
 
 <div class="date">
 	<div class="head">
+		<button aria-label={text.previousYear} onclick={() => move(-12)}><Icon name="chevron-double-left" size={16} /></button>
 		<button aria-label={text.previousMonth} onclick={() => move(-1)}><Icon name="chevron-left" size={16} /></button>
 		<b>{month}</b>
 		<button aria-label={text.nextMonth} onclick={() => move(1)}><Icon name="chevron-right" size={16} /></button>
+		<button aria-label={text.nextYear} onclick={() => move(12)}><Icon name="chevron-double-right" size={16} /></button>
 	</div>
 	<div class="days">
 		{#each text.weekdays as w, i (i)}<span>{w}</span>{/each}
@@ -58,11 +60,13 @@
 			>
 		{/each}
 	</div>
+	{#if withTime}
 	<div class="time">
 		<span>{text.time}</span>
 		<input value={parts.h} aria-label={text.hour} inputmode="numeric" maxlength="2" onchange={(e) => time('h', e.currentTarget.value)} />:
 		<input value={parts.min} aria-label={text.minute} inputmode="numeric" maxlength="2" onchange={(e) => time('min', e.currentTarget.value)} />
 	</div>
+	{/if}
 </div>
 
 <style>
@@ -77,6 +81,8 @@
 		justify-content: space-between;
 	}
 	.head b {
+		flex: 1;
+		text-align: center;
 		font-size: var(--text-title-3);
 		font-weight: var(--weight-semibold);
 		color: var(--fg);

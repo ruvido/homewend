@@ -86,6 +86,8 @@ export interface GridPhoto {
 	turn?: number;
 	/** In the Archive, shown in an album. */
 	archived?: boolean;
+	/** The app it came through (app: one with no badge of its own), or a screenshot. */
+	origin?: 'whatsapp' | 'telegram' | 'signal' | 'instagram' | 'app' | 'screenshot';
 }
 
 export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; view?: View; offset: number; limit: number }) {

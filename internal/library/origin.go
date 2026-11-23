@@ -26,8 +26,10 @@ const (
 	OriginWhatsApp   Origin = "whatsapp"
 	OriginSignal     Origin = "signal"
 	OriginTelegram   Origin = "telegram"
+	OriginInstagram  Origin = "instagram"
 	OriginScreenshot Origin = "screenshot"
-	OriginOther      Origin = "other"
+	OriginApp        Origin = "app"   // an app Google names, none of the above
+	OriginOther      Origin = "other" // nothing says
 )
 
 // FromMessaging reports whether a photo arrived through a chat rather than a
@@ -51,12 +53,14 @@ var packageOrigins = map[string]Origin{
 	"org.telegram.messenger":          OriginTelegram,
 	"org.telegram.messenger.web":      OriginTelegram,
 	"org.telegram.plus":               OriginTelegram,
+	"com.instagram.android":           OriginInstagram,
 	"com.android.systemui":            OriginScreenshot,
 	"com.google.android.GoogleCamera": OriginCamera,
 	"com.android.camera":              OriginCamera,
 	"com.android.camera2":             OriginCamera,
 	"com.sec.android.app.camera":      OriginCamera, // Samsung
 	"net.sourceforge.opencamera":      OriginCamera,
+	"com.google.android.apps.photos":  OriginOther, // saved by Google Photos itself
 }
 
 // The names apps give their files, the fallback for iOS exports and for the
@@ -106,7 +110,7 @@ func OriginOf(packageName, filename string) Origin {
 	if packageName != "" {
 		// A package we do not recognise is still not a camera, and pretending
 		// otherwise would file a banking app's receipt among the holidays.
-		return OriginOther
+		return OriginApp
 	}
 	return OriginOther
 }

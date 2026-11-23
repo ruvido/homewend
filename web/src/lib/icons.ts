@@ -55,6 +55,14 @@ import sun from 'bootstrap-icons/icons/sun.svg?raw';
 import threeDots from 'bootstrap-icons/icons/three-dots.svg?raw';
 import trash from 'bootstrap-icons/icons/trash.svg?raw';
 import wifiOff from 'bootstrap-icons/icons/wifi-off.svg?raw';
+import calendar3 from 'bootstrap-icons/icons/calendar3.svg?raw';
+import chevronDoubleLeft from 'bootstrap-icons/icons/chevron-double-left.svg?raw';
+import chevronDoubleRight from 'bootstrap-icons/icons/chevron-double-right.svg?raw';
+import instagram from 'bootstrap-icons/icons/instagram.svg?raw';
+import search from 'bootstrap-icons/icons/search.svg?raw';
+import signal from 'bootstrap-icons/icons/signal.svg?raw';
+import telegram from 'bootstrap-icons/icons/telegram.svg?raw';
+import whatsapp from 'bootstrap-icons/icons/whatsapp.svg?raw';
 import xLg from 'bootstrap-icons/icons/x-lg.svg?raw';
 
 const raw = {
@@ -110,6 +118,14 @@ const raw = {
 	'three-dots': threeDots,
 	'trash': trash,
 	'wifi-off': wifiOff,
+	'calendar3': calendar3,
+	'chevron-double-left': chevronDoubleLeft,
+	'chevron-double-right': chevronDoubleRight,
+	'instagram': instagram,
+	'search': search,
+	'signal': signal,
+	'telegram': telegram,
+	'whatsapp': whatsapp,
 	'x-lg': xLg,
 };
 

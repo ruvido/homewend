@@ -18,11 +18,22 @@
 	import TakeOut from '#lib/components/TakeOut.svelte';
 	import GiveDate from '#lib/components/GiveDate.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
+	import LibraryFilter from '#lib/components/LibraryFilter.svelte';
+	import { badgesOf, noFilter, search } from '#lib/filter.js';
 
 	let open = $state<number | null>(null);
 
 	const place = $derived(placeOf(page.url));
-	let photos = $state<GridPhoto[]>([]);
+	// The place's photos, and those the search keeps of them: the grid, the
+	// viewer and the selection know only these.
+	let list = $state<GridPhoto[]>([]);
+	let filter = $state(noFilter);
+	const badges = $derived(badgesOf(list));
+	const photos = $derived(search(list, filter, badges));
+	const today = new Date().toISOString().slice(0, 10);
+	const days = $derived(list.map((p) => p.taken?.slice(0, 10)).filter((d): d is string => !!d));
+	// The photos not on the disk are all taken out, or none.
+	const searchable = $derived(place.kind !== 'missing' && list.length > 0);
 	let loaded = $state(false);
 	const title = $derived(
 		place.kind === 'year'
@@ -30,7 +41,7 @@
 			: place.kind === 'album'
 				? place.name
 				: place.kind === 'missing'
-					? loaded ? text.missingTitle(photos.length) : text.notOnDisk
+					? loaded ? text.missingTitle(list.length) : text.notOnDisk
 					: place.kind === 'archive'
 						? text.archive
 						: place.kind === 'trash'
@@ -47,10 +58,11 @@
 	// A photo given a date in the viewer: it is opened again where the list,
 	// loaded again, now has it.
 	let reopen: string | null = null;
-	// Another page, or the list loaded again: nothing picked.
+	// Another page or search, or the list loaded again: nothing picked.
 	$effect(() => {
 		void place;
 		void reload;
+		void filter;
 		selected = new Set();
 		anchor = -1;
 		markFailed = '';
@@ -102,7 +114,13 @@
 		await refresh();
 	}
 	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
+	// Ctrl+A or ⌘A picks all the photos shown.
 	function key(e: KeyboardEvent) {
+		if (e.key === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
+			e.preventDefault();
+			selected = new Set(photos.map((p) => p.hash));
+			return;
+		}
 		if (e.key !== 'Escape') return;
 		if (asking) return void (asking = null);
 		if (open !== null) return;
@@ -169,7 +187,7 @@
 		// a first chunk alone would shorten the grid under the finger.
 		const here = urlOf(p);
 		const again = here === shown;
-		if (!again) ((photos = []), (shown = here), (loaded = false));
+		if (!again) ((list = []), (filter = noFilter), (shown = here), (loaded = false));
 		reading = true;
 		(async () => {
 			const q =
@@ -188,16 +206,16 @@
 					const chunk = await getPhotos({ ...q, offset, limit: CHUNK });
 					if (stopped) return;
 					got = offset === 0 ? chunk : got.concat(chunk);
-					if (!again) photos = got;
+					if (!again) list = got;
 					if (chunk.length < CHUNK) break;
 				}
 				// The photo in the viewer, found again in the new list.
 				const viewing = open !== null ? photos[open]?.hash : undefined;
-				photos = got;
+				list = got;
 				if (viewing && !reopen) reopen = viewing;
 			} catch {
 				// No answer: nothing shown is better than another list.
-				if (!stopped) ((photos = []), (reading = false));
+				if (!stopped) ((list = []), (reading = false));
 				return;
 			}
 			loaded = true;
@@ -209,7 +227,7 @@
 				reopen = null;
 			}
 			// None left not on the disk, all taken out or back: the library.
-			if (p.kind === 'missing' && photos.length === 0) goto(urlOf({ kind: 'all' }));
+			if (p.kind === 'missing' && list.length === 0) goto(urlOf({ kind: 'all' }));
 		})();
 		return () => (stopped = true);
 	});
@@ -251,7 +269,10 @@
 						</span>
 					{/if}
 				</p>
-				{#if place.kind === 'missing' && photos.length > 0}
+				{#if searchable}
+					<LibraryFilter bind:filter {badges} first={days[days.length - 1] ?? today} last={days[0] ?? today} />
+				{/if}
+				{#if place.kind === 'missing' && list.length > 0}
 					<div class="out">
 						<PrimaryButton onclick={() => (takingOut = true)}>{text.takeOutAll}</PrimaryButton>
 						<span>{text.takeOutNote}</span>
@@ -285,7 +306,7 @@
 	{/if}
 	{#if takingOut}
 		<TakeOut
-			count={photos.length}
+			count={list.length}
 			onclose={(taken) => {
 				takingOut = false;
 				if (taken) reload++;
