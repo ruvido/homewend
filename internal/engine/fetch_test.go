@@ -175,11 +175,15 @@ func TestPhotosArePlacedAsTheirPartsArrive(t *testing.T) {
 	manifest := archive(t, map[string]string{"Takeout/archive_browser.html": `
 		<div class="extracted-folder-name">Photos from 2024</div>
 		<div class="extracted-file-name">a.jpg</div>
-		<div class="extracted-file-name">b.jpg</div>`})
+		<div class="extracted-file-name">b.jpg</div>
+		<div class="extracted-file-name">IMG-20150407-WA0006.jpg</div>`})
 	first := archive(t, map[string]string{
 		"Takeout/Google Photos/Photos from 2024/a.jpg":                            "photo a",
 		"Takeout/Google Photos/Photos from 2024/a.jpg.supplemental-metadata.json": taken,
 		"Takeout/Google Photos/Photos from 2024/b.jpg":                            "photo b",
+		// Its sidecar is here, and its date is the name's.
+		"Takeout/Google Photos/Photos from 2024/IMG-20150407-WA0006.jpg":                            "late",
+		"Takeout/Google Photos/Photos from 2024/IMG-20150407-WA0006.jpg.supplemental-metadata.json": taken,
 	})
 	second := archive(t, map[string]string{
 		"Takeout/Google Photos/Photos from 2024/b.jpg.supplemental-metadata.json": taken,
@@ -199,6 +203,7 @@ func TestPhotosArePlacedAsTheirPartsArrive(t *testing.T) {
 		Location: time.UTC,
 	}
 	waiting := filepath.Join(f.Library, "unassigned", "Photos from 2024", "b.jpg")
+	late := filepath.Join(f.Library, "messaging", "2015", "04", "IMG-20150407-WA0006.jpg")
 	var story []string
 	result, err := f.Run(context.Background(), served, func(e progress.Event) {
 		switch e.Stage {
@@ -213,6 +218,9 @@ func TestPhotosArePlacedAsTheirPartsArrive(t *testing.T) {
 			if _, err := os.Stat(waiting); e.Name == "part-002.zip" && err != nil {
 				t.Errorf("the waiting photo is not shown: %v", err)
 			}
+			if _, err := os.Stat(late); e.Name == "part-002.zip" && err != nil {
+				t.Errorf("a photo with its sidecar waits: %v", err)
+			}
 		}
 	})
 	if err != nil {
@@ -221,9 +229,9 @@ func TestPhotosArePlacedAsTheirPartsArrive(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(f.Library, "unassigned")); !os.IsNotExist(err) {
 		t.Error("the unassigned folder is still there at the end")
 	}
-	// The year is full when both photos have arrived, the one still waiting
+	// The year is full when every photo has arrived, the one still waiting
 	// for its date included: where it is filed is another matter.
-	want := "download manifest.zip, 2024 0/2, unassigned 0, download part-001.zip, 2024 1/2, 2024 2/2, unassigned 1, download part-002.zip, unassigned 0, unassigned 0"
+	want := "download manifest.zip, 2024 0/3, unassigned 0, download part-001.zip, 2024 1/3, 2024 2/3, 2024 3/3, unassigned 1, download part-002.zip, unassigned 0, unassigned 0"
 	if got := strings.Join(story, ", "); got != want {
 		t.Errorf("it went\n  %s\nwant\n  %s", got, want)
 	}
@@ -233,7 +241,10 @@ func TestPhotosArePlacedAsTheirPartsArrive(t *testing.T) {
 			t.Errorf("%s is not filed under July 2024: %v", name, err)
 		}
 	}
-	if result.Organized.Placed != 2 || !result.Verification.Complete() {
+	if _, err := os.Stat(filepath.Join(f.Library, library.WorkDir, "metadata", "messaging", "2015", "04", "IMG-20150407-WA0006.jpg.json")); err != nil {
+		t.Errorf("the sidecar of a photo dated by its name is not kept: %v", err)
+	}
+	if result.Organized.Placed != 3 || !result.Verification.Complete() {
 		t.Errorf("placed %d, verification %+v", result.Organized.Placed, result.Verification)
 	}
 }

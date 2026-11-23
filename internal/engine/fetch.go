@@ -53,8 +53,8 @@ type Result struct {
 // arrived, whatever order Google's parts come in.
 //
 // Parts are taken one at a time: downloaded, unpacked, recorded, and only
-// then deleted. After each one, the photos that came with Google's own date
-// for them are placed in the library: it fills up while the download goes
+// then deleted. After each one, the photos that came with their own
+// sidecar are placed in the library: it fills up while the download goes
 // on, and whoever watches sees photos, not a promise of them. Nothing proves
 // that a photo's sidecar travels in the same part as the photo, so one that
 // has not got its sidecar yet waits for it, in the library's unassigned
@@ -165,7 +165,7 @@ func (f Fetch) Run(ctx context.Context, g download.Getter, emit progress.Func) (
 		if !all {
 			ready := items[:0:0]
 			for _, item := range items {
-				if item.Capture.Source == library.FromSidecar && !item.Shared {
+				if item.Sidecar != "" && !item.Shared {
 					ready = append(ready, item)
 				} else {
 					waiting = append(waiting, item)

@@ -185,3 +185,41 @@ func TestANameStandsAgainstGooglesYear(t *testing.T) {
 		}
 	}
 }
+
+func TestAWhatsAppFileUploadedLateTakesItsNamesDay(t *testing.T) {
+	dir := t.TempDir()
+	at := func(y int, m time.Month, d, h, min int) int64 {
+		return time.Date(y, m, d, h, min, 0, 0, time.Local).Unix()
+	}
+	for _, c := range []struct {
+		name   string
+		google int64
+		want   string
+	}{
+		{"IMG-20150407-WA0006.jpg", at(2016, 9, 19, 16, 47), "2015-04-07 nameday guessed"},
+		{"WhatsApp Image 2016-04-07 at 15.21.50.jpeg", at(2016, 9, 19, 16, 47), "2016-04-07 name guessed"},
+		// Two days after, then the day after in all but two minutes.
+		{"IMG-20170505-WA0001.jpg", at(2017, 5, 7, 0, 1), "2017-05-05 nameday guessed"},
+		{"IMG-20170505-WA0000.jpg", at(2017, 5, 6, 23, 59), "2017-05-06 sidecar received"},
+		{"IMG-20191231-WA0002.jpg", at(2020, 1, 1, 0, 2), "2020-01-01 sidecar received"},
+		// Google's is earlier: a person's, or the camera's.
+		{"VID-20161225-WA0005.mp4", at(2015, 12, 19, 0, 51), "2015-12-19 sidecar received"},
+		// Not WhatsApp's.
+		{"signal-2021-07-17-181447.jpg", at(2021, 7, 20, 12, 11), "2021-07-20 sidecar received"},
+		{"Screenshot_20191112-112004.png", at(2020, 1, 14, 11, 51), "2020-01-14 sidecar received"},
+	} {
+		path := "Photos from 2016/" + c.name
+		write(t, dir, path, []byte("no date inside"))
+		sidecar(t, dir, path, c.google)
+		got := DateOf(filepath.Join(dir, path), "Photos from 2016", filepath.Join(dir, path+".supplemental-metadata.json"))
+		if s := got.Local(time.Local).Format("2006-01-02 ") + string(got.Source) + " " + string(got.Kind()); s != c.want {
+			t.Errorf("%s: %s, want %s", c.name, s, c.want)
+		}
+	}
+	// By its name, not by the app Google says: no name, no day to take.
+	write(t, dir, "20150407_101010.jpg", []byte("sent through a chat"))
+	write(t, dir, "20150407_101010.jpg.json", []byte(`{"photoTakenTime":{"timestamp":"1474296453"},"appSource":{"androidPackageName":"com.whatsapp"}}`))
+	if c := DateOf(filepath.Join(dir, "20150407_101010.jpg"), "", filepath.Join(dir, "20150407_101010.jpg.json")); c.Source != FromSidecar {
+		t.Errorf("a camera's name: %s, want the sidecar's", c.Source)
+	}
+}

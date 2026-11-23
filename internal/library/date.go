@@ -90,8 +90,12 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 		// One that cannot be read says nothing; the file still may.
 		note, _ = readSidecar(sidecar)
 	}
-	origin := OriginOf(note.AppSource.AndroidPackageName, filepath.Base(mediaPath))
+	name := filepath.Base(mediaPath)
+	origin := OriginOf(note.AppSource.AndroidPackageName, name)
 	if taken, ok := note.taken(); ok {
+		if when, source, ok := uploadedLate(name, asClock(taken.In(time.Local))); ok {
+			return Capture{When: when, Source: source, Origin: origin}
+		}
 		return Capture{When: taken, Source: FromSidecar, Origin: origin}
 	}
 	if when, source, ok := cameraDate(mediaPath); ok {
@@ -106,8 +110,21 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 			capture.When, capture.Source = time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC), FromFolder
 		}
 	}
-	capture, _ = dateNamed(capture, filepath.Base(mediaPath))
+	capture, _ = dateNamed(capture, name)
 	return capture
+}
+
+// uploadedLate is the date in a WhatsApp file's name, when Google's is more
+// than a day after it. WhatsApp leaves no date inside, so Google has the day
+// of the upload: in a real export 3,765 of 10,498, most of them months late.
+// The name is the day the file came through the chat, and no picture is
+// taken after it was sent: a date a person corrected is an earlier one, which
+// stands. Signal's names say the same, but 2 late files are too few to rule on.
+func uploadedLate(name string, google time.Time) (time.Time, DateSource, bool) {
+	when, source, ok := nameDate(name)
+	day := func(t time.Time) time.Time { return t.Truncate(24 * time.Hour) }
+	late := ok && OriginOf("", name) == OriginWhatsApp && day(google).Sub(day(when)) > 24*time.Hour
+	return when, source, late
 }
 
 // dateNamed is c with the date name says, when c has none or only Google's
