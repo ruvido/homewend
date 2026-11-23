@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/session"
@@ -108,10 +109,23 @@ func settle(root string) error {
 	return dateByName(root)
 }
 
+// datedByName are the libraries whose photos with no date were given the
+// one their name says, in this run. Once is enough: every way in reads the
+// name since (library.DateByName).
+var (
+	datedByNameMu sync.Mutex
+	datedByName   = map[string]bool{}
+)
+
 // dateByName files the library's photos with no date under the date their
-// name says (library.DateByName). An import or a download holding the
-// library leaves it for the next look.
+// name says, once a run. An import or a download holding the library
+// leaves it for the next look.
 func dateByName(root string) error {
+	datedByNameMu.Lock()
+	defer datedByNameMu.Unlock()
+	if datedByName[root] {
+		return nil
+	}
 	if _, err := os.Stat(catalogPath(root)); err != nil {
 		return nil
 	}
@@ -128,8 +142,11 @@ func dateByName(root string) error {
 		return err
 	}
 	defer catalog.Close()
-	_, err = library.DateByName(root, catalog)
-	return err
+	if err := library.DateByName(root, catalog); err != nil {
+		return err
+	}
+	datedByName[root] = true
+	return nil
 }
 
 func relayout(root string) error {

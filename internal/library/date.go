@@ -91,10 +91,7 @@ func DateOf(mediaPath string, folder string) Capture {
 	if ok {
 		return Capture{When: when, Source: FromSidecar, Origin: origin}
 	}
-	if when, source, ok := cameraDate(mediaPath); ok {
-		return Capture{When: when, Source: source, Origin: origin}
-	}
-	if when, source, ok := nameDate(filepath.Base(mediaPath)); ok {
+	if when, source, ok := fileDate(mediaPath, filepath.Base(mediaPath)); ok {
 		return Capture{When: when, Source: source, Origin: origin}
 	}
 	// "Photos from 2019" is not a date, but it is Google's own filing and it is
@@ -468,53 +465,57 @@ func Orientation(path string) int {
 	return o
 }
 
-// The names that carry a date, as the app that wrote the file makes them,
-// day first and then the time when there is one. Each was seen in a real
-// library with no date inside the file: a phone's camera
-// (20260826_152150.jpg, IMG_20261121_121457_504.jpg), and the chats whose
-// names origin.go already knows.
-var nameDates = []*regexp.Regexp{
-	// A phone's camera and screenshots: 20260826_152150, IMG_20261121_121457,
-	// PXL_20260826_152150123, Screenshot_20260826-152150.
-	regexp.MustCompile(`^(?:[A-Za-z]+[_-])?(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`),
-	// WhatsApp: IMG-20260826-WA0001, the day it arrived and no time.
-	regexp.MustCompile(`(?i)^(?:IMG|VID)-(\d{4})(\d{2})(\d{2})-WA\d+`),
-	// Signal: signal-2026-08-26-152150.
-	regexp.MustCompile(`(?i)^signal-(\d{4})-(\d{2})-(\d{2})(?:-(\d{2})(\d{2})(\d{2}))?`),
-	// Telegram Desktop: photo_2026-08-26_15-21-50.
-	regexp.MustCompile(`(?i)^(?:photo|video)_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})`),
+// millisName is a name that is only the milliseconds since 1970, maybe after
+// the app's word, as apps that save an image name it: 1785963041597.png,
+// FB_IMG_1785963041597.jpg.
+var millisName = regexp.MustCompile(`^(?:[A-Za-z]+_)*(1\d{12})$`)
+
+// fileDate is what a file says of its own date: its camera's, else the one
+// in its name. An import, a phone's backup and its plan all read it so.
+func fileDate(path, name string) (time.Time, DateSource, bool) {
+	if when, source, ok := cameraDate(path); ok {
+		return when, source, true
+	}
+	return nameDate(name)
 }
 
-// millisName is a name that is only the milliseconds since 1970, as apps
-// that save an image name it (1785963041597.png).
-var millisName = regexp.MustCompile(`^1\d{12}$`)
-
-// nameDate is the date a file's name says, read as a clock like a camera's:
-// a guess, since nothing inside the file confirms it. A name whose numbers
-// are not a real day, or a day after tomorrow, says nothing.
+// nameDate is the date a file's name says (names, millisName), read as a
+// clock like a camera's: a guess, since nothing inside the file confirms
+// it. A name whose numbers are not a real day, or a day after tomorrow,
+// says nothing.
 func nameDate(name string) (time.Time, DateSource, bool) {
 	stem := strings.TrimSuffix(name, filepath.Ext(name))
-	if millisName.MatchString(stem) {
-		ms, _ := strconv.ParseInt(stem, 10, 64)
+	if m := millisName.FindStringSubmatch(stem); m != nil {
+		ms, _ := strconv.ParseInt(m[1], 10, 64)
 		when := asClock(time.UnixMilli(ms).In(time.Local))
 		return when, FromName, plausible(when)
 	}
-	for _, re := range nameDates {
+	for _, n := range names {
+		re := n.pattern
+		if re.SubexpIndex("y") < 0 {
+			continue
+		}
 		m := re.FindStringSubmatch(stem)
 		if m == nil {
 			continue
 		}
-		n := make([]int, 6)
-		for i, s := range m[1:] {
-			n[i], _ = strconv.Atoi(s)
+		field := func(group string) int {
+			v, _ := strconv.Atoi(m[re.SubexpIndex(group)])
+			return v
 		}
-		when := time.Date(n[0], time.Month(n[1]), n[2], n[3], n[4], n[5], 0, time.UTC)
-		real := when.Year() == n[0] && int(when.Month()) == n[1] && when.Day() == n[2] &&
-			when.Hour() == n[3] && when.Minute() == n[4] && when.Second() == n[5]
+		y, mo, d := field("y"), field("m"), field("d")
+		h, mi, s := 0, 0, 0
+		timed := re.SubexpIndex("H") >= 0 && m[re.SubexpIndex("H")] != ""
+		if timed {
+			h, mi, s = field("H"), field("M"), field("S")
+		}
+		when := time.Date(y, time.Month(mo), d, h, mi, s, 0, time.UTC)
+		real := when.Year() == y && int(when.Month()) == mo && when.Day() == d &&
+			when.Hour() == h && when.Minute() == mi && when.Second() == s
 		if !real || !plausible(when) {
 			return time.Time{}, NoDate, false
 		}
-		if len(m) < 5 || m[4] == "" {
+		if !timed {
 			return when, FromNameDay, true
 		}
 		return when, FromName, true

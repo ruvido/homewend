@@ -238,7 +238,7 @@ func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (
 		if err != nil {
 			return 0, err
 		}
-		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p.Path))); err != nil {
+		if !onDisk(root, p) {
 			continue
 		}
 		records = append(records, p)
@@ -251,39 +251,44 @@ func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (
 		if !p.Taken.IsZero() {
 			at = when.Add(p.Taken.Sub(earliest))
 		}
-		opt := Options{Profile: profileOf(p.Path), SeparateMessaging: true}
-		if err := redateInLibrary(root, catalog, p.Hash, Capture{When: at, Source: FromGiven}, opt); err != nil {
+		if err := redateFiled(root, catalog, p, Capture{When: at, Source: FromGiven}); err != nil {
 			return i, err
 		}
 	}
 	return len(records), nil
 }
 
-// DateByName gives each photo of the library with no date the one its
-// name says, as an import now does (nameDate), and files it under that
-// date: the photos that came in before names were read. A photo whose file
-// is gone stays as it is. It says how many moved.
-func DateByName(root string, catalog *Catalog) (int, error) {
-	undated, err := catalog.Page(Filter{NoDate: true})
+// DateByName files under the date its name says each photo of the library
+// whose date is not known, or only its year from Google's folder: the
+// photos that came in before names were read (fileDate). One that cannot
+// move stays as it was; the rest still move.
+func DateByName(root string, catalog *Catalog) error {
+	all, err := catalog.Page(Filter{})
 	if err != nil {
-		return 0, err
+		return err
 	}
-	moved := 0
-	for _, p := range undated {
+	for _, p := range all {
+		if p.Source != NoDate && p.Source != FromFolder {
+			continue
+		}
 		when, source, ok := nameDate(p.Name)
-		if !ok {
+		if !ok || !onDisk(root, p) {
 			continue
 		}
-		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p.Path))); err != nil {
-			continue
-		}
-		opt := Options{Profile: profileOf(p.Path), SeparateMessaging: true}
-		if err := redateInLibrary(root, catalog, p.Hash, Capture{When: when, Source: source}, opt); err != nil {
-			return moved, err
-		}
-		moved++
+		redateFiled(root, catalog, p, Capture{When: when, Source: source})
 	}
-	return moved, nil
+	return nil
+}
+
+// onDisk is whether p's file is in the library: one gone is left as it is.
+func onDisk(root string, p Photo) bool {
+	_, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p.Path)))
+	return err == nil
+}
+
+// redateFiled gives p the date of capture in the profile it is filed in.
+func redateFiled(root string, catalog *Catalog, p Photo, capture Capture) error {
+	return redateInLibrary(root, catalog, p.Hash, capture, Options{Profile: profileOf(p.Path), SeparateMessaging: true})
 }
 
 // profileOf is the profile a path of the library is filed in: its first

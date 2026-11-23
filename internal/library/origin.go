@@ -59,20 +59,26 @@ var packageOrigins = map[string]Origin{
 	"net.sourceforge.opencamera":      OriginCamera,
 }
 
-// The fallback, for iOS exports and for the years before Google recorded the
-// app. Each pattern is a naming convention the app itself imposes, not a guess:
-// WhatsApp really does name every image IMG-<date>-WA<counter>.
-var filenameOrigins = []struct {
+// The names apps give their files, the fallback for iOS exports and for the
+// years before Google recorded the app: where each came from and, in many,
+// the date. Each is a naming convention the app itself imposes, not a
+// guess: WhatsApp really does name every image IMG-<date>-WA<counter>. The
+// date's groups are named y, m, d and, where the name has the time, H, M, S
+// (nameDate); a name with no origin here says only its date.
+var names = []struct {
 	pattern *regexp.Regexp
 	origin  Origin
 }{
-	{regexp.MustCompile(`(?i)^(IMG|VID|AUD|PTT|STK|DOC)-\d{8}-WA\d+`), OriginWhatsApp},
-	{regexp.MustCompile(`(?i)^signal-\d{4}-\d{2}-\d{2}`), OriginSignal},
-	{regexp.MustCompile(`(?i)^(photo|video)_\d{4}-\d{2}-\d{2}_`), OriginTelegram},
-	{regexp.MustCompile(`(?i)^(photo|video)_\d+@\d{2}-\d{2}-\d{4}`), OriginTelegram},
+	{regexp.MustCompile(`(?i)^(IMG|VID|AUD|PTT|STK|DOC)-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-WA\d+`), OriginWhatsApp},
+	{regexp.MustCompile(`(?i)^signal-(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})(?:-(?P<H>\d{2})-?(?P<M>\d{2})-?(?P<S>\d{2}))?`), OriginSignal},
+	{regexp.MustCompile(`(?i)^(photo|video)_(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})_(?:(?P<H>\d{2})-(?P<M>\d{2})-(?P<S>\d{2}))?`), OriginTelegram},
+	{regexp.MustCompile(`(?i)^(photo|video)_\d+@(?P<d>\d{2})-(?P<m>\d{2})-(?P<y>\d{4})`), OriginTelegram},
 	{regexp.MustCompile(`(?i)^(screenshot|screen_shot|schermata|captura|bildschirmfoto)[_\- ]`), OriginScreenshot},
 	{regexp.MustCompile(`(?i)^(IMG|DSC|DSCF|DSCN|PXL|MVIMG|P|GOPR|DJI)[_\-]?\d{3,}`), OriginCamera},
 	{regexp.MustCompile(`(?i)^\d{5}(IMG|PORTRAIT)_\d{5}_BURST`), OriginCamera}, // Pixel bursts
+	// A phone's camera and screenshots, seen with no date inside the file:
+	// 20260826_152150, IMG_20261121_121457_504, Screenshot_20260826-152150.
+	{regexp.MustCompile(`^(?:[A-Za-z]+[_-])?(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})[_-](?P<H>\d{2})(?P<M>\d{2})(?P<S>\d{2})`), ""},
 }
 
 // OriginOf works out where a file came from, preferring what Google recorded
@@ -82,8 +88,8 @@ func OriginOf(packageName, filename string) Origin {
 		return origin
 	}
 	base := strings.TrimSpace(filename)
-	for _, candidate := range filenameOrigins {
-		if candidate.pattern.MatchString(base) {
+	for _, candidate := range names {
+		if candidate.origin != "" && candidate.pattern.MatchString(base) {
 			return candidate.origin
 		}
 	}

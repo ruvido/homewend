@@ -6,6 +6,7 @@ package library
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -59,10 +60,10 @@ type ImportMonth struct {
 	Videos int `json:"videos"`
 }
 
-// ImportFile is a photo or a video of the folder, as its camera dated it.
+// ImportFile is a photo or a video of the folder, as its camera, or else its name, dated it.
 type ImportFile struct {
 	Path  string    `json:"path"`            // below the folder, with /
-	Taken time.Time `json:"taken,omitzero"`  // the camera's clock; none, no date
+	Taken time.Time `json:"taken,omitzero"`  // the camera's clock, or the name's; none, no date
 	Video bool      `json:"video,omitempty"` // else a photo
 	Group string    `json:"group"`           // its group's folder
 	// Small is an image of a few hundred pixels at most: an icon, a logo.
@@ -147,8 +148,8 @@ type readHash struct {
 // camera wrote, when it wrote one.
 type fileFacts struct {
 	hash  string
-	taken time.Time
-	dated bool
+	taken time.Time // as the copy will file it: the camera's date, else the name's
+	dated bool      // the camera wrote a date: a sign of photographs (classify)
 }
 
 // facts are path's, read only when not known.
@@ -165,7 +166,9 @@ func (h Hashes) facts(path string) (fileFacts, error) {
 		return fileFacts{}, err
 	}
 	facts := fileFacts{hash: hash}
-	facts.taken, _, facts.dated = cameraDate(path)
+	if when, source, ok := fileDate(path, filepath.Base(path)); ok {
+		facts.taken, facts.dated = when, source != FromName && source != FromNameDay
+	}
 	if h != nil {
 		h[path] = readHash{size: info.Size(), mod: info.ModTime(), fileFacts: facts}
 	}
@@ -303,7 +306,7 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 			}
 			continue
 		}
-		hash, camera, hasDate := facts.hash, facts.taken, facts.dated
+		hash, camera, hasDate := facts.hash, facts.taken, !facts.taken.IsZero()
 		group := byPath[item.Path]
 		file := ImportFile{Path: relativeTo(dir, item.Path), Video: IsVideo(item.Path), Group: group.Folder}
 		if hasDate {

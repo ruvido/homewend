@@ -24,7 +24,7 @@ type GridPhoto struct {
 	Hash  string    `json:"hash"`
 	Name  string    `json:"name"`
 	Taken time.Time `json:"taken,omitzero"`
-	// Guessed: how much of Taken is a guess's ("year", "day", "time");
+	// Guessed: how much of Taken is guessed ("year", "day", "time");
 	// empty when the date is known.
 	Guessed string `json:"guessed,omitempty"`
 	Video   bool   `json:"video,omitempty"`

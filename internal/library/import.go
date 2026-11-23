@@ -332,9 +332,7 @@ func bringIn(src string, i int, root string, catalog *Catalog, opt Options, link
 		}
 	}
 	if capture.Source == NoDate {
-		if when, source, ok := cameraDate(arrived); ok {
-			capture.When, capture.Source = when, source
-		} else if when, source, ok := nameDate(filepath.Base(src)); ok {
+		if when, source, ok := fileDate(arrived, filepath.Base(src)); ok {
 			capture.When, capture.Source = when, source
 		}
 	}
