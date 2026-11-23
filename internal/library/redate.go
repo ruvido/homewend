@@ -260,7 +260,7 @@ func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (
 
 // DateByName files under the date its name says each photo of the library
 // whose date is not known, or only its year from Google's folder: the
-// photos that came in before names were read (fileDate). One that cannot
+// photos that came in before names were read (nameDate, as fileDate reads it). One that cannot
 // move stays as it was; the rest still move.
 func DateByName(root string, catalog *Catalog) error {
 	all, err := catalog.Page(Filter{})

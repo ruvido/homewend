@@ -33,8 +33,8 @@ type ImportPlan struct {
 
 	// Years, newest first; "" is the photos with no date.
 	Years []ImportYear `json:"years"`
-	// Every photo and video read, by the date its camera wrote: where a
-	// person finds the ones a reset clock dated wrong.
+	// Every photo and video read, by the date its camera wrote or its name
+	// says: where a person finds the ones a reset clock dated wrong.
 	Files []ImportFile `json:"files"`
 	// What is not a photo or a video, by the folder it sits in.
 	Others []ImportOther `json:"others"`
