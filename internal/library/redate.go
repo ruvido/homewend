@@ -165,13 +165,14 @@ func Below(path, root string) (string, bool) {
 }
 
 // redateInLibrary gives a date to a photo the library already holds: it
-// moves to the folder of that date, on the same disk, and the catalog and
-// a .xmp beside it say the date. The file is not written.
+// moves to the folder of that date, on the same disk, and the catalog says
+// the date; a date the person gave is said in a .xmp beside it too, a
+// guessed one is not. The file is not written.
 //
 // A photo is filed once, in the profile that brought it first; others hold
 // a second name of it. Its date is given from that profile: given from
 // another, it would take the photo away from the first (ErrOthersPhoto).
-func redateInLibrary(root string, catalog *Catalog, hash string, when time.Time, opt Options) error {
+func redateInLibrary(root string, catalog *Catalog, hash string, capture Capture, opt Options) error {
 	record, err := catalog.photo(hash)
 	if err != nil {
 		return err
@@ -180,7 +181,7 @@ func redateInLibrary(root string, catalog *Catalog, hash string, when time.Time,
 	if !filedIn(record.Path, opt.Profile) {
 		return ErrOthersPhoto
 	}
-	capture := Capture{When: when, Source: FromGiven, Origin: record.Origin}
+	capture.Origin = record.Origin
 	to, err := destination(from, root, capture, opt, catalog)
 	if err != nil {
 		return err
@@ -217,7 +218,10 @@ func redateInLibrary(root string, catalog *Catalog, hash string, when time.Time,
 	if err := catalog.setDate(hash, capture); err != nil {
 		return err
 	}
-	return writeXMP(to, when)
+	if capture.Source != FromGiven {
+		return nil
+	}
+	return writeXMP(to, capture.When)
 }
 
 // GiveDates gives photos of the library at root a date, chosen in the
@@ -248,11 +252,38 @@ func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (
 			at = when.Add(p.Taken.Sub(earliest))
 		}
 		opt := Options{Profile: profileOf(p.Path), SeparateMessaging: true}
-		if err := redateInLibrary(root, catalog, p.Hash, at, opt); err != nil {
+		if err := redateInLibrary(root, catalog, p.Hash, Capture{When: at, Source: FromGiven}, opt); err != nil {
 			return i, err
 		}
 	}
 	return len(records), nil
+}
+
+// DateByName gives each photo of the library with no date the one its
+// name says, as an import now does (nameDate), and files it under that
+// date: the photos that came in before names were read. A photo whose file
+// is gone stays as it is. It says how many moved.
+func DateByName(root string, catalog *Catalog) (int, error) {
+	undated, err := catalog.Page(Filter{NoDate: true})
+	if err != nil {
+		return 0, err
+	}
+	moved := 0
+	for _, p := range undated {
+		when, source, ok := nameDate(p.Name)
+		if !ok {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(p.Path))); err != nil {
+			continue
+		}
+		opt := Options{Profile: profileOf(p.Path), SeparateMessaging: true}
+		if err := redateInLibrary(root, catalog, p.Hash, Capture{When: when, Source: source}, opt); err != nil {
+			return moved, err
+		}
+		moved++
+	}
+	return moved, nil
 }
 
 // profileOf is the profile a path of the library is filed in: its first

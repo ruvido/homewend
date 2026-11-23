@@ -250,7 +250,7 @@ func destination(src, root string, capture Capture, opt Options, catalog *Catalo
 
 	var dir string
 	switch capture.Source {
-	case FromSidecar, FromEXIF, FromVideo, FromGiven:
+	case FromSidecar, FromEXIF, FromVideo, FromGiven, FromName, FromNameDay:
 		dir = filepath.Join(base, local.Format("2006"), local.Format("01"))
 	case FromFolder:
 		// The year is Google's and the month is not known. Saying so in the

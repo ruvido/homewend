@@ -33,7 +33,7 @@ type DateKind string
 const (
 	DateTaken    DateKind = "taken"    // a camera or a sidecar said so
 	DateReceived DateKind = "received" // it arrived through a chat; nobody knows when it was shot
-	DateGuessed  DateKind = "guessed"  // only the year, from Google's own folder
+	DateGuessed  DateKind = "guessed"  // the year of Google's own folder, or the date in the file's name
 	DateUnknown  DateKind = "unknown"
 )
 
@@ -49,7 +49,7 @@ func (c Capture) Kind() DateKind {
 		return DateTaken
 	case FromEXIF, FromGiven:
 		return DateTaken
-	case FromFolder:
+	case FromFolder, FromName, FromNameDay:
 		return DateGuessed
 	default:
 		return DateUnknown

@@ -24,7 +24,10 @@ type GridPhoto struct {
 	Hash  string    `json:"hash"`
 	Name  string    `json:"name"`
 	Taken time.Time `json:"taken,omitzero"`
-	Video bool      `json:"video,omitempty"`
+	// Guessed: how much of Taken is a guess's ("year", "day", "time");
+	// empty when the date is known.
+	Guessed string `json:"guessed,omitempty"`
+	Video   bool   `json:"video,omitempty"`
 	// Missing: its file is gone from the library, deleted or moved by hand.
 	Missing bool `json:"missing,omitempty"`
 	// Turn: quarter turns anticlockwise the person gave it.
@@ -141,7 +144,7 @@ func Photos(s Settings, year, album string, noDate bool, view string, offset, li
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived}
+		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived}
 	}
 	return out, nil
 }

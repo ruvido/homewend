@@ -8,7 +8,7 @@
 	import { swap } from '#lib/motion.js';
 	import { getAbout, pathOf, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
-	import { takenAt } from '#lib/format.js';
+	import { takenAt, takenDay } from '#lib/format.js';
 	import { app } from '#lib/app.svelte.js';
 
 	let {
@@ -136,8 +136,15 @@
 		drag = null;
 	}
 	const video = $derived(['mp4', 'webm', 'm4v'].includes(ext));
-	// "Taken 14 July 2019, 18:32", as the design writes it.
-	const taken = (iso: string) => text.taken(takenAt(new Date(iso)));
+	// "Taken 14 July 2019, 18:32", as the design writes it; a date guessed
+	// says only what was guessed, and that it was: "26 August 2026 · guessed".
+	function taken(iso: string, guessed?: GridPhoto['guessed']) {
+		const d = new Date(iso);
+		if (guessed === 'year') return text.guessed(String(d.getUTCFullYear()));
+		if (guessed === 'day') return text.guessed(takenDay(d));
+		if (guessed === 'time') return text.guessed(takenAt(d));
+		return text.taken(takenAt(d));
+	}
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.
 	let about = $state('');
@@ -189,7 +196,7 @@
 	<div class="viewer" in:swap out:swap={{ leaving: true }}>
 		<header>
 			<div class="meta">
-				<b>{p.taken ? taken(p.taken) : text.noDate}</b>
+				<b>{p.taken ? taken(p.taken, p.guessed) : text.noDate}</b>
 				<span>{p.name}{about}</span>
 			</div>
 			{#if p.missing}

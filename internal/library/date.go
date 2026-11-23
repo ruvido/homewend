@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -28,8 +29,24 @@ const (
 	FromVideo   DateSource = "video"   // a video's header, read as the camera's clock
 	FromGiven   DateSource = "given"   // the person's answer, given before an import: a clock, like the camera's
 	FromFolder  DateSource = "folder"  // the year Takeout filed it under
+	FromName    DateSource = "name"    // the day and time in the file's name: a guess, the file says nothing
+	FromNameDay DateSource = "nameday" // only the day in the file's name, as WhatsApp writes it
 	NoDate      DateSource = "none"    // and we do not invent one
 )
+
+// Guessed is how much of a date this source guesses: "year" (Google's
+// folder), "day" or "time" (a file's name); "" when it is not a guess.
+func (s DateSource) Guessed() string {
+	switch s {
+	case FromFolder:
+		return "year"
+	case FromNameDay:
+		return "day"
+	case FromName:
+		return "time"
+	}
+	return ""
+}
 
 // Capture is when a photo was taken, how we know, and what made it.
 type Capture struct {
@@ -75,6 +92,9 @@ func DateOf(mediaPath string, folder string) Capture {
 		return Capture{When: when, Source: FromSidecar, Origin: origin}
 	}
 	if when, source, ok := cameraDate(mediaPath); ok {
+		return Capture{When: when, Source: source, Origin: origin}
+	}
+	if when, source, ok := nameDate(filepath.Base(mediaPath)); ok {
 		return Capture{When: when, Source: source, Origin: origin}
 	}
 	// "Photos from 2019" is not a date, but it is Google's own filing and it is
@@ -446,4 +466,64 @@ func Orientation(path string) int {
 		return 1
 	}
 	return o
+}
+
+// The names that carry a date, as the app that wrote the file makes them,
+// day first and then the time when there is one. Each was seen in a real
+// library with no date inside the file: a phone's camera
+// (20260826_152150.jpg, IMG_20261121_121457_504.jpg), and the chats whose
+// names origin.go already knows.
+var nameDates = []*regexp.Regexp{
+	// A phone's camera and screenshots: 20260826_152150, IMG_20261121_121457,
+	// PXL_20260826_152150123, Screenshot_20260826-152150.
+	regexp.MustCompile(`^(?:[A-Za-z]+[_-])?(\d{4})(\d{2})(\d{2})[_-](\d{2})(\d{2})(\d{2})`),
+	// WhatsApp: IMG-20260826-WA0001, the day it arrived and no time.
+	regexp.MustCompile(`(?i)^(?:IMG|VID)-(\d{4})(\d{2})(\d{2})-WA\d+`),
+	// Signal: signal-2026-08-26-152150.
+	regexp.MustCompile(`(?i)^signal-(\d{4})-(\d{2})-(\d{2})(?:-(\d{2})(\d{2})(\d{2}))?`),
+	// Telegram Desktop: photo_2026-08-26_15-21-50.
+	regexp.MustCompile(`(?i)^(?:photo|video)_(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})`),
+}
+
+// millisName is a name that is only the milliseconds since 1970, as apps
+// that save an image name it (1785963041597.png).
+var millisName = regexp.MustCompile(`^1\d{12}$`)
+
+// nameDate is the date a file's name says, read as a clock like a camera's:
+// a guess, since nothing inside the file confirms it. A name whose numbers
+// are not a real day, or a day after tomorrow, says nothing.
+func nameDate(name string) (time.Time, DateSource, bool) {
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	if millisName.MatchString(stem) {
+		ms, _ := strconv.ParseInt(stem, 10, 64)
+		when := asClock(time.UnixMilli(ms).In(time.Local))
+		return when, FromName, plausible(when)
+	}
+	for _, re := range nameDates {
+		m := re.FindStringSubmatch(stem)
+		if m == nil {
+			continue
+		}
+		n := make([]int, 6)
+		for i, s := range m[1:] {
+			n[i], _ = strconv.Atoi(s)
+		}
+		when := time.Date(n[0], time.Month(n[1]), n[2], n[3], n[4], n[5], 0, time.UTC)
+		real := when.Year() == n[0] && int(when.Month()) == n[1] && when.Day() == n[2] &&
+			when.Hour() == n[3] && when.Minute() == n[4] && when.Second() == n[5]
+		if !real || !plausible(when) {
+			return time.Time{}, NoDate, false
+		}
+		if len(m) < 5 || m[4] == "" {
+			return when, FromNameDay, true
+		}
+		return when, FromName, true
+	}
+	return time.Time{}, NoDate, false
+}
+
+// plausible is a day a digital photo can have been named on: not before
+// digital cameras wrote dates in names, not after tomorrow.
+func plausible(t time.Time) bool {
+	return t.Year() >= 1990 && t.Before(time.Now().AddDate(0, 0, 2))
 }

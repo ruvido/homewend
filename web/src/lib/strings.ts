@@ -408,6 +408,7 @@ export const text = {
 	copyFolderPath: 'Copy folder path',
 	pickUpAfterSleep: 'Picks up by itself after sleep',
 	taken: (d: string) => `Taken ${d}`,
+	guessed: (d: string) => `${d} · guessed`,
 	noDateSub: (n: string) => `${n} photos and videos with no date: neither Google nor the photo says when it was taken`,
 	rotateLeft: 'Rotate',
 	archive: 'Archive',

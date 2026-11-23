@@ -77,6 +77,8 @@ export interface GridPhoto {
 	hash: string;
 	name: string;
 	taken?: string;
+	/** How much of taken is a guess: Google's folder gave the year, the file's name the day or the time. */
+	guessed?: 'year' | 'day' | 'time';
 	video?: boolean;
 	/** Its file is gone from the library, deleted or moved by hand. */
 	missing?: boolean;

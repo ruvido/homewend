@@ -37,7 +37,7 @@ type Imported struct {
 // redate gives a photo of the library its date, and counts it given or
 // left to the profile it is filed in.
 func (done *Imported) redate(root string, catalog *Catalog, hash string, when time.Time, opt Options) error {
-	switch err := redateInLibrary(root, catalog, hash, when, opt); {
+	switch err := redateInLibrary(root, catalog, hash, Capture{When: when, Source: FromGiven}, opt); {
 	case errors.Is(err, ErrOthersPhoto):
 		done.NotRedated++
 	case err != nil:
@@ -333,6 +333,8 @@ func bringIn(src string, i int, root string, catalog *Catalog, opt Options, link
 	}
 	if capture.Source == NoDate {
 		if when, source, ok := cameraDate(arrived); ok {
+			capture.When, capture.Source = when, source
+		} else if when, source, ok := nameDate(filepath.Base(src)); ok {
 			capture.When, capture.Source = when, source
 		}
 	}

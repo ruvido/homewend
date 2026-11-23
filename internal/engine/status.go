@@ -95,11 +95,44 @@ func Now(sess *session.Session) (State, error) {
 
 // settle moves a library filed before profiles into them, once: the photos
 // of each source to its account's profile, those of no source to the first
-// account's.
+// account's. Then it gives a photo with no date the one its name says.
 func settle(root string) error {
-	if root == "" || !library.Filed(root) {
+	if root == "" {
 		return nil
 	}
+	if library.Filed(root) {
+		if err := relayout(root); err != nil {
+			return err
+		}
+	}
+	return dateByName(root)
+}
+
+// dateByName files the library's photos with no date under the date their
+// name says (library.DateByName). An import or a download holding the
+// library leaves it for the next look.
+func dateByName(root string) error {
+	if _, err := os.Stat(catalogPath(root)); err != nil {
+		return nil
+	}
+	unlock, err := lockLibrary(root)
+	if errors.Is(err, ErrLibraryBusy) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	catalog, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		return err
+	}
+	defer catalog.Close()
+	_, err = library.DateByName(root, catalog)
+	return err
+}
+
+func relayout(root string) error {
 	accounts, err := Accounts()
 	if err != nil {
 		return err
