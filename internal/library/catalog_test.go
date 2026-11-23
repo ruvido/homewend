@@ -470,6 +470,7 @@ func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
 			if _, err := c.Mark(Archived, []string{hash}, "", true); err != nil {
 				return err
 			}
+			time.Sleep(2 * time.Millisecond) // as between an import's files
 		}
 		return nil
 	}
