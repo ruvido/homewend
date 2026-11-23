@@ -89,9 +89,16 @@
 	}
 	const picked = $derived(photos.filter((p) => selected.has(p.hash)));
 	async function turnPicked() {
+		// Shown a few times a second: each showing lays the whole grid out.
 		const turns = new Map<string, number>();
+		let shownAt = 0;
 		try {
-			for (const p of picked) turns.set(p.hash, (await turnLeft(p.hash)).turn);
+			for (const p of picked) {
+				turns.set(p.hash, (await turnLeft(p.hash)).turn);
+				if (performance.now() - shownAt < 200) continue;
+				turned(turns);
+				shownAt = performance.now();
+			}
 		} finally {
 			turned(turns);
 		}
@@ -233,7 +240,8 @@
 			try {
 				const began = performance.now();
 				let got: GridPhoto[] | undefined;
-				if (!again) {
+				// The Archive and the Trash are few: whole at once.
+				if (!again && !isView(p.kind)) {
 					const start = await getPhotos({ ...q, limit: FIRST });
 					if (stopped) return;
 					list = start;
@@ -249,7 +257,10 @@
 				if (viewing && !reopen) reopen = viewing;
 			} catch {
 				// No answer: nothing shown is better than another list.
-				if (!stopped) ((list = []), (reading = stale = false));
+				if (stopped) return;
+				list = [];
+				reading = false;
+				if (stale) ((stale = false), moved());
 				return;
 			}
 			loaded = true;
@@ -289,7 +300,7 @@
 		</div>
 	{/if}
 	<div class="fill">
-	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)} {selected} onselect={select} view={filter}>
+	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)} {selected} onselect={select} view={filter} settled={loaded}>
 		{#snippet header()}
 			<div class="head">
 				<h1>{title}</h1>

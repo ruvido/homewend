@@ -88,7 +88,7 @@ func TestAPhotoNotOnTheDiskIsTakenOutOrKeptOut(t *testing.T) {
 	photo := filepath.Join(root, "ron", "2018", "01", "DSCF0002.JPG")
 	missing := func(want int) []string {
 		t.Helper()
-		gone, err := catalog.Missing(root)
+		gone, err := Missing(filepath.Join(root, "catalog.db"), root)
 		if err != nil || len(gone) != want {
 			t.Fatalf("missing %v, %v; want %d", gone, err, want)
 		}

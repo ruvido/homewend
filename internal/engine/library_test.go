@@ -107,7 +107,7 @@ func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gone, err := shownMissing(c, root, []string{"google/sam@example.com"}); err != nil || len(gone) != 0 {
+	if gone, err := shownOf(missingIn(root), c, []string{"google/sam@example.com"}); err != nil || len(gone) != 0 {
 		t.Fatalf("%v, %v; want none gone", gone, err)
 	}
 	if page, err := c.Page(library.Filter{Hashes: hashesOf(nil)}); err != nil || len(page) != 0 {
@@ -131,11 +131,36 @@ func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
 		{ID: "google/sam@example.com", Email: "sam@example.com", Profile: t.TempDir()},
 		{ID: "google/bob@example.com", Email: "bob@example.com", Profile: t.TempDir()},
 	}
-	if err := lookForMissing(root); err != nil {
+	if _, err := lookForMissing(root); err != nil {
 		t.Fatal(err)
 	}
 	o, err := overview(root, accounts, []string{"google/bob@example.com"}, "")
 	if err != nil || o.Missing[""] != 1 {
 		t.Errorf("missing %v, %v; want sam's only", o.Missing, err)
+	}
+}
+
+// What is taken off the list is off at once, and
+// another library's list is never shown for this one.
+func TestTheMissingListIsThisLibrarysNow(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, library.WorkDir), 0o755)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, h := range []string{"a", "b"} {
+		c.Put(library.Photo{Hash: h, Path: h + ".jpg", Name: h + ".jpg"})
+	}
+	if list, err := lookForMissing(root); err != nil || len(list) != 2 {
+		t.Fatalf("%v, %v", list, err)
+	}
+	offMissing([]string{"a"})
+	if list := missingIn(root); len(list) != 1 || list[0].Hash != "b" {
+		t.Errorf("%v, want b", list)
+	}
+	if list := missingIn(t.TempDir()); len(list) != 0 {
+		t.Errorf("another library: %v", list)
 	}
 }

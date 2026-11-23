@@ -125,7 +125,17 @@ func Photos(s Settings, year, album string, noDate bool, view string, limit int)
 		return nil, err
 	}
 	shown := shownAddresses(accounts, s.Hidden)
-	gone, err := shownMissing(c, root, shown)
+	all := missingIn(root)
+	missing.Lock()
+	seen := missing.seen
+	missing.Unlock()
+	// The view waits for the first look: none yet is not none missing.
+	if view == ViewMissing && !seen {
+		if all, err = lookForMissing(root); err != nil {
+			return nil, err
+		}
+	}
+	gone, err := shownOf(all, c, shown)
 	if err != nil {
 		return nil, err
 	}
@@ -158,84 +168,104 @@ func Photos(s Settings, year, album string, noDate bool, view string, limit int)
 // The photos whose file is gone, as last looked at. A look at every file
 // takes seconds, minutes on a share: it runs beside the requests, which are
 // answered with what the last one found.
-var (
-	missingMu      sync.Mutex
-	missingRoot    string
-	missingAt      time.Time // zero: look again
-	missingList    []library.Gone
-	missingLooking bool
-	missingMoves   int // the list changed: a part of LibraryChanges
-)
+var missing struct {
+	sync.Mutex
+	root    string
+	at      time.Time // when the last look ended; zero: none did, or look again
+	seen    bool      // a look of root ended
+	list    []library.Gone
+	taken   map[string]bool // taken off the list by hand since the look running began
+	running bool
+	moves   int // the list changed: a part of LibraryChanges
+}
+
+// looking holds one look at a time.
+var looking sync.Mutex
+
+// beside runs a look beside the requests; in tests, at once.
+var beside = func(look func()) { go look() }
 
 // missingIn are the photos of the library at root whose file is gone, as
 // last looked at: none before the first look ends. A look older than half
 // a minute is taken again meanwhile.
 func missingIn(root string) []library.Gone {
-	missingMu.Lock()
-	defer missingMu.Unlock()
-	if missingRoot != root {
-		missingRoot, missingAt, missingList = root, time.Time{}, nil
-	}
-	if !missingLooking && time.Since(missingAt) > 30*time.Second {
-		missingLooking = true
-		go func() {
-			err := lookForMissing(root)
-			missingMu.Lock()
-			missingLooking = false
-			if err != nil && missingRoot == root {
-				missingAt = time.Now() // not on every request
+	missing.Lock()
+	onLibrary(root)
+	look := !missing.running && time.Since(missing.at) > 30*time.Second
+	missing.running = missing.running || look
+	missing.Unlock()
+	if look {
+		beside(func() {
+			lookForMissing(root)
+			missing.Lock()
+			missing.running = false
+			now := missing.root
+			if now == root {
+				missing.at = time.Now() // one that failed is not tried on every request
 			}
-			missingMu.Unlock()
-		}()
+			missing.Unlock()
+			// Another library was chosen meanwhile.
+			if now != root {
+				missingIn(now)
+			}
+		})
 	}
-	return missingList
+	missing.Lock()
+	defer missing.Unlock()
+	return missing.list
 }
 
-// lookForMissing looks at every file of the library at root. What was
-// taken out or put in the Trash while it looked is left to the next look.
-func lookForMissing(root string) error {
-	began := time.Now()
-	c, err := library.OpenCatalog(catalogPath(root))
-	if err != nil {
-		return err
+// onLibrary forgets another library's list; missing is held.
+func onLibrary(root string) {
+	if missing.root != root {
+		missing.root, missing.at, missing.seen, missing.list = root, time.Time{}, false, nil
 	}
-	defer c.Close()
-	list, err := c.Missing(root)
-	if err != nil {
-		return err
-	}
-	missingMu.Lock()
-	defer missingMu.Unlock()
-	if missingRoot != root || missingTouched.After(began) {
-		return nil
-	}
-	if !slices.Equal(list, missingList) {
-		missingMoves++
-	}
-	missingAt, missingList = time.Now(), list
-	return nil
 }
 
-// missingTouched is when photos last left or came back to the list by hand.
-var missingTouched time.Time
+// lookForMissing looks at every file of the library at root, now.
+func lookForMissing(root string) ([]library.Gone, error) {
+	looking.Lock()
+	defer looking.Unlock()
+	missing.Lock()
+	onLibrary(root)
+	missing.taken = map[string]bool{}
+	missing.Unlock()
+	list, err := library.Missing(catalogPath(root), root)
+	if err != nil {
+		return nil, err
+	}
+	missing.Lock()
+	defer missing.Unlock()
+	list = without(list, missing.taken)
+	if missing.root == root {
+		if !slices.Equal(list, missing.list) {
+			missing.moves++
+		}
+		missing.at, missing.seen, missing.list = time.Now(), true, list
+	}
+	return list, nil
+}
 
-// missingWithout takes hashes off the list at once; the next look confirms.
-func missingWithout(hashes []string) {
-	missingMu.Lock()
-	defer missingMu.Unlock()
-	out := map[string]bool{}
+func without(list []library.Gone, hashes map[string]bool) []library.Gone {
+	return slices.DeleteFunc(slices.Clone(list), func(g library.Gone) bool { return hashes[g.Hash] })
+}
+
+// offMissing takes hashes off the list, taken out or in the Trash.
+func offMissing(hashes []string) {
+	missing.Lock()
+	defer missing.Unlock()
+	if missing.taken == nil {
+		missing.taken = map[string]bool{}
+	}
 	for _, h := range hashes {
-		out[h] = true
+		missing.taken[h] = true
 	}
-	missingList = slices.DeleteFunc(slices.Clone(missingList), func(g library.Gone) bool { return out[g.Hash] })
-	missingAt, missingTouched = time.Time{}, time.Now()
+	missing.list = without(missing.list, missing.taken)
 }
 
-// shownMissing are the photos whose file is gone, of the accounts shown
-// (nil: all): the sidebar, the strip, the view and the take-out count the
-// same ones.
-func shownMissing(c *library.Catalog, root string, shown []string) ([]library.Gone, error) {
-	gone := missingIn(root)
+// shownOf are those of gone that are of the accounts shown (nil: all): the
+// sidebar, the strip, the view and the take-out count the same ones.
+func shownOf(gone []library.Gone, c *library.Catalog, shown []string) ([]library.Gone, error) {
 	if shown == nil || len(gone) == 0 {
 		return gone, nil
 	}
@@ -247,13 +277,7 @@ func shownMissing(c *library.Catalog, root string, shown []string) ([]library.Go
 	for _, p := range page {
 		in[p.Hash] = true
 	}
-	var kept []library.Gone
-	for _, g := range gone {
-		if in[g.Hash] {
-			kept = append(kept, g)
-		}
-	}
-	return kept, nil
+	return slices.DeleteFunc(slices.Clone(gone), func(g library.Gone) bool { return !in[g.Hash] }), nil
 }
 
 // hashesOf is never nil: to the catalog's filter nil is every photo.
@@ -292,11 +316,11 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 		return 0, err
 	}
 	// What is taken out is what is gone now.
-	missingIn(root)
-	if err := lookForMissing(root); err != nil {
+	gone, err := lookForMissing(root)
+	if err != nil {
 		return 0, err
 	}
-	gone, err := shownMissing(c, root, shownAddresses(accounts, s.Hidden))
+	gone, err = shownOf(gone, c, shownAddresses(accounts, s.Hidden))
 	if err != nil {
 		return 0, err
 	}
@@ -309,7 +333,7 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 	if err := c.TakeOut(hashes, keepOut); err != nil {
 		return 0, err
 	}
-	missingWithout(hashes)
+	offMissing(hashes)
 	return len(hashes), nil
 }
 
@@ -324,7 +348,7 @@ func Mark(profile string, state library.State, hashes []string, on bool) ([]stri
 	done, err := c.Mark(state, hashes, profile, on)
 	// A photo in the Trash is not missing.
 	if state == library.Trashed {
-		missingWithout(done)
+		offMissing(done)
 	}
 	return done, err
 }

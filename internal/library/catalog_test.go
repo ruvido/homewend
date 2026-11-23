@@ -196,7 +196,7 @@ func TestAPhotoInTheTrash(t *testing.T) {
 	if h, err := Holds(c, root, "a"); err != nil || !h.Known || h.Deleted || !h.Trashed {
 		t.Errorf("held %+v %v, want it in the Trash", h, err)
 	}
-	if gone, _ := c.Missing(root); len(gone) != 1 || gone[0].Hash != "b" {
+	if gone, _ := Missing(filepath.Join(root, "catalog.db"), root); len(gone) != 1 || gone[0].Hash != "b" {
 		t.Errorf("missing %v, want b only", gone)
 	}
 	c.Mark(Trashed, []string{"a"}, "ron", false)

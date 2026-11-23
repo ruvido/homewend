@@ -21,6 +21,7 @@ import (
 
 func TestMain(m *testing.M) {
 	sessiontest.Main()
+	beside = func(look func()) { look() }
 	os.Exit(m.Run())
 }
 

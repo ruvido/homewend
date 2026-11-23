@@ -916,54 +916,83 @@ type Gone struct {
 	Year string
 }
 
-// Missing are the photos whose file is gone from the library at root:
+// Missing are the photos of the library at root whose file is not there:
 // deleted or moved by hand. A file that cannot be told (a share that
 // drops) is not missing, nor is any when the library itself went away
 // while it was looked at. A photo kept out whose file is back is in again.
-func (c *Catalog) Missing(root string) ([]Gone, error) {
-	rows, err := c.db.Query(`SELECT hash, path, COALESCE(strftime('%Y', taken, 'unixepoch'), ''), out FROM photos WHERE trashed = 0`)
-	if err != nil {
-		return nil, fmt.Errorf("reading the catalog: %w", err)
-	}
+//
+// The catalog is closed while the files are looked at: on a share that
+// takes minutes, and a disk it is open on could not be ejected.
+func Missing(catalog, root string) ([]Gone, error) {
 	type known struct {
 		Gone
 		path string
 		out  bool
 	}
-	// Read whole before any file is looked at: a write waits for a read to
-	// end, and a hundred thousand files on a share take longer than it waits.
 	var all []known
-	for rows.Next() {
-		var k known
-		if err := rows.Scan(&k.Hash, &k.path, &k.Year, &k.out); err != nil {
-			rows.Close()
-			return nil, err
+	err := with(catalog, func(c *Catalog) error {
+		rows, err := c.db.Query(`SELECT hash, path, COALESCE(strftime('%Y', taken, 'unixepoch'), ''), out FROM photos WHERE trashed = 0`)
+		if err != nil {
+			return fmt.Errorf("reading the catalog: %w", err)
 		}
-		all = append(all, k)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var k known
+			if err := rows.Scan(&k.Hash, &k.path, &k.Year, &k.out); err != nil {
+				return err
+			}
+			all = append(all, k)
+		}
+		return rows.Err()
+	})
+	if err != nil {
 		return nil, err
 	}
-	var gone []Gone
-	var back []string
+	var gone, back []known
 	for _, k := range all {
 		switch _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(k.path))); {
 		case errors.Is(err, fs.ErrNotExist) && !k.out:
-			gone = append(gone, k.Gone)
+			gone = append(gone, k)
 		case err == nil && k.out:
-			back = append(back, k.Hash)
+			back = append(back, k)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(root, WorkDir)); err != nil {
+	if _, err := os.Stat(filepath.Join(root, WorkDir)); err != nil || len(gone)+len(back) == 0 {
 		return nil, nil
 	}
-	for _, h := range back {
-		if _, err := c.db.Exec(`UPDATE photos SET out = 0 WHERE hash = ?`, h); err != nil {
-			return nil, err
+	var missing []Gone
+	err = with(catalog, func(c *Catalog) error {
+		for _, k := range gone {
+			// Given a date meanwhile, its file is at another path.
+			path, in, err := c.PathOf(k.Hash)
+			if err != nil {
+				return err
+			}
+			if in && path == k.path {
+				missing = append(missing, k.Gone)
+			}
 		}
+		for _, k := range back {
+			if _, err := c.db.Exec(`UPDATE photos SET out = 0 WHERE hash = ?`, k.Hash); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return missing, err
+}
+
+// with opens the catalog at path, which is there, for do alone.
+func with(path string, do func(*Catalog) error) error {
+	if _, err := os.Stat(path); err != nil {
+		return err
 	}
-	return gone, nil
+	c, err := OpenCatalog(path)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return do(c)
 }
 
 // TakeOut takes photos out of the library: forgotten, so that a card that

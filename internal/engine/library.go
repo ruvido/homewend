@@ -72,9 +72,9 @@ func LibraryChanges() (string, error) {
 	if err != nil || root == "" {
 		return "", err
 	}
-	missingMu.Lock()
-	defer missingMu.Unlock()
-	return fmt.Sprint(library.Changes(catalogPath(root)), missingMoves), nil
+	missing.Lock()
+	defer missing.Unlock()
+	return fmt.Sprint(library.Changes(catalogPath(root)), missing.moves), nil
 }
 
 // LibraryOverview reads the catalog of every shown account. An account with no
@@ -171,7 +171,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	if o.Trashed, err = c.Count(library.Filter{Trashed: true, Accounts: shown}); err != nil {
 		return o, err
 	}
-	gone, err := shownMissing(c, root, shown)
+	gone, err := shownOf(missingIn(root), c, shown)
 	if err != nil {
 		return o, err
 	}

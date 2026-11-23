@@ -17,7 +17,8 @@
 		selected,
 		onselect,
 		withYear = true,
-		view
+		view,
+		settled = true
 	}: {
 		photos: GridPhoto[];
 		header?: Snippet;
@@ -30,6 +31,8 @@
 		withYear?: boolean;
 		/** What chose these photos: another, and the grid starts again at its top. */
 		view?: unknown;
+		/** The list is whole: what comes after has arrived, what comes before is still being read. */
+		settled?: boolean;
 	} = $props();
 
 	// The design's tile: at least 104px, as many columns as fit, gap 8.
@@ -129,12 +132,16 @@
 		drawn = layout;
 	});
 	let viewed: unknown = undefined;
+	let wasSettled = false;
 	$effect.pre(() => {
 		const now = photos;
 		const by = view;
+		const whole = settled;
 		untrack(() => {
 			const was = before;
 			before = now;
+			const reading = !wasSettled;
+			wasSettled = whole;
 			if (by !== viewed) {
 				// Other photos of the same library: none of them arrived.
 				viewed = by;
@@ -142,8 +149,7 @@
 				if (scroller) scroller.scrollTop = 0;
 				return;
 			}
-			// The rest of a first reading, chunk by chunk, is no arrival.
-			if (was.length === 0 || now === was || was.every((p, i) => now[i]?.hash === p.hash)) return;
+			if (reading || was.length === 0 || now === was || was.every((p, i) => now[i]?.hash === p.hash)) return;
 			const known = new Set(was.map((p) => p.hash));
 			arrived = new Set(now.filter((p) => !known.has(p.hash)).map((p) => p.hash));
 			if (!scroller || scroller.scrollTop === 0) return;
