@@ -426,13 +426,19 @@ func (c *Catalog) Close() error { return c.db.Close() }
 
 // Put records a photo, replacing whatever was known about it before. Safe to
 // run again over a library that was already indexed: a second pass corrects,
-// it does not duplicate.
-func (c *Catalog) Put(photo Photo) error {
+// it does not duplicate. The photo, its albums and its sources are one write:
+// each write to the disk is waited for, and none is there without the others.
+func (c *Catalog) Put(photo Photo, sources ...string) error {
 	var taken any
 	if !photo.Taken.IsZero() {
 		taken = photo.Taken.Unix()
 	}
-	_, err := c.db.Exec(
+	tx, err := c.db.Begin()
+	if err != nil {
+		return fmt.Errorf("recording %s: %w", photo.Name, err)
+	}
+	defer tx.Rollback()
+	_, err = tx.Exec(
 		`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(hash) DO UPDATE SET
@@ -445,11 +451,19 @@ func (c *Catalog) Put(photo Photo) error {
 		return fmt.Errorf("recording %s: %w", photo.Name, err)
 	}
 	for _, album := range photo.Albums {
-		if _, err := c.db.Exec(
+		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO album_members (album, hash) VALUES (?, ?)`,
 			album, photo.Hash); err != nil {
 			return fmt.Errorf("adding %s to %s: %w", photo.Name, album, err)
 		}
+	}
+	for _, source := range sources {
+		if err := addOwner(tx, photo.Hash, source); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("recording %s: %w", photo.Name, err)
 	}
 	return nil
 }
@@ -495,11 +509,15 @@ func (c *Catalog) addAlbum(album, hash, account string) error {
 
 // addOwner records that a photo came from an account. A photo already in the
 // library gets one more owner when another account's export holds it too.
-func (c *Catalog) addOwner(hash, account string) error {
+func (c *Catalog) addOwner(hash, account string) error { return addOwner(c.db, hash, account) }
+
+func addOwner(db interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}, hash, account string) error {
 	if account == "" {
 		return nil
 	}
-	_, err := c.db.Exec(`INSERT OR IGNORE INTO owners (account, hash) VALUES (?, ?)`, account, hash)
+	_, err := db.Exec(`INSERT OR IGNORE INTO owners (account, hash) VALUES (?, ?)`, account, hash)
 	return err
 }
 

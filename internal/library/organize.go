@@ -205,10 +205,7 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			if capture.Source == NoDate {
 				record.Taken = time.Time{}
 			}
-			if err := catalog.Put(record); err != nil {
-				return result, err
-			}
-			if err := catalog.addOwner(hash, opt.Account); err != nil {
+			if err := catalog.Put(record, opt.Account); err != nil {
 				return result, err
 			}
 			if err := place(item, home, root); err != nil {
