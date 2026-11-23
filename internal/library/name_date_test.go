@@ -46,6 +46,9 @@ func TestTheDateInAName(t *testing.T) {
 		{"WhatsApp Image 2026-08-26 at 15.21.50-2.jpeg", at(2026, 8, 26, 15, 21, 50), FromName},
 		{"WhatsApp Image 2026-08-26 at 3.21.50 PM.jpeg", at(2026, 8, 26, 15, 21, 50), FromName},
 		{"WhatsApp Image 2026-08-26 at 12.21.50 AM.jpeg", at(2026, 8, 26, 0, 21, 50), FromName},
+		{"Screenshot_2019-04-16-11-19-37-232_com.google.a.jpg", at(2019, 4, 16, 11, 19, 37), FromName},
+		{"2016_01_30_11_49_15.mp4", at(2016, 1, 30, 11, 49, 15), FromName},
+		{"00004XTR_00004_BURST20190216172030.jpg", at(2019, 2, 16, 17, 20, 30), FromName},
 		{"FB_IMG_1785963041597.jpg", at(2026, 8, 5, 22, 50, 41), FromName},
 	} {
 		when, source, ok := nameDate(c.name)

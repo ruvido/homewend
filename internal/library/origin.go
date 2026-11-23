@@ -81,6 +81,10 @@ var names = []struct {
 	// A phone's camera and screenshots, seen with no date inside the file:
 	// 20260826_152150, IMG_20261121_121457_504, Screenshot_20260826-152150.
 	{regexp.MustCompile(`^(?:[A-Za-z]+[_-])?(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})[_-](?P<H>\d{2})(?P<M>\d{2})(?P<S>\d{2})`), ""},
+	// As GooglePhotosTakeoutHelper reads them: Screenshot_2019-04-16-11-19-37-232,
+	// 2016_01_30_11_49_15, 00004XTR_00004_BURST20190216172030.
+	{regexp.MustCompile(`^(?:[A-Za-z]+[_-])?(?P<y>\d{4})[-_](?P<m>\d{2})[-_](?P<d>\d{2})[-_](?P<H>\d{2})[-_](?P<M>\d{2})[-_](?P<S>\d{2})`), ""},
+	{regexp.MustCompile(`_BURST(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})(?P<H>\d{2})(?P<M>\d{2})(?P<S>\d{2})`), ""},
 }
 
 // OriginOf works out where a file came from, preferring what Google recorded

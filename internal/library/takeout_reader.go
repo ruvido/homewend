@@ -21,12 +21,18 @@ func ReadTakeout(dir string) ([]Item, error) {
 		return nil, err
 	}
 	items := make([]Item, 0, len(files))
+	taken := map[string]bool{} // a sidecar goes with one photo
 	for _, file := range files {
+		sidecar := findSidecar(file)
+		if taken[sidecar] {
+			sidecar = ""
+		}
+		taken[sidecar] = true
 		items = append(items, Item{
 			Path:    file,
 			Capture: DateOf(file, filepath.Base(filepath.Dir(file))),
 			Album:   albumOf(dir, file),
-			Sidecar: findSidecar(file),
+			Sidecar: sidecar,
 		})
 	}
 	return items, nil

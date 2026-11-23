@@ -121,12 +121,10 @@ func dateNamed(c Capture, name string) (Capture, bool) {
 	return c, true
 }
 
-// Takeout writes one sidecar per media file. The name is usually
-// "<file>.supplemental-metadata.json", but it has changed over the years and it
-// gets truncated when the whole name would be too long — which is exactly the
-// case where a program that builds the name instead of looking for it fails.
+// sidecarInfo is what a media file's sidecar says: its own, or the one it
+// shares (sharedSidecars).
 func sidecarInfo(mediaPath string) (time.Time, string, bool) {
-	for _, candidate := range sidecarCandidates(mediaPath) {
+	for _, candidate := range append(ownSidecars(mediaPath), sharedSidecars(mediaPath)...) {
 		file, err := os.Open(candidate)
 		if err != nil {
 			continue
@@ -152,45 +150,13 @@ func sidecarInfo(mediaPath string) (time.Time, string, bool) {
 		}
 		// photoTakenTime is when the shutter fired; creationTime is when it
 		// reached Google, which for a scanned photograph is decades later.
-		// Only the first is a capture date.
-		if seconds, err := strconv.ParseInt(meta.PhotoTakenTime.Timestamp, 10, 64); err == nil && seconds > 0 {
+		// Only the first is a capture date. A scan of before 1970 is below
+		// zero; zero and 1904 are clocks nobody set.
+		if seconds, err := strconv.ParseInt(meta.PhotoTakenTime.Timestamp, 10, 64); err == nil && seconds != 0 && seconds != year1904 {
 			return time.Unix(seconds, 0).UTC(), meta.AppSource.AndroidPackageName, true
 		}
 	}
 	return time.Time{}, "", false
-}
-
-// findSidecar returns the path of a media file's sidecar, or "" if it has none.
-func findSidecar(mediaPath string) string {
-	for _, candidate := range sidecarCandidates(mediaPath) {
-		if exists(candidate) {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func sidecarCandidates(mediaPath string) []string {
-	dir := filepath.Dir(mediaPath)
-	base := filepath.Base(mediaPath)
-	stem := strings.TrimSuffix(base, filepath.Ext(base))
-
-	names := []string{
-		base + ".supplemental-metadata.json",
-		base + ".json",
-		stem + ".json",
-	}
-	// Truncated variants: Takeout cuts the suffix to fit a length limit, so
-	// "long-name.jpg.supplemental-met.json" is a real sidecar in the wild.
-	for cut := len("supplemental-metadata"); cut > 3; cut-- {
-		names = append(names, base+".supplemental-metadata"[:cut+1]+".json")
-	}
-
-	paths := make([]string, 0, len(names))
-	for _, name := range names {
-		paths = append(paths, filepath.Join(dir, name))
-	}
-	return paths
 }
 
 // cameraDate is when the camera says the photo or video was taken, and
