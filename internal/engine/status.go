@@ -5,6 +5,7 @@ package engine
 
 import (
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,21 +130,18 @@ func dateByName(root string) error {
 	if _, err := os.Stat(catalogPath(root)); err != nil {
 		return nil
 	}
-	unlock, err := lockLibrary(root)
-	if errors.Is(err, ErrLibraryBusy) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	defer unlock()
 	catalog, err := library.OpenCatalog(catalogPath(root))
 	if err != nil {
 		return err
 	}
 	defer catalog.Close()
-	if err := library.DateByName(root, catalog); err != nil {
-		return err
+	err = library.DateByName(root, catalog, func() (func(), error) { return lockLibrary(root) })
+	if errors.Is(err, ErrLibraryBusy) {
+		return nil
+	}
+	if err != nil {
+		// Tried again at the next start; the library is read all the same.
+		log.Printf("dates from names: %v", err)
 	}
 	datedByName[root] = true
 	return nil

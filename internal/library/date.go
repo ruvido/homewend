@@ -86,19 +86,25 @@ func asClock(t time.Time) time.Time {
 // a whole life of photographs under the day it downloaded them. It is the most
 // obvious source and the only one that is certainly wrong.
 func DateOf(mediaPath string, folder string) Capture {
-	when, packageName, ok := sidecarInfo(mediaPath)
+	taken, packageName, ok := sidecarInfo(mediaPath)
 	origin := OriginOf(packageName, filepath.Base(mediaPath))
 	if ok {
-		return Capture{When: when, Source: FromSidecar, Origin: origin}
+		return Capture{When: taken, Source: FromSidecar, Origin: origin}
 	}
-	if when, source, ok := fileDate(mediaPath, filepath.Base(mediaPath)); ok {
-		return Capture{When: when, Source: source, Origin: origin}
+	when, source, ok := fileDate(mediaPath, filepath.Base(mediaPath))
+	capture := Capture{When: when, Source: source, Origin: origin}
+	if ok && source.Guessed() == "" {
+		return capture
 	}
 	// "Photos from 2019" is not a date, but it is Google's own filing and it is
 	// better than nothing: the photo lands in the right year, in a month folder
 	// that says it is unknown.
 	if match := yearFolder.FindStringSubmatch(folder); match != nil {
 		year, err := strconv.Atoi(match[1])
+		if err == nil && ok && when.Year() == year {
+			// The name agrees with Google's year, and says the month too.
+			return capture
+		}
 		if err == nil {
 			return Capture{
 				When:   time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC),
@@ -106,6 +112,9 @@ func DateOf(mediaPath string, folder string) Capture {
 				Origin: origin,
 			}
 		}
+	}
+	if ok {
+		return capture
 	}
 	return Capture{Source: NoDate, Origin: origin}
 }
@@ -467,8 +476,9 @@ func Orientation(path string) int {
 
 // millisName is a name that is only the milliseconds since 1970, maybe after
 // the app's word, as apps that save an image name it: 1785963041597.png,
-// FB_IMG_1785963041597.jpg.
-var millisName = regexp.MustCompile(`^(?:[A-Za-z]+_)*(1\d{12})$`)
+// FB_IMG_1785963041597.jpg. The library's own suffix for a name taken twice
+// (withSuffix) is not part of it: 1785963041597-2.png.
+var millisName = regexp.MustCompile(`^(?:[A-Za-z]+_)*(1\d{12})(?:-\d+)?$`)
 
 // fileDate is what a file says of its own date: its camera's, else the one
 // in its name. An import, a phone's backup and its plan all read it so.

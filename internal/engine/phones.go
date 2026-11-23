@@ -373,7 +373,7 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	}
 	// Busy now is said before a byte is read: a video is not sent again and
 	// again over the network while a card's import runs.
-	unlock, err := lockLibrary(root)
+	unlock, err := takeLibrary(ctx, root)
 	if err != nil {
 		return Received{}, err
 	}
@@ -394,7 +394,8 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if err := receive(file, hash, body); err != nil {
 		return Received{}, err
 	}
-	if unlock, err = lockLibrary(root); err != nil {
+	// Its bytes are here: it waits its turn rather than being sent again.
+	if unlock, err = waitLibrary(ctx, root, nil); err != nil {
 		return Received{}, err
 	}
 	defer unlock()

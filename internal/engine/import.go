@@ -89,7 +89,7 @@ func Import(ctx context.Context, dir, profile string, how library.ImportOptions,
 	if err != nil {
 		return library.Imported{}, err
 	}
-	unlock, err := lockLibrary(root)
+	unlock, err := takeLibrary(ctx, root)
 	if err != nil {
 		return library.Imported{}, err
 	}

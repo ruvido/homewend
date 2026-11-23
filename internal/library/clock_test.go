@@ -39,14 +39,14 @@ func TestAnOlderCatalogsGoogleDatesBecomeClocks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		google, err := catalog.photo("g")
+		google, err := catalog.Photo("g")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if want := asClock(instant.In(time.Local)); !google.Taken.Equal(want) {
 			t.Errorf("run %d: Google's date %v, want the clock %v", run, google.Taken, want)
 		}
-		camera, err := catalog.photo("e")
+		camera, err := catalog.Photo("e")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +89,7 @@ func TestGooglesDateIsKeptAsItsFoldersClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	photo, err := catalog.photo(hash)
+	photo, err := catalog.Photo(hash)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestAnOlderCatalogOpenedManyTimesAtOnceTurnsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer catalog.Close()
-	p, err := catalog.photo("7.jpg")
+	p, err := catalog.Photo("7.jpg")
 	if err != nil {
 		t.Fatal(err)
 	}

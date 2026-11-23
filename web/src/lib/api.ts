@@ -202,8 +202,18 @@ export const giveDates = (hashes: string[], when: string) => call<{ moved: numbe
 export const turnLeft = (hash: string) => call<{ turn: number }>('POST', `/api/turn/${hash}`);
 /** A square picture turned as the person turned the photo. */
 export const turned = (p: { turn?: number }) => (p.turn ? `rotate(${-90 * p.turn}deg)` : undefined);
+export interface PhotoAbout {
+	albums: string[];
+	accounts: string[];
+	local: string[];
+	/** Where its date comes from. */
+	dated: 'sidecar' | 'exif' | 'video' | 'given' | 'folder' | 'name' | 'nameday' | 'none';
+	bytes: number;
+	/** In the library. */
+	path: string;
+}
 export const getAbout = (hash: string) =>
-	call<{ albums: string[]; accounts: string[]; local: string[] }>('GET', `/api/about/${hash}`);
+	call<PhotoAbout>('GET', `/api/about/${hash}`);
 
 export const readContents = (account: string, exportId: string) =>
 	call<{ years: string[] }>('POST', `/api/takeouts/contents?${q({ account, export: exportId })}`);

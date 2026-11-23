@@ -5,10 +5,10 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
-	import { swap } from '#lib/motion.js';
-	import { getAbout, pathOf, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
+	import { pane, swap } from '#lib/motion.js';
+	import { getAbout, pathOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
-	import { takenAt, takenDay } from '#lib/format.js';
+	import { bytes, takenAt, takenDay } from '#lib/format.js';
 	import { app } from '#lib/app.svelte.js';
 
 	let {
@@ -136,23 +136,30 @@
 		drag = null;
 	}
 	const video = $derived(['mp4', 'webm', 'm4v'].includes(ext));
-	// "Taken 14 July 2019, 18:32", as the design writes it; a date guessed
-	// says only what was guessed, and that it was: "26 August 2026 · guessed".
-	function taken(iso: string, guessed?: GridPhoto['guessed']) {
+	// What is known of the date: an estimated one says only what was read.
+	function when(iso: string, guessed?: GridPhoto['guessed']) {
 		const d = new Date(iso);
-		if (guessed === 'year') return text.guessed(String(d.getUTCFullYear()));
-		if (guessed === 'day') return text.guessed(takenDay(d));
-		if (guessed === 'time') return text.guessed(takenAt(d));
-		return text.taken(takenAt(d));
+		if (guessed === 'year') return String(d.getUTCFullYear());
+		return guessed === 'day' ? takenDay(d) : takenAt(d);
 	}
+	const date = $derived(p?.taken ? when(p.taken, p.guessed) : text.noDate);
+	// "Taken 14 July 2019, 18:32", as the design writes it, or
+	// "26 August 2026, 15:21 · estimated".
+	const taken = $derived(!p?.taken ? date : p.guessed ? text.estimated(date) : text.taken(date));
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.
-	let about = $state('');
+	let about = $state<PhotoAbout | null>(null);
+	// Accounts by id, named by their address; cards and folders by name.
+	const email = (id: string) => app.overview?.accounts.find((x) => x.id === id)?.email ?? id;
+	const from = $derived(about ? [...about.accounts.map(email), ...about.local] : []);
+	const beside = $derived(about ? [...about.albums, ...from].map((x) => ` · ${x}`).join('') : '');
+	// Info, open on the right (V2): it stays open from photo to photo.
+	let info = $state(false);
 	// Where its file was, whole, when it is gone: the person looks there.
 	let wasAt = $state('');
 	$effect(() => {
 		const hash = p?.hash;
-		about = '';
+		about = null;
 		wasAt = '';
 		if (hash && p?.missing)
 			pathOf(hash).then((r) => {
@@ -161,9 +168,7 @@
 		if (hash)
 			getAbout(hash).then((a) => {
 				if (p?.hash !== hash) return;
-				// Accounts by id, named by their address; cards and folders by name.
-				const email = (id: string) => app.overview?.accounts.find((x) => x.id === id)?.email ?? id;
-				about = [...a.albums, ...a.accounts.map(email), ...a.local].map((x) => ` · ${x}`).join('');
+				about = a;
 			});
 	});
 
@@ -196,8 +201,8 @@
 	<div class="viewer" in:swap out:swap={{ leaving: true }}>
 		<header>
 			<div class="meta">
-				<b>{p.taken ? taken(p.taken, p.guessed) : text.noDate}</b>
-				<span>{p.name}{about}</span>
+				<b>{taken}</b>
+				<span>{p.name}{beside}</span>
 			</div>
 			{#if p.missing}
 				<button class="pill" onclick={() => (takingOut = true)}>{text.takeOutOne}</button>
@@ -212,56 +217,83 @@
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), onact?.(a, p.hash))}><Icon name={a.icon} size={14} />{a.label}</button>
 				{/each}
 			{/if}
+			<button class="pill icon" aria-label={text.info} title={text.info} aria-pressed={info} onclick={(e) => (e.currentTarget.blur(), (info = !info))}><Icon name="info-circle" size={16} /></button>
 		</header>
-		<div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
-			{#key p.hash}
-				{#if p.missing}
-					<!-- Its file is gone: what is left is its thumbnail, faded. -->
-					<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
-					<div class="said">
-						<span class="badge"><Icon name="file-earmark-x" size={16} />{text.notOnDisk}</span>
-						<span>{text.missingInViewer(wasAt)}</span>
-					</div>
-				{:else if video}
-					<!-- svelte-ignore a11y_media_has_caption -->
-					<video src="/api/original/{p.hash}" controls autoplay></video>
-				{:else if zoomed}
-					<div class="pan" bind:this={pan} onpointerdown={down} onpointermove={moveDrag} onpointerup={up} role="presentation">
-						<div class="turned" style:width="{zoomed.w}px" style:height="{zoomed.h}px">
+		<div class="body">
+			<div class="main">
+				<div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
+					{#key p.hash}
+						{#if p.missing}
+							<!-- Its file is gone: what is left is its thumbnail, faded. -->
+							<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
+							<div class="said">
+								<span class="badge"><Icon name="file-earmark-x" size={16} />{text.notOnDisk}</span>
+								<span>{text.missingInViewer(wasAt)}</span>
+							</div>
+						{:else if video}
+							<!-- svelte-ignore a11y_media_has_caption -->
+							<video src="/api/original/{p.hash}" controls autoplay></video>
+						{:else if zoomed}
+							<div class="pan" bind:this={pan} onpointerdown={down} onpointermove={moveDrag} onpointerup={up} role="presentation">
+								<div class="turned" style:width="{zoomed.w}px" style:height="{zoomed.h}px">
+									<img
+										src={zoomSrc}
+										alt={p.name}
+										style:width="{zoomed.iw}px"
+										style:height="{zoomed.ih}px"
+										style:transform="translate(-50%, -50%) rotate({-90 * turn}deg)"
+										draggable="false"
+									/>
+								</div>
+							</div>
+						{:else}
+							<!-- The thumbnail at once; the preview, from the cache, over it only
+							     once whole: a big file is never seen drawing itself. -->
+							<img src="/api/thumb/{p.hash}" alt={p.name} style={fit} />
+							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 							<img
-								src={zoomSrc}
-								alt={p.name}
-								style:width="{zoomed.iw}px"
-								style:height="{zoomed.ih}px"
-								style:transform="translate(-50%, -50%) rotate({-90 * turn}deg)"
-								draggable="false"
+								style={fit}
+								class="full"
+								class:ready={ready === p.hash}
+								src="/api/preview/{p.hash}"
+								alt=""
+								bind:this={fitted}
+								onload={() => (ready = p!.hash)}
+								onclick={zoomIn}
 							/>
-						</div>
+							{#if asked}
+								<img class="probe" src={zoomSrc} alt="" onload={loaded} />
+								<span class="waiting"><Icon name="arrow-repeat" size={20} /></span>
+							{/if}
+						{/if}
+					{/key}
+				</div>
+				<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><Icon name="chevron-left" size={20} /></button>
+				<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><Icon name="chevron-right" size={20} /></button>
+			</div>
+			{#if info}
+				<aside in:pane out:pane={{ leaving: true }}>
+					<div class="rows">
+						<h2>{text.info}</h2>
+						<dl>
+							<div>
+								<dt>{text.infoTaken}</dt>
+								<dd>
+									{date}
+									{#if p.guessed}<span class="tag">{text.estimatedTag}</span>{/if}
+									{#if about}<small>{text.dated[about.dated]}</small>{/if}
+								</dd>
+							</div>
+							{#if about}
+								<div><dt>{text.infoSize}</dt><dd>{bytes(about.bytes)}</dd></div>
+								{#if from.length}<div><dt>{text.infoFrom}</dt><dd>{from.join(', ')}</dd></div>{/if}
+								<div><dt>{text.infoFile}</dt><dd>{p.name}<small>{about.path.slice(0, about.path.lastIndexOf('/') + 1)}</small></dd></div>
+							{/if}
+						</dl>
 					</div>
-				{:else}
-					<!-- The thumbnail at once; the preview, from the cache, over it only
-					     once whole: a big file is never seen drawing itself. -->
-					<img src="/api/thumb/{p.hash}" alt={p.name} style={fit} />
-					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-					<img
-						style={fit}
-						class="full"
-						class:ready={ready === p.hash}
-						src="/api/preview/{p.hash}"
-						alt=""
-						bind:this={fitted}
-						onload={() => (ready = p!.hash)}
-						onclick={zoomIn}
-					/>
-					{#if asked}
-						<img class="probe" src={zoomSrc} alt="" onload={loaded} />
-						<span class="waiting"><Icon name="arrow-repeat" size={20} /></span>
-					{/if}
-				{/if}
-			{/key}
+				</aside>
+			{/if}
 		</div>
-		<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><Icon name="chevron-left" size={20} /></button>
-		<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><Icon name="chevron-right" size={20} /></button>
 	</div>
 	{#if dating}
 		<GiveDate
@@ -443,6 +475,77 @@
 		to {
 			rotate: 360deg;
 		}
+	}
+	.pill.icon {
+		width: 32px;
+		padding: 0;
+		justify-content: center;
+	}
+	.body {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+	}
+	.main {
+		flex: 1;
+		min-width: 0;
+		position: relative;
+		display: flex;
+		flex-direction: column;
+	}
+	/* As wide as the sidebar; its text does not reflow while it opens. */
+	aside {
+		width: 248px;
+		flex-shrink: 0;
+		overflow: hidden;
+	}
+	.rows {
+		box-sizing: border-box;
+		width: 248px;
+		height: 100%;
+		padding: 16px 24px;
+		border-left: 1px solid #ffffff29;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+		overflow-y: auto;
+	}
+	.rows h2 {
+		margin: 0;
+		font-size: var(--text-title-3);
+		font-weight: 600;
+	}
+	dl {
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+	dt {
+		margin-bottom: 4px;
+		font-size: var(--text-subheadline);
+		color: #ffffff99;
+	}
+	dd {
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+		font-size: var(--text-body);
+		overflow-wrap: anywhere;
+	}
+	dd small {
+		font-size: var(--text-callout);
+		color: #ffffff99;
+	}
+	.tag {
+		padding: 0 8px;
+		border-radius: 999px;
+		background: var(--warn-soft);
+		color: var(--warn);
+		font-size: var(--text-subheadline);
+		font-weight: 600;
 	}
 	.nav {
 		position: absolute;

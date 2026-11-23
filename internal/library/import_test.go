@@ -844,7 +844,7 @@ func TestDatesGivenInTheLibrary(t *testing.T) {
 	mustExist(t, filepath.Join(root, "ron", "2020", "05", "DSCF0002.JPG"))
 	mustExist(t, filepath.Join(root, "ron", "2020", "05", "DSCF0003.MOV"))
 	// One whose file is gone is left out, and the others still move.
-	gone, err := catalog.photo(byName["DSCF0001.JPG"])
+	gone, err := catalog.Photo(byName["DSCF0001.JPG"])
 	if err != nil {
 		t.Fatal(err)
 	}

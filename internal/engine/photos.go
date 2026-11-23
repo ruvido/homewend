@@ -218,7 +218,7 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	unlock, err := lockLibrary(root)
+	unlock, err := takeLibrary(context.Background(), root)
 	if err != nil {
 		return 0, err
 	}
@@ -296,7 +296,7 @@ func GiveDates(hashes []string, when time.Time) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	unlock, err := lockLibrary(root)
+	unlock, err := takeLibrary(context.Background(), root)
 	if err != nil {
 		return 0, err
 	}
@@ -454,6 +454,10 @@ type PhotoAbout struct {
 	Albums   []string `json:"albums"`
 	Accounts []string `json:"accounts"` // the accounts', by id
 	Local    []string `json:"local"`    // the cards' and folders', by name
+	// Dated: where its date comes from (library.DateSource).
+	Dated library.DateSource `json:"dated"`
+	Bytes int64              `json:"bytes"`
+	Path  string             `json:"path"` // in the library
 }
 
 // About is a photo's albums and the accounts it came from.
@@ -473,5 +477,10 @@ func About(hash string) (PhotoAbout, error) {
 			about.Accounts = append(about.Accounts, s)
 		}
 	}
+	if err != nil {
+		return about, err
+	}
+	p, err := c.Photo(hash)
+	about.Dated, about.Bytes, about.Path = p.Source, p.Bytes, p.Path
 	return about, err
 }

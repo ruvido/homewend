@@ -37,14 +37,20 @@ function curve(name: 'ease-out' | 'ease-in'): (t: number) => number {
 const timing = (leaving: boolean) =>
 	leaving ? { duration: ms('motion-fast'), easing: curve('ease-in') } : { duration: ms('motion-base'), easing: curve('ease-out') };
 
+function opening(node: Element, leaving: boolean, axis: 'x' | 'y'): TransitionConfig {
+	const opts = timing(leaving);
+	const open = slide(node, { ...opts, axis });
+	return { ...opts, css: (t, u) => `${open.css?.(t, u) ?? ''}; opacity: ${t}` };
+}
+
 /** A block coming or going: it opens in height as it fades, and what is
  *  below moves with it. Leaving is shorter. Use as in:reveal and
  *  out:reveal={{ leaving: true }}. */
-export function reveal(node: Element, { leaving = false } = {}): TransitionConfig {
-	const opts = timing(leaving);
-	const open = slide(node, opts);
-	return { ...opts, css: (t, u) => `${open.css?.(t, u) ?? ''}; opacity: ${t}` };
-}
+export const reveal = (node: Element, { leaving = false } = {}) => opening(node, leaving, 'y');
+
+/** A panel at the side: it opens in width as it fades, and what is beside
+ *  it gives way. */
+export const pane = (node: Element, { leaving = false } = {}) => opening(node, leaving, 'x');
 
 /** One content giving way to another in the same place. */
 export const swap = (node: Element, { leaving = false } = {}) => fade(node, timing(leaving));

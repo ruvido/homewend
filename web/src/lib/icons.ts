@@ -38,6 +38,7 @@ import hdd from 'bootstrap-icons/icons/hdd.svg?raw';
 import hourglassSplit from 'bootstrap-icons/icons/hourglass-split.svg?raw';
 import houseDown from 'bootstrap-icons/icons/house-down.svg?raw';
 import images from 'bootstrap-icons/icons/images.svg?raw';
+import infoCircle from 'bootstrap-icons/icons/info-circle.svg?raw';
 import key from 'bootstrap-icons/icons/key.svg?raw';
 import listCheck from 'bootstrap-icons/icons/list-check.svg?raw';
 import moon from 'bootstrap-icons/icons/moon.svg?raw';
@@ -88,6 +89,7 @@ const raw = {
 	'folder-fill': folderFill,
 	'folder2-open': folder2Open,
 	'gear': gear,
+	'info-circle': infoCircle,
 	'hdd': hdd,
 	'hourglass-split': hourglassSplit,
 	'house-down': houseDown,

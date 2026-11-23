@@ -45,9 +45,22 @@ func lockLibrary(root string) (unlock func(), err error) {
 	return func() { unlockFile(file); file.Close() }, nil
 }
 
-// waitLibrary waits for the library's turn, asking again every few seconds,
-// or for ctx to end. A download in the background waits for an import to
-// finish placing rather than failing.
+// takeLibrary takes the library's turn, waiting a moment for a run that
+// holds it for one photo: a date read from a name, a phone's photo placed.
+// One that holds it longer is busy.
+func takeLibrary(ctx context.Context, root string) (unlock func(), err error) {
+	soon, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	unlock, err = waitLibrary(soon, root, nil)
+	if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+		err = ErrLibraryBusy
+	}
+	return unlock, err
+}
+
+// waitLibrary waits for the library's turn, asking again every quarter of a
+// second, or for ctx to end. A download in the background waits for an
+// import to finish placing rather than failing.
 func waitLibrary(ctx context.Context, root string, emit progress.Func) (unlock func(), err error) {
 	for said := false; ; said = true {
 		unlock, err := lockLibrary(root)
@@ -61,7 +74,7 @@ func waitLibrary(ctx context.Context, root string, emit progress.Func) (unlock f
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
 }

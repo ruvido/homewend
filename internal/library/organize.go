@@ -157,7 +157,7 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			}
 			// Another profile's photo: a second name for it in this one.
 			if !filedIn(relative, opt.Profile) {
-				record, err := catalog.photo(hash)
+				record, err := catalog.Photo(hash)
 				if err != nil {
 					return result, err
 				}

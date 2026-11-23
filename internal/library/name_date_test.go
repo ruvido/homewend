@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +41,9 @@ func TestTheDateInAName(t *testing.T) {
 		{"photo_12@26-08-2026.jpg", at(2026, 8, 26, 0, 0, 0), FromNameDay},
 		// 1785963041597 ms is 2026-08-05 20:50:41 UTC: 22:50:41 in Rome.
 		{"1785963041597.png", at(2026, 8, 5, 22, 50, 41), FromName},
+		{"1785963041597-2.png", at(2026, 8, 5, 22, 50, 41), FromName},
+		{"WhatsApp Image 2026-08-26 at 15.21.50.jpeg", at(2026, 8, 26, 15, 21, 50), FromName},
+		{"WhatsApp Image 2026-08-26 at 15.21.50-2.jpeg", at(2026, 8, 26, 15, 21, 50), FromName},
 		{"FB_IMG_1785963041597.jpg", at(2026, 8, 5, 22, 50, 41), FromName},
 	} {
 		when, source, ok := nameDate(c.name)
@@ -101,19 +105,35 @@ func TestPhotosAlreadyInWithNoDateTakeTheOneInTheirName(t *testing.T) {
 		Taken: time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed, Origin: OriginCamera}); err != nil {
 		t.Fatal(err)
 	}
+	// Google's year stands against a name that says another.
+	write(t, root, "ron/2018/unknown-month/IMG_20210312_101558.jpg", []byte("other year"))
+	if err := catalog.Put(Photo{Hash: "other", Path: "ron/2018/unknown-month/IMG_20210312_101558.jpg", Name: "IMG_20210312_101558.jpg",
+		Taken: time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed, Origin: OriginCamera}); err != nil {
+		t.Fatal(err)
+	}
+	// One that cannot move is said, and the others still move.
+	write(t, root, "ron/undated/20230505_101010.jpg", []byte("stuck"))
+	if err := catalog.Put(Photo{Hash: "stuck", Path: "ron/undated/20230505_101010.jpg", Name: "20230505_101010.jpg", Source: NoDate, Kind: DateUnknown}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "ron/2023", []byte("a file where the year's folder goes"))
 	// One whose file is gone stays as it is.
 	if err := catalog.Put(Photo{Hash: "gone", Path: "ron/undated/20240101_101010.jpg", Name: "20240101_101010.jpg", Source: NoDate, Kind: DateUnknown}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := DateByName(root, catalog); err != nil {
-		t.Fatal(err)
+	turns := 0
+	err = DateByName(root, catalog, func() (func(), error) { turns++; return func() { turns-- }, nil })
+	if err == nil || !strings.Contains(err.Error(), "20230505_101010.jpg") || turns != 0 {
+		t.Fatalf("%v, %d turns kept; want the stuck one said", err, turns)
 	}
+	mustExist(t, filepath.Join(root, "ron", "2018", "unknown-month", "IMG_20210312_101558.jpg"))
+	mustExist(t, filepath.Join(root, "ron", "undated", "20230505_101010.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "2026", "08", "20260826_152150.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "2025", "01", "IMG-20250101-WA0003.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "2019", "03", "IMG_20190312_101558.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "undated", "IMG_1922.jpg"))
-	if gone, err := catalog.photo("gone"); err != nil || gone.Source != NoDate {
+	if gone, err := catalog.Photo("gone"); err != nil || gone.Source != NoDate {
 		t.Errorf("the one whose file is gone: %s, %v", gone.Source, err)
 	}
 }
@@ -134,5 +154,17 @@ func TestThePlanFilesANameDateAsTheCopyWill(t *testing.T) {
 	}
 	if len(plan.Years) != 1 || plan.Years[0].Year != "2026" {
 		t.Errorf("years %+v, want 2026", plan.Years)
+	}
+}
+
+func TestGooglesYearStandsAgainstTheName(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "Photos from 2019/IMG_20210312_101558.jpg", []byte("no date inside"))
+	path := filepath.Join(dir, "Photos from 2019", "IMG_20210312_101558.jpg")
+	if c := DateOf(path, "Photos from 2019"); c.Source != FromFolder || c.When.Year() != 2019 {
+		t.Errorf("%s %v, want Google's 2019", c.Source, c.When)
+	}
+	if c := DateOf(path, "Photos from 2021"); c.Source != FromName || c.When.Month() != 3 {
+		t.Errorf("%s %v, want the name's March", c.Source, c.When)
 	}
 }

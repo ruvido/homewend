@@ -192,7 +192,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		var was Photo
 		var keptOut bool
 		if held.Deleted {
-			if was, err = catalog.photo(hash); err != nil {
+			if was, err = catalog.Photo(hash); err != nil {
 				return done, err
 			}
 			if keptOut, err = catalog.keptOut(hash); err != nil {
@@ -230,7 +230,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		case "raw":
 			done.Raw += placed.Placed
 		}
-		filed, err := catalog.photo(hash)
+		filed, err := catalog.Photo(hash)
 		if err != nil {
 			return done, err
 		}

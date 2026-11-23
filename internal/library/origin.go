@@ -70,6 +70,8 @@ var names = []struct {
 	origin  Origin
 }{
 	{regexp.MustCompile(`(?i)^(IMG|VID|AUD|PTT|STK|DOC)-(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})-WA\d+`), OriginWhatsApp},
+	// WhatsApp on a computer: "WhatsApp Image 2026-08-26 at 15.21.50.jpeg".
+	{regexp.MustCompile(`(?i)^WhatsApp (Image|Video) (?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2}) at (?P<H>\d{2})\.(?P<M>\d{2})\.(?P<S>\d{2})`), OriginWhatsApp},
 	{regexp.MustCompile(`(?i)^signal-(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})(?:-(?P<H>\d{2})-?(?P<M>\d{2})-?(?P<S>\d{2}))?`), OriginSignal},
 	{regexp.MustCompile(`(?i)^(photo|video)_(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})_(?:(?P<H>\d{2})-(?P<M>\d{2})-(?P<S>\d{2}))?`), OriginTelegram},
 	{regexp.MustCompile(`(?i)^(photo|video)_\d+@(?P<d>\d{2})-(?P<m>\d{2})-(?P<y>\d{4})`), OriginTelegram},

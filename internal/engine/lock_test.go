@@ -49,3 +49,20 @@ func TestADownloadWaitsForItsTurn(t *testing.T) {
 	}
 	turn()
 }
+
+func TestAMomentsTurnIsWaitedFor(t *testing.T) {
+	root := t.TempDir()
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(300*time.Millisecond, unlock)
+	mine, err := takeLibrary(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mine()
+	if _, err := takeLibrary(context.Background(), root); !errors.Is(err, ErrLibraryBusy) {
+		t.Errorf("held longer: %v, want ErrLibraryBusy", err)
+	}
+}
