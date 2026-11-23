@@ -125,15 +125,14 @@ func Photos(s Settings, year, album string, noDate bool, view string, limit int)
 		return nil, err
 	}
 	shown := shownAddresses(accounts, s.Hidden)
-	all := missingIn(root)
-	missing.Lock()
-	seen := missing.seen
-	missing.Unlock()
-	// The view waits for the first look: none yet is not none missing.
-	if view == ViewMissing && !seen {
-		if all, err = lookForMissing(root); err != nil {
+	var all []library.Gone
+	if view == ViewMissing {
+		// It waits for the first look: none yet is not none missing.
+		if all, err = firstMissing(root); err != nil {
 			return nil, err
 		}
+	} else {
+		all = missingIn(root)
 	}
 	gone, err := shownOf(all, c, shown)
 	if err != nil {
@@ -226,8 +225,27 @@ func onLibrary(root string) {
 func lookForMissing(root string) ([]library.Gone, error) {
 	looking.Lock()
 	defer looking.Unlock()
+	return look(root)
+}
+
+// firstMissing is missingIn, once a first look of root has ended.
+func firstMissing(root string) ([]library.Gone, error) {
+	looking.Lock()
+	defer looking.Unlock()
 	missing.Lock()
 	onLibrary(root)
+	seen, list := missing.seen, missing.list
+	missing.Unlock()
+	if seen {
+		return list, nil
+	}
+	return look(root)
+}
+
+// look is lookForMissing, looking held. One whose library is no longer the
+// chosen one changes nothing.
+func look(root string) ([]library.Gone, error) {
+	missing.Lock()
 	missing.taken = map[string]bool{}
 	missing.Unlock()
 	list, err := library.Missing(catalogPath(root), root)
@@ -347,8 +365,13 @@ func Mark(profile string, state library.State, hashes []string, on bool) ([]stri
 	defer c.Close()
 	done, err := c.Mark(state, hashes, profile, on)
 	// A photo in the Trash is not missing.
-	if state == library.Trashed {
+	if state == library.Trashed && on {
 		offMissing(done)
+	} else if state == library.Trashed {
+		// One restored may be missing: looked at again.
+		missing.Lock()
+		missing.at = time.Time{}
+		missing.Unlock()
 	}
 	return done, err
 }

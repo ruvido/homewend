@@ -153,6 +153,7 @@ func TestTheMissingListIsThisLibrarysNow(t *testing.T) {
 	for _, h := range []string{"a", "b"} {
 		c.Put(library.Photo{Hash: h, Path: h + ".jpg", Name: h + ".jpg"})
 	}
+	missingIn(root)
 	if list, err := lookForMissing(root); err != nil || len(list) != 2 {
 		t.Fatalf("%v, %v", list, err)
 	}
