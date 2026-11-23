@@ -12,3 +12,8 @@ PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License along
 with this program. If not, see <https://www.gnu.org/licenses/>.
+
+The rules that pair a Takeout's photos with their metadata files follow
+immich-go (https://github.com/simulot/immich-go, AGPL-3.0), whose test names
+are used in internal/library/sidecar_test.go, and GooglePhotosTakeoutHelper
+(https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper, Apache-2.0).

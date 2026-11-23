@@ -180,7 +180,7 @@ func TestModificationTimeIsNeverUsedAsADate(t *testing.T) {
 	src := t.TempDir()
 	write(t, src, "Untitled/no-metadata.png", []byte("mtime is today, the photo is not"))
 
-	capture := DateOf(filepath.Join(src, "Untitled", "no-metadata.png"), "Untitled")
+	capture := DateOf(filepath.Join(src, "Untitled", "no-metadata.png"), "Untitled", "")
 	if capture.Source != NoDate {
 		t.Errorf("date source %q, want %q — mtime must not be trusted", capture.Source, NoDate)
 	}

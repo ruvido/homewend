@@ -105,6 +105,8 @@ type Item struct {
 	// sidecar holds what the photo itself often does not: the description,
 	// the place, the people. It is kept, never merged into the photo.
 	Sidecar string
+	// Shared: the sidecar is another photo's. This one's own may still arrive.
+	Shared bool
 }
 
 // Organize moves items into a date layout under the profile's folder, and
@@ -286,8 +288,9 @@ func destination(src, root string, capture Capture, opt Options, catalog *Catalo
 	}
 }
 
-// place moves a photo to home, and its sidecar to the same path under the
-// library's metadata folder, out of sight but beside nothing else:
+// place moves a photo to home, and gives its sidecar the same path under the
+// library's metadata folder: a second name of it, as a photo of a later part
+// may share it, out of sight but beside nothing else:
 //
 //	<root>/2019/07/IMG_1234.jpg
 //	<root>/.homewend/metadata/2019/07/IMG_1234.jpg.json
@@ -298,7 +301,19 @@ func place(item Item, home, root string) error {
 	if item.Sidecar == "" {
 		return nil
 	}
-	return move(item.Sidecar, filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json"))
+	kept := filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")
+	if exists(kept) {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(kept), 0o755); err != nil {
+		return err
+	}
+	if os.Link(item.Sidecar, kept) == nil {
+		return nil
+	}
+	// A disk with no hard links.
+	_, err := copyFile(item.Sidecar, kept, nil)
+	return err
 }
 
 // move renames src to dst. Both are on the library's filesystem, so this never

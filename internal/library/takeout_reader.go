@@ -15,24 +15,30 @@ import (
 // Everything that is Takeout's own convention lives here and not in the
 // organiser: the sidecar JSON, "Photos from 2019" being a year and not an
 // album, every other folder being an album.
-func ReadTakeout(dir string) ([]Item, error) {
-	files, err := mediaFiles(dir)
+func ReadTakeout(root string) ([]Item, error) {
+	files, err := mediaFiles(root)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]Item, 0, len(files))
-	taken := map[string]bool{} // a sidecar goes with one photo
+	folders := map[string][]string{}
 	for _, file := range files {
-		sidecar := findSidecar(file)
-		if taken[sidecar] {
-			sidecar = ""
-		}
-		taken[sidecar] = true
+		dir := filepath.Dir(file)
+		folders[dir] = append(folders[dir], filepath.Base(file))
+	}
+	sidecars := map[string]map[string]pairing{}
+	for dir, media := range folders {
+		sidecars[dir] = sidecarsOf(dir, media)
+	}
+	items := make([]Item, 0, len(files))
+	for _, file := range files {
+		dir := filepath.Dir(file)
+		s := sidecars[dir][filepath.Base(file)]
 		items = append(items, Item{
 			Path:    file,
-			Capture: DateOf(file, filepath.Base(filepath.Dir(file))),
-			Album:   albumOf(dir, file),
-			Sidecar: sidecar,
+			Capture: DateOf(file, filepath.Base(dir), s.path),
+			Album:   albumOf(root, file),
+			Sidecar: s.path,
+			Shared:  s.shared,
 		})
 	}
 	return items, nil

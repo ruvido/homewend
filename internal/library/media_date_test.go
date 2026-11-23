@@ -86,7 +86,7 @@ func TestNewYearsEveStaysInItsYear(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer catalog.Close()
-	items := []Item{{Path: filepath.Join(src, "DCIM", "IMG_1.JPG"), Capture: DateOf(filepath.Join(src, "DCIM", "IMG_1.JPG"), "DCIM")}}
+	items := []Item{{Path: filepath.Join(src, "DCIM", "IMG_1.JPG"), Capture: DateOf(filepath.Join(src, "DCIM", "IMG_1.JPG"), "DCIM", "")}}
 	if _, err := Organize(items, out, catalog, Options{Location: rome}, nil); err != nil {
 		t.Fatal(err)
 	}

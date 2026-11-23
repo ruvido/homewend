@@ -5,7 +5,6 @@ package library
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -85,10 +84,14 @@ func asClock(t time.Time) time.Time {
 // we downloaded carries 24 September 2026 — so a program that trusts mtime files
 // a whole life of photographs under the day it downloaded them. It is the most
 // obvious source and the only one that is certainly wrong.
-func DateOf(mediaPath string, folder string) Capture {
-	taken, packageName, ok := sidecarInfo(mediaPath)
-	origin := OriginOf(packageName, filepath.Base(mediaPath))
-	if ok {
+func DateOf(mediaPath, folder, sidecar string) Capture {
+	var note sidecarNote
+	if sidecar != "" {
+		// One that cannot be read says nothing; the file still may.
+		note, _ = readSidecar(sidecar)
+	}
+	origin := OriginOf(note.AppSource.AndroidPackageName, filepath.Base(mediaPath))
+	if taken, ok := note.taken(); ok {
 		return Capture{When: taken, Source: FromSidecar, Origin: origin}
 	}
 	if when, source, ok := cameraDate(mediaPath); ok {
@@ -119,44 +122,6 @@ func dateNamed(c Capture, name string) (Capture, bool) {
 	}
 	c.When, c.Source = when, source
 	return c, true
-}
-
-// sidecarInfo is what a media file's sidecar says: its own, or the one it
-// shares (sharedSidecars).
-func sidecarInfo(mediaPath string) (time.Time, string, bool) {
-	for _, candidate := range append(ownSidecars(mediaPath), sharedSidecars(mediaPath)...) {
-		file, err := os.Open(candidate)
-		if err != nil {
-			continue
-		}
-		var meta struct {
-			PhotoTakenTime struct {
-				Timestamp string `json:"timestamp"`
-			} `json:"photoTakenTime"`
-			CreationTime struct {
-				Timestamp string `json:"timestamp"`
-			} `json:"creationTime"`
-			// The app that produced the file, as an Android package name.
-			// Google's own answer to "where did this come from", and far
-			// better than reading it off the filename.
-			AppSource struct {
-				AndroidPackageName string `json:"androidPackageName"`
-			} `json:"appSource"`
-		}
-		err = json.NewDecoder(file).Decode(&meta)
-		file.Close()
-		if err != nil {
-			continue
-		}
-		// photoTakenTime is when the shutter fired; creationTime is when it
-		// reached Google, which for a scanned photograph is decades later.
-		// Only the first is a capture date. A scan of before 1970 is below
-		// zero; zero and 1904 are clocks nobody set.
-		if seconds, err := strconv.ParseInt(meta.PhotoTakenTime.Timestamp, 10, 64); err == nil && seconds != 0 && seconds != year1904 {
-			return time.Unix(seconds, 0).UTC(), meta.AppSource.AndroidPackageName, true
-		}
-	}
-	return time.Time{}, "", false
 }
 
 // cameraDate is when the camera says the photo or video was taken, and

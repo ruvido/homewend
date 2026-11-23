@@ -170,10 +170,10 @@ func TestGooglesYearStandsAgainstTheName(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "Photos from 2019/IMG_20210312_101558.jpg", []byte("no date inside"))
 	path := filepath.Join(dir, "Photos from 2019", "IMG_20210312_101558.jpg")
-	if c := DateOf(path, "Photos from 2019"); c.Source != FromFolder || c.When.Year() != 2019 {
+	if c := DateOf(path, "Photos from 2019", ""); c.Source != FromFolder || c.When.Year() != 2019 {
 		t.Errorf("%s %v, want Google's 2019", c.Source, c.When)
 	}
-	if c := DateOf(path, "Photos from 2021"); c.Source != FromName || c.When.Month() != 3 {
+	if c := DateOf(path, "Photos from 2021", ""); c.Source != FromName || c.When.Month() != 3 {
 		t.Errorf("%s %v, want the name's March", c.Source, c.When)
 	}
 }

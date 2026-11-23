@@ -25,7 +25,7 @@
 		} catch (e) {
 			// An import holds the library, or its disk went away: said, the
 			// dialog stays to try again.
-			failed = e instanceof ApiError && e.status === 409 ? text.takeOutBusy : e instanceof ApiError && e.status === 410 ? text.libraryNotAnswering : text.takeOutFailed;
+			failed = e instanceof ApiError && e.status === 409 ? text.libraryBusy : e instanceof ApiError && e.status === 410 ? text.libraryNotAnswering : text.takeOutFailed;
 		} finally {
 			busy = false;
 		}

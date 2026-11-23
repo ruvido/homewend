@@ -65,13 +65,12 @@ func TestASidecarIsFoundByItsName(t *testing.T) {
 		{"IMG_12.jpg", "IMG_1.jpg.json", none},
 	} {
 		dir := t.TempDir()
-		media := filepath.Join(dir, c.media)
 		write(t, dir, c.sidecar, []byte(`{"photoTakenTime":{"timestamp":"1563120000"}}`))
 		got := none
-		if findSidecar(media) != "" {
-			got = own
-		} else if _, _, ok := sidecarInfo(media); ok {
-			got = shared
+		if s, ok := sidecarsOf(dir, []string{c.media})[c.media]; ok {
+			if got = own; s.shared {
+				got = shared
+			}
 		}
 		if got != c.want {
 			t.Errorf("%s with %s: %q, want %q", c.media, c.sidecar, got, c.want)
@@ -89,31 +88,115 @@ func TestAPhotoAndItsEditedCopyShareADate(t *testing.T) {
 	if err != nil || len(items) != 2 {
 		t.Fatalf("%d items, %v", len(items), err)
 	}
-	moved := 0
+	kept := 0
 	for _, item := range items {
 		if item.Capture.Source != FromSidecar {
 			t.Errorf("%s: %s, want the sidecar's date", item.Path, item.Capture.Source)
 		}
-		if item.Sidecar != "" {
-			moved++
+		if item.Shared {
+			kept++
 		}
 	}
-	if moved != 1 {
-		t.Errorf("the sidecar goes with %d photos, want 1", moved)
+	if kept != 1 {
+		t.Errorf("%d share the sidecar, want the edited copy alone", kept)
+	}
+}
+
+// Two files that could claim one sidecar, as a folder holds them.
+func TestAPhotoNeverTakesAnothersDate(t *testing.T) {
+	const year2001, year2017 = "978350400", "1483272000"
+	note := func(title, at string) []byte {
+		return []byte(`{"title":"` + title + `","photoTakenTime":{"timestamp":"` + at + `"}}`)
+	}
+	long := "Screenshot_20231027_123303_Facebook_xxxxxxxxxx"
+	for name, c := range map[string]struct {
+		sidecars map[string][]byte
+		want     map[string]string // media: its sidecar, "~" before a shared one
+	}{
+		"a repeated name cut short": {
+			map[string][]byte{
+				"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json":    note("original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P.jpg", year2001),
+				"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_(1).json": note("original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P.jpg", year2017),
+			},
+			map[string]string{
+				"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P.jpg":    "original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json",
+				"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P(1).jpg": "original_1d4caa6f-16c6-4c3d-901b-9387de10e528_(1).json",
+			},
+		},
+		"two long names alike": {
+			map[string][]byte{long + ".json": note(long+"A.jpg", year2001)},
+			map[string]string{long + "A.jpg": long + ".json", long + "B.jpg": ""},
+		},
+		"a cut name, its edited copy and its video": {
+			map[string][]byte{"PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGIN.json": note("PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGINAL.jpg", year2001)},
+			map[string]string{
+				"PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGINA.jpg":        "PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGIN.json",
+				"PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGINA-edited.jpg": "~PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGIN.json",
+				"PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGINA.mp4":        "~PXL_20230809_203449253.LONG_EXPOSURE-02.ORIGIN.json",
+			},
+		},
+		"a clip with its own, undated": {
+			map[string][]byte{"DSC_0100.JPG.json": note("DSC_0100.JPG", year2001), "DSC_0100.MOV.json": note("DSC_0100.MOV", "0")},
+			map[string]string{"DSC_0100.JPG": "DSC_0100.JPG.json", "DSC_0100.MOV": "DSC_0100.MOV.json"},
+		},
+		"the original filed already": {
+			map[string][]byte{"IMG_4471.jpg.json": note("IMG_4471.jpg", year2001)},
+			map[string]string{"IMG_4471-modificato.jpg": "~IMG_4471.jpg.json"},
+		},
+	} {
+		dir := t.TempDir()
+		var media []string
+		for n, b := range c.sidecars {
+			write(t, dir, n, b)
+		}
+		for m := range c.want {
+			media = append(media, m)
+		}
+		found := sidecarsOf(dir, media)
+		for m, want := range c.want {
+			got := ""
+			if s, ok := found[m]; ok {
+				got = filepath.Base(s.path)
+				if s.shared {
+					got = "~" + got
+				}
+			}
+			if got != want {
+				t.Errorf("%s: %s has %q, want %q", name, m, got, want)
+			}
+		}
 	}
 }
 
 func TestAScanOfBefore1970KeepsItsDate(t *testing.T) {
-	dir := t.TempDir()
-	for name, at := range map[string]string{"scan.jpg": "-473385600", "clock.jpg": "-2082844800", "zero.jpg": "0"} {
-		write(t, dir, name+".json", []byte(`{"photoTakenTime":{"timestamp":"`+at+`"}}`))
+	src, root := t.TempDir(), t.TempDir()
+	year := "Takeout/Google Photos/Photos from 1955"
+	write(t, src, year+"/scan.jpg", []byte("a scan"))
+	write(t, src, year+"/scan.jpg.json", []byte(`{"photoTakenTime":{"timestamp":"-473385600"}}`))
+	items, err := ReadTakeout(src)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if when, _, ok := sidecarInfo(filepath.Join(dir, "scan.jpg")); !ok || when != time.Date(1955, 1, 1, 0, 0, 0, 0, time.UTC) {
-		t.Errorf("%v %v, want 1955", when, ok)
+	catalog, err := OpenCatalog(filepath.Join(root, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, name := range []string{"clock.jpg", "zero.jpg"} {
-		if when, _, ok := sidecarInfo(filepath.Join(dir, name)); ok {
-			t.Errorf("%s dated %v", name, when)
+	defer catalog.Close()
+	if _, err := Organize(items, root, catalog, Options{Location: time.UTC, Profile: "ron"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	mustExist(t, filepath.Join(root, "ron", "1955", "01", "scan.jpg"))
+	// The sidecar is kept in the library, and where a later part finds it.
+	mustExist(t, filepath.Join(root, WorkDir, "metadata", "ron", "1955", "01", "scan.jpg.json"))
+	mustExist(t, filepath.Join(src, year, "scan.jpg.json"))
+	if all, err := catalog.Page(Filter{Year: "1955"}); err != nil || len(all) != 1 {
+		t.Errorf("%d photos of 1955, %v", len(all), err)
+	}
+	for _, at := range []string{"0", "-2082844800", "-99999999999", "-62135596800", "99999999999999", ""} {
+		var n sidecarNote
+		n.PhotoTakenTime.Timestamp = at
+		if when, ok := n.taken(); ok {
+			t.Errorf("%q dated %v", at, when)
 		}
 	}
 }

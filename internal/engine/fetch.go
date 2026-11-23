@@ -165,7 +165,7 @@ func (f Fetch) Run(ctx context.Context, g download.Getter, emit progress.Func) (
 		if !all {
 			ready := items[:0:0]
 			for _, item := range items {
-				if item.Capture.Source == library.FromSidecar {
+				if item.Capture.Source == library.FromSidecar && !item.Shared {
 					ready = append(ready, item)
 				} else {
 					waiting = append(waiting, item)
