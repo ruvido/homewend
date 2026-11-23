@@ -94,14 +94,13 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 	})
 	mux.HandleFunc("GET /api/photos", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		offset, _ := strconv.Atoi(q.Get("offset"))
 		limit, _ := strconv.Atoi(q.Get("limit"))
 		s, err := engine.LoadSettings()
 		if err != nil {
 			reply(w, nil, err)
 			return
 		}
-		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", q.Get("view"), offset, limit)
+		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", q.Get("view"), limit)
 		reply(w, list, err)
 	})
 	// The photos whose file is gone, taken out of the library: one by its

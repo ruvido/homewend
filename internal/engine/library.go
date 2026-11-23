@@ -5,6 +5,7 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -65,13 +66,15 @@ func catalogPath(dir string) string {
 }
 
 // LibraryChanges moves each time the chosen library's catalog changes,
-// whoever changed it (library.Changes).
+// whoever changed it (library.Changes), or a file of it is found gone or back.
 func LibraryChanges() (string, error) {
 	root, err := DefaultLibrary()
 	if err != nil || root == "" {
 		return "", err
 	}
-	return library.Changes(catalogPath(root)), nil
+	missingMu.Lock()
+	defer missingMu.Unlock()
+	return fmt.Sprint(library.Changes(catalogPath(root)), missingMoves), nil
 }
 
 // LibraryOverview reads the catalog of every shown account. An account with no

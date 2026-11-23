@@ -26,10 +26,11 @@
 	const place = $derived(placeOf(page.url));
 	// The place's photos, and those the search keeps of them: the grid, the
 	// viewer and the selection know only these.
-	let list = $state<GridPhoto[]>([]);
+	// Raw: a hundred thousand photos are replaced whole, never each watched.
+	let list = $state.raw<GridPhoto[]>([]);
 	let loaded = $state(false);
-	let filter = $state(noFilter);
-	// Counted once the list is whole, not at each chunk.
+	let filter = $state.raw({ ...noFilter });
+	// Counted once the list is whole.
 	const counts = $derived(loaded ? countBadges(list) : {});
 	const badges = $derived(badgesOf(counts, filter.badges));
 	const photos = $derived(search(list, filter, badges));
@@ -88,8 +89,14 @@
 	}
 	const picked = $derived(photos.filter((p) => selected.has(p.hash)));
 	async function turnPicked() {
-		for (const p of picked) p.turn = (await turnLeft(p.hash)).turn;
+		const turns = new Map<string, number>();
+		try {
+			for (const p of picked) turns.set(p.hash, (await turnLeft(p.hash)).turn);
+		} finally {
+			turned(turns);
+		}
 	}
+	const turned = (turns: Map<string, number>) => (list = list.map((p) => (turns.has(p.hash) ? { ...p, turn: turns.get(p.hash) } : p)));
 	// Archive and Delete (Q1, Q6), Unarchive for photos all archived (Q4,
 	// and in an album); in the Trash, Restore (Q5). The photos not on the
 	// disk have none. Rotate and Change date… are not offered in the
@@ -168,6 +175,11 @@
 	// The library changed under the page (a phone's backup, a download): the
 	// list is read again where it is, nothing picked let go, the viewer kept
 	// on its photo. One change during a reading is read after it.
+	// While it changes without pause (an import), reading rests REST times as
+	// long as it took: a library takes no more than a fifth of the machine.
+	const REST = 4;
+	let restUntil = 0;
+	let resting = false;
 	let live = $state(0);
 	let reading = false;
 	let stale = false;
@@ -175,12 +187,23 @@
 	$effect(() => {
 		void app.libraryMoved;
 		if (first) return void (first = false);
-		untrack(() => (reading ? (stale = true) : live++));
+		untrack(moved);
 	});
+	function moved() {
+		if (reading) stale = true;
+		else if (!resting) {
+			resting = true;
+			setTimeout(() => {
+				resting = false;
+				if (reading) stale = true;
+				else live++;
+			}, Math.max(0, restUntil - performance.now()));
+		}
+	}
 
-	// The whole list, a chunk at a time: the grid needs every photo's month to
-	// lay itself out, and the first chunk shows while the rest arrives.
-	const CHUNK = 5000;
+	// The first photos, a screen and more, show while the whole list arrives:
+	// the grid needs every photo's month to lay itself out.
+	const FIRST = 500;
 	// The place whose photos are shown, to tell a new place from a reload.
 	let shown = '';
 	$effect(() => {
@@ -191,10 +214,10 @@
 		// Another place starts empty, at its top: its title over the last
 		// place's photos would say a count, a take-out, a photo not its own.
 		// The same place loaded again keeps its photos until all have come:
-		// a first chunk alone would shorten the grid under the finger.
+		// the first alone would shorten the grid under the finger.
 		const here = urlOf(p);
 		const again = here === shown;
-		if (!again) ((list = []), (filter = noFilter), (shown = here), (loaded = false));
+		if (!again) ((list = []), (filter = { ...noFilter }), (shown = here), (loaded = false));
 		reading = true;
 		(async () => {
 			const q =
@@ -208,26 +231,30 @@
 							? { view: p.kind }
 							: {};
 			try {
-				let got: GridPhoto[] = [];
-				for (let offset = 0; !stopped; offset += CHUNK) {
-					const chunk = await getPhotos({ ...q, offset, limit: CHUNK });
+				const began = performance.now();
+				let got: GridPhoto[] | undefined;
+				if (!again) {
+					const start = await getPhotos({ ...q, limit: FIRST });
 					if (stopped) return;
-					got = offset === 0 ? chunk : got.concat(chunk);
-					if (!again) list = got;
-					if (chunk.length < CHUNK) break;
+					list = start;
+					if (start.length < FIRST) got = start;
 				}
+				got ??= await getPhotos(q);
+				if (stopped) return;
+				const now = performance.now();
+				restUntil = now + REST * (now - began);
 				// The photo in the viewer, found again in the new list.
 				const viewing = open !== null ? photos[open]?.hash : undefined;
 				list = got;
 				if (viewing && !reopen) reopen = viewing;
 			} catch {
 				// No answer: nothing shown is better than another list.
-				if (!stopped) ((list = []), (reading = false));
+				if (!stopped) ((list = []), (reading = stale = false));
 				return;
 			}
 			loaded = true;
 			reading = false;
-			if (stale) ((stale = false), live++);
+			if (stale) ((stale = false), moved());
 			if (reopen) {
 				const i = photos.findIndex((x) => x.hash === reopen);
 				open = i >= 0 ? i : null;
@@ -293,7 +320,7 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, hash) => act(a, [hash])} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
+	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, hash) => act(a, [hash])} onturned={(hash, turn) => turned(new Map([[hash, turn]]))} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
 	{#if asking}
 		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
 		<Dialog title={text.trashAsk(asking.hashes.length)}>

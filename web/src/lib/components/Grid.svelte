@@ -73,18 +73,18 @@
 		new Intl.DateTimeFormat('en', withYear ? { month: 'long', year: 'numeric', timeZone: 'UTC' } : { month: 'long', timeZone: 'UTC' })
 	);
 
-	function monthOf(p: GridPhoto): string {
-		return p.taken ? monthName.format(new Date(p.taken)) : text.noDate;
-	}
+	// Its month, "2026-11", as its date begins: named once per heading.
+	const monthOf = (p: GridPhoto) => p.taken?.slice(0, 7) ?? '';
 
 	const layout = $derived.by(() => {
 		const rows: Row[] = [];
 		let top = 0;
 		let i = 0;
 		while (i < photos.length) {
-			const label = monthOf(photos[i]);
+			const month = monthOf(photos[i]);
+			const label = month ? monthName.format(new Date(photos[i].taken!)) : text.noDate;
 			let j = i;
-			while (j < photos.length && monthOf(photos[j]) === label) j++;
+			while (j < photos.length && monthOf(photos[j]) === month) j++;
 			rows.push({ kind: 'month', label, count: j - i, top });
 			top += MONTH;
 			for (let k = i; k < j; k += cols) {

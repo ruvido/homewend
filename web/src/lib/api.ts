@@ -90,8 +90,9 @@ export interface GridPhoto {
 	origin?: 'whatsapp' | 'telegram' | 'signal' | 'instagram' | 'app' | 'screenshot';
 }
 
-export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; view?: View; offset: number; limit: number }) {
-	const p = new URLSearchParams({ offset: String(q.offset), limit: String(q.limit) });
+export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; view?: View; /** The first of them; all when not given. */ limit?: number }) {
+	const p = new URLSearchParams();
+	if (q.limit) p.set('limit', String(q.limit));
 	if (q.year) p.set('year', q.year);
 	if (q.album) p.set('album', q.album);
 	if (q.noDate) p.set('nodate', '1');

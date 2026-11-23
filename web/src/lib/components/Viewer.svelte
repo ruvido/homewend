@@ -21,6 +21,7 @@
 		held = false,
 		failed = '',
 		onact,
+		onturned,
 		ontakenout,
 		ondated
 	}: {
@@ -35,6 +36,8 @@
 		/** What went wrong with the last act. */
 		failed?: string;
 		onact?: (a: MarkAct, hash: string) => void;
+		/** Turned: how many quarter turns it has now. */
+		onturned?: (hash: string, turn: number) => void;
 		ontakenout?: () => void;
 		ondated?: (hash: string) => void;
 	} = $props();
@@ -81,7 +84,7 @@
 		if (!p) return;
 		const photo = p;
 		zoomed = asked = null;
-		photo.turn = (await turnLeft(photo.hash)).turn;
+		onturned?.(photo.hash, (await turnLeft(photo.hash)).turn);
 	}
 	let pan = $state<HTMLDivElement>();
 	let asked = $state<{ hash: string; fx: number; fy: number } | null>(null);

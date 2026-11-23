@@ -91,7 +91,7 @@
 			{#each picked as b (b.id)}<span in:swap><AppBadge id={b.id} label={b.label} icon={b.icon} on /></span>{/each}
 		{/if}
 		{#if open || !isFiltering(filter)}<span in:swap>{text.search}</span>{/if}
-		{#if isFiltering(filter)}<button class="clear" in:swap onclick={() => (filter = noFilter)}>{text.clearSearch}</button>{/if}
+		{#if isFiltering(filter)}<button class="clear" in:swap onclick={() => (filter = { ...noFilter })}>{text.clearSearch}</button>{/if}
 	</div>
 	{#if open}
 		<div in:reveal out:reveal={{ leaving: true }}>

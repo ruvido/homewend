@@ -184,7 +184,7 @@ func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 		t.Fatalf("trashed %v %v", done, err)
 	}
 	count := func(view string) int {
-		list, err := Photos(Settings{}, "", "", false, view, 0, 0)
+		list, err := Photos(Settings{}, "", "", false, view, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

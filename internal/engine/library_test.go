@@ -131,7 +131,9 @@ func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
 		{ID: "google/sam@example.com", Email: "sam@example.com", Profile: t.TempDir()},
 		{ID: "google/bob@example.com", Email: "bob@example.com", Profile: t.TempDir()},
 	}
-	missingAt = time.Time{} // the first look, with none gone, is not kept
+	if err := lookForMissing(root); err != nil {
+		t.Fatal(err)
+	}
 	o, err := overview(root, accounts, []string{"google/bob@example.com"}, "")
 	if err != nil || o.Missing[""] != 1 {
 		t.Errorf("missing %v, %v; want sam's only", o.Missing, err)
