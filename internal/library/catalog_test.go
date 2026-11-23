@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -289,7 +290,9 @@ func TestChangesFollowEveryWriter(t *testing.T) {
 	step("a photo archived by another catalog", true)
 
 	c.Close()
-	step("the last one closed", true) // its -wal checkpointed into the catalog
+	// Its -wal is checkpointed into the catalog. On macOS there is none: flock
+	// locking has no shared memory, so SQLite keeps a rollback journal.
+	step("the last one closed", runtime.GOOS != "darwin")
 	if c, err = OpenCatalog(path); err != nil {
 		t.Fatal(err)
 	}
