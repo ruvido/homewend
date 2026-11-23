@@ -16,6 +16,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false # one system's failure must not hide another's
       matrix:
         os: [ubuntu-latest, macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
