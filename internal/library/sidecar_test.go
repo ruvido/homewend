@@ -61,6 +61,10 @@ func TestASidecarIsFoundByItsName(t *testing.T) {
 		{"X-bewerkt.jpg", "X.jpg.supplemental-metadata.json", shared},
 		{"X-編集済み.jpg", "X.jpg.supplemental-metadata.json", shared},
 		{"20030616.jpg", "20030616.json", own},
+		{"00100dPORTRAIT_00100_BURST20200124165858452_CO.jpeg", "00100dPORTRAIT_00100_BURST20200124165858452_CO.json", own},
+		{"00000IMG_00000_BURST20180421115714172_COVER-edi.jpg", "00000IMG_00000_BURST20180421115714172_COVER.jp.json", shared},
+		{"PXL_20201025_075155145.MP", "PXL_20201025_075155145.MP.jpg.json", shared},
+		{"IMG_1272", "IMG_1272.HEIC.json", shared},
 		{"IMG_2019-1.jpg", "IMG_2019.jpg.supplemental-metadata.json", none},
 		{"IMG_12.jpg", "IMG_1.jpg.json", none},
 	} {
@@ -146,6 +150,13 @@ func TestAPhotoNeverTakesAnothersDate(t *testing.T) {
 		"a clip beside a photo filed with no extension": {
 			map[string][]byte{"DSC_0100.json": note("DSC_0100.JPG", year2001)},
 			map[string]string{"DSC_0100.MOV": "~DSC_0100.json"},
+		},
+		"a photo downloaded with another extension": {
+			map[string][]byte{"00100dPORTRAIT_00100_BURST20200124165858452_CO.json": note("00100dPORTRAIT_00100_BURST20200124165858452_COVER.jpg", year2001)},
+			map[string]string{
+				"00100dPORTRAIT_00100_BURST20200124165858452_CO.jpeg": "~00100dPORTRAIT_00100_BURST20200124165858452_CO.json",
+				"00100dPORTRAIT_00100_BURST20200124165858452_COV.jpg": "00100dPORTRAIT_00100_BURST20200124165858452_CO.json",
+			},
 		},
 		"the original filed already": {
 			map[string][]byte{"IMG_4471.jpg.json": note("IMG_4471.jpg", year2001)},

@@ -64,7 +64,7 @@ var packageOrigins = map[string]Origin{
 // the date. Each is a naming convention the app itself imposes, not a
 // guess: WhatsApp really does name every image IMG-<date>-WA<counter>. The
 // date's groups are named y, m, d and, where the name has the time, H, M, S
-// (nameDate); a name with no origin here says only its date.
+// (nameDate), U where they are UTC; a name with no origin here says only its date.
 var names = []struct {
 	pattern *regexp.Regexp
 	origin  Origin
@@ -78,6 +78,9 @@ var names = []struct {
 	{regexp.MustCompile(`(?i)^(screenshot|screen_shot|schermata|captura|bildschirmfoto)[_\- ]`), OriginScreenshot},
 	{regexp.MustCompile(`(?i)^(IMG|DSC|DSCF|DSCN|PXL|MVIMG|P|GOPR|DJI)[_\-]?\d{3,}`), OriginCamera},
 	{regexp.MustCompile(`(?i)^\d{5}(IMG|PORTRAIT)_\d{5}_BURST`), OriginCamera}, // Pixel bursts
+	// A Pixel's clock is UTC: of 4,956 in a real export, 4,943 were, to the
+	// second or two, and none was local.
+	{regexp.MustCompile(`^(?P<U>PXL_)(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})_(?P<H>\d{2})(?P<M>\d{2})(?P<S>\d{2})`), ""},
 	// A phone's camera and screenshots, seen with no date inside the file:
 	// 20260826_152150, IMG_20261121_121457_504, Screenshot_20260826-152150.
 	{regexp.MustCompile(`^(?:[A-Za-z]+[_-])?(?P<y>\d{4})(?P<m>\d{2})(?P<d>\d{2})[_-](?P<H>\d{2})(?P<M>\d{2})(?P<S>\d{2})`), ""},

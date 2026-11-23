@@ -468,6 +468,9 @@ func nameDate(name string) (time.Time, DateSource, bool) {
 		if !timed {
 			return when, FromNameDay, true
 		}
+		if re.SubexpIndex("U") >= 0 {
+			when = asClock(when.In(time.Local))
+		}
 		return when, FromName, true
 	}
 	return time.Time{}, NoDate, false

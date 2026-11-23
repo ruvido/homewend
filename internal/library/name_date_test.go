@@ -30,7 +30,7 @@ func TestTheDateInAName(t *testing.T) {
 	}{
 		{"20260826_152150.jpg", at(2026, 8, 26, 15, 21, 50), FromName},
 		{"IMG_20261121_121457_504.jpg", at(2026, 11, 21, 12, 14, 57), FromName},
-		{"PXL_20260826_152150123.jpg", at(2026, 8, 26, 15, 21, 50), FromName},
+		{"PXL_20260826_152150123.jpg", at(2026, 8, 26, 17, 21, 50), FromName},
 		{"Screenshot_20260826-152150.png", at(2026, 8, 26, 15, 21, 50), FromName},
 		{"IMG-20260826-WA0001.jpg", at(2026, 8, 26, 0, 0, 0), FromNameDay},
 		{"signal-2026-08-26-152150.jpg", at(2026, 8, 26, 15, 21, 50), FromName},
