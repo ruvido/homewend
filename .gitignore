@@ -8,6 +8,7 @@
 *.db
 *.db-wal
 *.db-shm
+*.db-journal
 
 # Anything downloaded from, or built out of, someone's library.
 /takeout/

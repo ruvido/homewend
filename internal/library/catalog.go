@@ -16,7 +16,8 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // DateKind is the difference between "when this was taken" and "when this
@@ -159,32 +160,36 @@ func catalogDSN(path, options string) string {
 // waiting is how long a connection waits for another to let go of the catalog.
 const waiting = "_pragma=busy_timeout(5000)"
 
-// walMode says whether the catalog at path is in SQLite's WAL mode: the
-// "read version" of its header, byte 19, is 2 (sqlite.org/fileformat2.html).
-func walMode(path string) bool {
-	f, err := os.Open(path)
+// openCatalog opens the index at path with options, out of WAL mode if it was
+// left in it. Every system keeps the catalog the same way, with a rollback
+// journal: WAL needs memory shared between processes, which macOS's flock
+// locks do not have and no network share does, and a catalog left in it on
+// Linux could not be opened on a Mac.
+//
+// SQLite is asked which mode it is in, never the file: on Linux closing a
+// file drops every lock the process holds on it, an import's among them.
+func openCatalog(path, options string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite", catalogDSN(path, options))
 	if err != nil {
-		return false
+		return nil, err
 	}
-	defer f.Close()
-	var b [1]byte
-	_, err = f.ReadAt(b[:], 19)
-	return err == nil && b[0] == 2
+	// On macOS a catalog in WAL mode cannot even be asked.
+	var mode string
+	if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err == nil && mode != "wal" {
+		return db, nil
+	}
+	db.Close()
+	_ = leaveWAL(path) // not left, using the catalog says whether it can be used
+	return sql.Open("sqlite", catalogDSN(path, options))
 }
 
 // leaveWAL takes the catalog at path out of WAL mode, with what its -wal
-// holds. Every system keeps the catalog the same way, with a rollback
-// journal: WAL needs memory shared between processes, which macOS's flock
-// locks do not have and no network share does, and a catalog left in it on
-// Linux could not be opened on a Mac. The exclusive lock is how SQLite opens
-// one without that memory (sqlite.org/wal.html, "Use of WAL Without
-// Shared-Memory"). One that an older version holds open stays as it is until
-// the next opening, and is not waited for long: every opening would wait.
+// holds. The exclusive lock is how SQLite opens one without shared memory
+// (sqlite.org/wal.html, "Use of WAL Without Shared-Memory"). One that an
+// older version holds open stays as it is until the next opening, and is not
+// waited for long: every opening would wait.
 func leaveWAL(path string) error {
-	if !walMode(path) {
-		return nil
-	}
-	db, err := sql.Open("sqlite", catalogDSN(path, "_pragma=busy_timeout(200)&_pragma=locking_mode(EXCLUSIVE)"))
+	db, err := sql.Open("sqlite", catalogDSN(path, "mode=rw&_pragma=busy_timeout(200)&_pragma=locking_mode(EXCLUSIVE)"))
 	if err != nil {
 		return err
 	}
@@ -194,11 +199,11 @@ func leaveWAL(path string) error {
 	return err
 }
 
-// OpenCatalog opens, and creates if needed, the index at path.
+// OpenCatalog opens, and creates if needed, the index at path. Its
+// transactions take the write lock as they begin: SQLite does not wait for
+// another's when one that has read comes to write.
 func OpenCatalog(path string) (*Catalog, error) {
-	// Not left, the opening below says whether the catalog can be used.
-	_ = leaveWAL(path)
-	db, err := sql.Open("sqlite", catalogDSN(path, waiting))
+	db, err := openCatalog(path, waiting+"&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
@@ -378,24 +383,26 @@ func keepBefore(db *sql.DB, path string) (string, error) {
 // migration, nothing written. A look before an import changes nothing in the
 // library, and a library on a read-only share can still be looked at.
 //
-// It waits like any reader for a write under way, and leaves no file beside
-// the catalog. A write cut short (a crash) is first undone, as SQLite asks of
-// whoever opens next, hence mode=rw, which falls back to reading alone where
-// nothing can be written. A catalog an older version left in WAL mode, with
-// no -wal, is read as it lies: opened otherwise it would get a -wal. With a
-// -wal, it holds rows to be seen: it leaves that mode first.
+// It waits like any reader for a write under way. A write cut short (a crash)
+// is first undone, as SQLite asks of whoever opens next, and a catalog an
+// older version left in WAL mode leaves it: hence mode=rw, which reads alone
+// where nothing can be written. There a catalog in WAL mode is read as it
+// lies, if its -wal holds nothing; what cannot be read whole is refused.
 func OpenCatalogReadOnly(path string) (*Catalog, error) {
-	options := "mode=rw&" + waiting + "&_pragma=query_only(1)"
-	if exists(path + "-wal") {
-		_ = leaveWAL(path) // not left, the opening below says so
-	} else if walMode(path) {
-		options = "mode=ro&immutable=1"
-	}
-	db, err := sql.Open("sqlite", catalogDSN(path, options))
+	db, err := openCatalog(path, "mode=rw&"+waiting+"&_pragma=query_only(1)")
 	if err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
-	if err := db.Ping(); err != nil {
+	var version int
+	err = db.QueryRow(`PRAGMA schema_version`).Scan(&version) // the first look at the file
+	var e *sqlite.Error
+	if fi, serr := os.Stat(path + "-wal"); errors.As(err, &e) && (e.Code()&0xff == sqlite3.SQLITE_CANTOPEN || e.Code() == sqlite3.SQLITE_READONLY_DIRECTORY) && (serr != nil || fi.Size() == 0) {
+		db.Close()
+		if db, err = sql.Open("sqlite", catalogDSN(path, "mode=ro&immutable=1")); err == nil {
+			err = db.Ping()
+		}
+	}
+	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}

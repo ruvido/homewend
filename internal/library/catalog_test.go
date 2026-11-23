@@ -4,12 +4,15 @@
 package library
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -306,6 +309,17 @@ func TestChangesFollowEveryWriter(t *testing.T) {
 	step("still gone", false)
 }
 
+// walMode says whether the catalog at path is in WAL mode: byte 19 of its
+// header is 2 (sqlite.org/fileformat2.html). Only with none of it open here.
+func walMode(t *testing.T, path string) bool {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b[19] == 2
+}
+
 // inWAL leaves at a new path a catalog as an older version did when its
 // terminal was closed: in WAL mode, its one photo in the -wal alone, no -shm.
 func inWAL(t *testing.T) string {
@@ -331,7 +345,7 @@ func inWAL(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	if !walMode(path) {
+	if !walMode(t, path) {
 		t.Fatal("not in WAL mode: nothing is tried")
 	}
 	return path
@@ -351,7 +365,7 @@ func TestACatalogLeftInWALIsOpened(t *testing.T) {
 				t.Errorf("known %v, %v: the row in the -wal is lost", known, err)
 			}
 			c.Close()
-			if walMode(path) || exists(path+"-wal") || exists(path+"-shm") {
+			if walMode(t, path) || exists(path+"-wal") || exists(path+"-shm") {
 				t.Error("still in WAL mode")
 			}
 		})
@@ -434,5 +448,119 @@ func TestWritersAndAReaderWaitForEachOther(t *testing.T) {
 	defer c.Close()
 	if n, err := c.Count(Filter{}); err != nil || n != 2*each {
 		t.Errorf("%d photos, %v, want %d", n, err, 2*each)
+	}
+}
+
+// A second process on the same library, as a command in a terminal while the
+// window imports: both write, and open the catalog again and again as pages
+// do. No row is lost and the catalog is whole.
+func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
+	work := func(path, name string) error {
+		c, err := OpenCatalog(path)
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		for i := range 100 {
+			if err := c.Put(Photo{Hash: fmt.Sprint(name, i), Path: fmt.Sprint(name, i), Name: "a"}); err != nil {
+				return err
+			}
+			page, err := OpenCatalog(path)
+			if err != nil {
+				return err
+			}
+			_, err = page.Page(Filter{})
+			if err == nil {
+				_, err = page.Mark(Archived, []string{fmt.Sprint(name, i)}, "", true)
+			}
+			page.Close()
+			if err != nil {
+				return err
+			}
+			if err := look(path); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if path := os.Getenv("HOMEWEND_TEST_CATALOG"); path != "" {
+		if err := work(path, "b"); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	other := exec.Command(os.Args[0], "-test.run=^TestTwoProcessesWriteTheSameCatalog$")
+	other.Env = append(os.Environ(), "HOMEWEND_TEST_CATALOG="+path)
+	var said bytes.Buffer
+	other.Stdout, other.Stderr = &said, &said
+	if err := other.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := work(path, "a"); err != nil {
+		t.Error(err)
+	}
+	if err := other.Wait(); err != nil {
+		t.Errorf("the other process: %v\n%s", err, said.String())
+	}
+	if c, err = OpenCatalog(path); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	var whole string
+	if err := c.db.QueryRow(`PRAGMA integrity_check`).Scan(&whole); err != nil || whole != "ok" {
+		t.Errorf("integrity %q, %v", whole, err)
+	}
+	var n, archived int
+	if err := c.db.QueryRow(`SELECT COUNT(*), SUM(archived) FROM photos`).Scan(&n, &archived); err != nil || n != 200 || archived != 200 {
+		t.Errorf("%d photos, %d archived, %v, want 200 of each", n, archived, err)
+	}
+}
+
+func look(path string) error {
+	c, err := OpenCatalogReadOnly(path)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	_, err = c.Count(Filter{})
+	return err
+}
+
+// On a read-only share an older version's catalog can be looked at when its
+// -wal holds nothing, and is refused, not read short, when it holds rows.
+func TestALookWhereNothingCanBeWritten(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("a mode takes no one's writing away")
+	}
+	for name, rows := range map[string]bool{"nothing in the -wal": false, "rows in the -wal": true} {
+		t.Run(name, func(t *testing.T) {
+			path := inWAL(t)
+			dir := filepath.Dir(path)
+			if !rows {
+				// Its rows in the catalog, then back in WAL mode, no -wal.
+				db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+					t.Fatal(err)
+				}
+				db.Close()
+			}
+			if err := os.Chmod(dir, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(dir, 0o700) })
+			err := look(path)
+			if rows != (err != nil) {
+				t.Errorf("looked: %v", err)
+			}
+		})
 	}
 }
