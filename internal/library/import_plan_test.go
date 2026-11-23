@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"reflect"
 	"slices"
 	"testing"
@@ -121,6 +122,9 @@ func TestAnEmptyLibraryTakesEverything(t *testing.T) {
 func TestAFileThatCannotBeReadIsPassedOver(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root reads every file")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("a mode takes no one's reading away")
 	}
 	card := cameraCard(t)
 	locked := filepath.Join(card, "DCIM", "100_FUJI", "DSCF0009.JPG")

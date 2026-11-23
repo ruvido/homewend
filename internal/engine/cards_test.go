@@ -21,7 +21,7 @@ func TestACardIsADiskWithADCIMFolder(t *testing.T) {
 		}
 	}
 	cards := cardsOf(disksUnder([]string{media, filepath.Join(media, "not-there")}))
-	if len(cards) != 2 || cards[0].Name != "EOS_DIGITAL" || cards[1].Name != "NO NAME" {
+	if len(cards) != 2 || filepath.Base(cards[0].Path) != "EOS_DIGITAL" || filepath.Base(cards[1].Path) != "NO NAME" {
 		t.Errorf("cards %+v, want EOS_DIGITAL and NO NAME", cards)
 	}
 }

@@ -318,13 +318,21 @@ func clockDates(db *sql.DB, path string) error {
 // asClock does. Only numbers made here go in it.
 func offsets(first, last int64, zone *time.Location) string {
 	var b strings.Builder
+	// A date beyond is a mistake: its offset need not be right, and each year
+	// on the way there is two more branches.
+	last = min(last, time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 	at := time.Unix(first, 0).In(zone)
 	for {
 		_, offset := at.Zone()
 		_, end := at.ZoneBounds()
-		// Past the zone's last written rule (2037) Go may end a span where
-		// it began: what lies beyond takes the offset found there.
-		if end.IsZero() || !end.After(at) || end.Unix() > last {
+		// Past the zone's last written change Go ends a span at 365 days from
+		// 1 January too: on the last day of a leap year, where it began. The
+		// last change is 2037 in Linux's and macOS's data, 1996 for Rome in
+		// Go's own, which Windows uses. The next day is past it.
+		if !end.IsZero() && !end.After(at) {
+			end = at.AddDate(0, 0, 1)
+		}
+		if end.IsZero() || end.Unix() > last {
 			// One offset over them all, as in UTC: no CASE to choose.
 			if b.Len() == 0 {
 				return strconv.Itoa(offset)

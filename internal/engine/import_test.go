@@ -139,7 +139,7 @@ func TestTheTopIsNamedAfterTheFolder(t *testing.T) {
 	if got := TopName(dir); got != "old-laptop" {
 		t.Errorf("%s: %q", dir, got)
 	}
-	root := string(filepath.Separator)
+	root := filepath.VolumeName(dir) + string(filepath.Separator)
 	if got := TopName(root); got != root {
 		t.Errorf("the root: %q, want %q", got, root)
 	}
