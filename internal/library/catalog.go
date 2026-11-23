@@ -128,9 +128,9 @@ const away = "(out = 1 OR trashed = 1)"
 // Changes is a token that moves each time the catalog at path is written,
 // by whoever: a phone's backup, a card, a download, the window, a command in
 // a terminal. It is read from the files alone, holding none open, so a
-// library's disk can still be ejected: a commit grows or rewrites the -wal,
-// a checkpoint rewrites the catalog. An empty -wal is left out: SQLite makes
-// one at every opening and removes it at the last closing, reads included.
+// library's disk can still be ejected: a commit rewrites the catalog, or, in
+// one an older version still holds open in WAL mode, the -wal. An empty -wal
+// is left out: SQLite makes one at every opening in that mode.
 // A file gone (the disk ejected) is a change, not an error.
 func Changes(path string) string {
 	token := ""
@@ -156,9 +156,49 @@ func catalogDSN(path, options string) string {
 	return dsn
 }
 
+// waiting is how long a connection waits for another to let go of the catalog.
+const waiting = "_pragma=busy_timeout(5000)"
+
+// walMode says whether the catalog at path is in SQLite's WAL mode: the
+// "read version" of its header, byte 19, is 2 (sqlite.org/fileformat2.html).
+func walMode(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	var b [1]byte
+	_, err = f.ReadAt(b[:], 19)
+	return err == nil && b[0] == 2
+}
+
+// leaveWAL takes the catalog at path out of WAL mode, with what its -wal
+// holds. Every system keeps the catalog the same way, with a rollback
+// journal: WAL needs memory shared between processes, which macOS's flock
+// locks do not have and no network share does, and a catalog left in it on
+// Linux could not be opened on a Mac. The exclusive lock is how SQLite opens
+// one without that memory (sqlite.org/wal.html, "Use of WAL Without
+// Shared-Memory"). One that an older version holds open stays as it is until
+// the next opening, and is not waited for long: every opening would wait.
+func leaveWAL(path string) error {
+	if !walMode(path) {
+		return nil
+	}
+	db, err := sql.Open("sqlite", catalogDSN(path, "_pragma=busy_timeout(200)&_pragma=locking_mode(EXCLUSIVE)"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	_, err = db.Exec(`PRAGMA journal_mode = DELETE`)
+	return err
+}
+
 // OpenCatalog opens, and creates if needed, the index at path.
 func OpenCatalog(path string) (*Catalog, error) {
-	db, err := sql.Open("sqlite", catalogDSN(path, "_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"))
+	// Not left, the opening below says whether the catalog can be used.
+	_ = leaveWAL(path)
+	db, err := sql.Open("sqlite", catalogDSN(path, waiting))
 	if err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
@@ -330,18 +370,18 @@ func keepBefore(db *sql.DB, path string) (string, error) {
 // migration, nothing written. A look before an import changes nothing in the
 // library, and a library on a read-only share can still be looked at.
 //
-// Read-only alone would not do it: in WAL mode SQLite creates the -shm and
-// -wal files beside the catalog, and fails where it cannot (measured 09/11).
-// So a catalog with no -wal beside it is opened immutable. One with a -wal
-// holds rows not yet in the catalog file — a download running, or one
-// stopped by closing its terminal — that immutable would not see: it is
-// opened read-only, and the files it needs are already there. A -wal
-// without its -shm (a library copied without it) would need one created:
-// the catalog file is read alone, and what only the -wal holds is missed.
+// It waits like any reader for a write under way, and leaves no file beside
+// the catalog. A write cut short (a crash) is first undone, as SQLite asks of
+// whoever opens next, hence mode=rw, which falls back to reading alone where
+// nothing can be written. A catalog an older version left in WAL mode, with
+// no -wal, is read as it lies: opened otherwise it would get a -wal. With a
+// -wal, it holds rows to be seen: it leaves that mode first.
 func OpenCatalogReadOnly(path string) (*Catalog, error) {
-	options := "mode=ro&immutable=1"
-	if exists(path+"-wal") && exists(path+"-shm") {
-		options = "mode=ro&_pragma=busy_timeout(5000)"
+	options := "mode=rw&" + waiting + "&_pragma=query_only(1)"
+	if exists(path + "-wal") {
+		_ = leaveWAL(path) // not left, the opening below says so
+	} else if walMode(path) {
+		options = "mode=ro&immutable=1"
 	}
 	db, err := sql.Open("sqlite", catalogDSN(path, options))
 	if err != nil {
@@ -860,26 +900,35 @@ func (c *Catalog) Missing(root string) ([]Gone, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading the catalog: %w", err)
 	}
-	var gone []Gone
-	var back []string
+	type known struct {
+		Gone
+		path string
+		out  bool
+	}
+	// Read whole before any file is looked at: a write waits for a read to
+	// end, and a hundred thousand files on a share take longer than it waits.
+	var all []known
 	for rows.Next() {
-		var g Gone
-		var path string
-		var out bool
-		if err := rows.Scan(&g.Hash, &path, &g.Year, &out); err != nil {
+		var k known
+		if err := rows.Scan(&k.Hash, &k.path, &k.Year, &k.out); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		switch _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(path))); {
-		case errors.Is(err, fs.ErrNotExist) && !out:
-			gone = append(gone, g)
-		case err == nil && out:
-			back = append(back, g.Hash)
-		}
+		all = append(all, k)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	var gone []Gone
+	var back []string
+	for _, k := range all {
+		switch _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(k.path))); {
+		case errors.Is(err, fs.ErrNotExist) && !k.out:
+			gone = append(gone, k.Gone)
+		case err == nil && k.out:
+			back = append(back, k.Hash)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(root, WorkDir)); err != nil {
 		return nil, nil

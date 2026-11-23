@@ -4,11 +4,12 @@
 package library
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -290,9 +291,7 @@ func TestChangesFollowEveryWriter(t *testing.T) {
 	step("a photo archived by another catalog", true)
 
 	c.Close()
-	// Its -wal is checkpointed into the catalog. On macOS there is none: flock
-	// locking has no shared memory, so SQLite keeps a rollback journal.
-	step("the last one closed", runtime.GOOS != "darwin")
+	step("the last one closed", false)
 	if c, err = OpenCatalog(path); err != nil {
 		t.Fatal(err)
 	}
@@ -302,9 +301,138 @@ func TestChangesFollowEveryWriter(t *testing.T) {
 	c.Close()
 	step("opened, read and closed alone", false)
 
-	for _, name := range []string{path, path + "-wal", path + "-shm"} {
-		os.Remove(name)
-	}
+	os.Remove(path)
 	step("the catalog gone", true)
 	step("still gone", false)
+}
+
+// inWAL leaves at a new path a catalog as an older version did when its
+// terminal was closed: in WAL mode, its one photo in the -wal alone, no -shm.
+func inWAL(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	open := filepath.Join(dir, "open.db")
+	db, err := sql.Open("sqlite", "file:"+open+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(schema + `;INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('late', '2026/08/late.jpg', 'late.jpg', 1, 1, '', '', '')`); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "catalog.db")
+	for _, end := range []string{"", "-wal"} {
+		b, err := os.ReadFile(open + end)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path+end, b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !walMode(path) {
+		t.Fatal("not in WAL mode: nothing is tried")
+	}
+	return path
+}
+
+// A catalog an older version, or another system, left in WAL mode opens on
+// every system with all it holds, and is kept as every other from then on.
+func TestACatalogLeftInWALIsOpened(t *testing.T) {
+	for name, open := range map[string]func(string) (*Catalog, error){"to write": OpenCatalog, "to look": OpenCatalogReadOnly} {
+		t.Run(name, func(t *testing.T) {
+			path := inWAL(t)
+			c, err := open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, known, err := c.PathOf("late"); err != nil || !known {
+				t.Errorf("known %v, %v: the row in the -wal is lost", known, err)
+			}
+			c.Close()
+			if walMode(path) || exists(path+"-wal") || exists(path+"-shm") {
+				t.Error("still in WAL mode")
+			}
+		})
+	}
+}
+
+// The window opens the catalog for several requests at once, the first time
+// after an update too, when it is still in WAL mode.
+func TestACatalogInWALIsOpenedByManyAtOnce(t *testing.T) {
+	path := inWAL(t)
+	errs := make(chan error)
+	for i := range 8 {
+		go func() {
+			c, err := OpenCatalog(path)
+			if err == nil {
+				err = c.Put(Photo{Hash: fmt.Sprint(i), Path: fmt.Sprint(i), Name: "a"})
+				c.Close()
+			}
+			errs <- err
+		}()
+	}
+	for range 8 {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if n, err := c.Count(Filter{}); err != nil || n != 9 {
+		t.Errorf("%d photos, %v, want 9", n, err)
+	}
+}
+
+// Two catalogs on one file write and a third reads, all at once: none is
+// turned away, and a look never sees half a write.
+func TestWritersAndAReaderWaitForEachOther(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	first, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+	const each = 40
+	errs := make(chan error)
+	for w := range 2 {
+		go func() {
+			c, err := OpenCatalog(path)
+			for i := 0; err == nil && i < each; i++ {
+				err = c.Put(Photo{Hash: fmt.Sprint(w, "-", i), Path: fmt.Sprint(w, "-", i), Name: "a"})
+			}
+			if c != nil {
+				c.Close()
+			}
+			errs <- err
+		}()
+	}
+	go func() {
+		var err error
+		for i := 0; err == nil && i < each; i++ {
+			var c *Catalog
+			if c, err = OpenCatalogReadOnly(path); err == nil {
+				_, err = c.Page(Filter{})
+				c.Close()
+			}
+		}
+		errs <- err
+	}()
+	for range 3 {
+		if err := <-errs; err != nil {
+			t.Error(err)
+		}
+	}
+	c, err := OpenCatalogReadOnly(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if n, err := c.Count(Filter{}); err != nil || n != 2*each {
+		t.Errorf("%d photos, %v, want %d", n, err, 2*each)
+	}
 }
