@@ -266,7 +266,7 @@
 		{#snippet header()}
 			<div class="head">
 				<h1>{title}</h1>
-				<p aria-live="polite">
+				<p aria-live={loaded ? 'polite' : 'off'}>
 					{subtitle}{loaded ? '' : '…'}
 					{#if where}
 						<span class="state {where.kind}">

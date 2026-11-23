@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS album_owners (
 );
 -- The grid is always "newest first, maybe filtered": one index carries it.
 CREATE INDEX IF NOT EXISTS photos_by_time   ON photos(taken DESC);
-CREATE INDEX IF NOT EXISTS photos_by_origin ON photos(origin, taken DESC);
+DROP INDEX IF EXISTS photos_by_origin; -- of older catalogs, read by nothing
 CREATE INDEX IF NOT EXISTS photos_by_path   ON photos(path);
 `
 

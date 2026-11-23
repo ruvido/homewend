@@ -46,7 +46,7 @@ export function badgesOf(n: Record<string, number>, picked: string[]): Badge[] {
 	const other = ['app', ...ranked.filter((id) => !own.includes(id))].reduce((sum, id) => sum + (n[id] ?? 0), 0);
 	return [
 		...own.map((id) => ({ ...badgeOf(id)!, count: n[id] ?? 0 })),
-		{ id: 'screenshot', label: text.badgeNames.screenshots, icon: 'phone' as const, count: n.screenshot ?? 0 },
+		{ ...badgeOf('screenshot')!, label: text.badgeNames.screenshots, count: n.screenshot ?? 0 },
 		{ id: 'other', label: text.badgeNames.other, count: other },
 		{ id: 'estimated', label: text.estimatedTag, count: n.estimated ?? 0 }
 	].filter((b) => b.count > 0 || picked.includes(b.id));

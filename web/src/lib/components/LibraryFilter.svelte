@@ -62,6 +62,7 @@
 		} else if (e.key === 'Escape' && open && field?.contains(document.activeElement)) {
 			e.stopPropagation();
 			open = false;
+			field.querySelector<HTMLElement>('.toggle')?.focus();
 		}
 	}
 	const said = $derived([range, ...picked.map((b) => b.label)].filter(Boolean).join(', '));
