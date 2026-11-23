@@ -111,13 +111,15 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 }
 
 // dateNamed is c with the date name says, when c has none or only Google's
-// year; Google's year stands against a name that says another.
+// year. The name stands against that year: in a real export all 44 that
+// disagreed were WhatsApp files Google had filed under the year of their
+// upload, and its year is UTC's, another one on New Year's night.
 func dateNamed(c Capture, name string) (Capture, bool) {
 	if c.Source != NoDate && c.Source != FromFolder {
 		return c, false
 	}
 	when, source, ok := nameDate(name)
-	if !ok || c.Source == FromFolder && when.Year() != c.When.Year() {
+	if !ok {
 		return c, false
 	}
 	c.When, c.Source = when, source

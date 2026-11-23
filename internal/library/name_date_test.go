@@ -110,11 +110,14 @@ func TestPhotosAlreadyInWithNoDateTakeTheOneInTheirName(t *testing.T) {
 		Taken: time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed, Origin: OriginCamera}); err != nil {
 		t.Fatal(err)
 	}
-	// Google's year stands against a name that says another.
-	write(t, root, "ron/2018/unknown-month/IMG_20210312_101558.jpg", []byte("other year"))
-	if err := catalog.Put(Photo{Hash: "other", Path: "ron/2018/unknown-month/IMG_20210312_101558.jpg", Name: "IMG_20210312_101558.jpg",
-		Taken: time.Date(2018, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed, Origin: OriginCamera}); err != nil {
-		t.Fatal(err)
+	// The name stands against Google's year; one that is no day does not.
+	for _, name := range []string{"IMG-20161229-WA0010.jpg", "IMG_20211345_101558.jpg"} {
+		path := "ron/2017/unknown-month/" + name
+		write(t, root, path, []byte(name))
+		if err := catalog.Put(Photo{Hash: name, Path: path, Name: name,
+			Taken: time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// One that cannot move is said, and the others still move.
 	write(t, root, "ron/undated/20230505_101010.jpg", []byte("stuck"))
@@ -136,7 +139,8 @@ func TestPhotosAlreadyInWithNoDateTakeTheOneInTheirName(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "20230505_101010.jpg") || turns != 0 {
 		t.Fatalf("%v, %d turns kept; want the stuck one said", err, turns)
 	}
-	mustExist(t, filepath.Join(root, "ron", "2018", "unknown-month", "IMG_20210312_101558.jpg"))
+	mustExist(t, filepath.Join(root, "ron", "2016", "12", "IMG-20161229-WA0010.jpg"))
+	mustExist(t, filepath.Join(root, "ron", "2017", "unknown-month", "IMG_20211345_101558.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "undated", "20230505_101010.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "2026", "08", "20260826_152150.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "2025", "01", "IMG-20250101-WA0003.jpg"))
@@ -166,14 +170,18 @@ func TestThePlanFilesANameDateAsTheCopyWill(t *testing.T) {
 	}
 }
 
-func TestGooglesYearStandsAgainstTheName(t *testing.T) {
+func TestANameStandsAgainstGooglesYear(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, "Photos from 2019/IMG_20210312_101558.jpg", []byte("no date inside"))
-	path := filepath.Join(dir, "Photos from 2019", "IMG_20210312_101558.jpg")
-	if c := DateOf(path, "Photos from 2019", ""); c.Source != FromFolder || c.When.Year() != 2019 {
-		t.Errorf("%s %v, want Google's 2019", c.Source, c.When)
-	}
-	if c := DateOf(path, "Photos from 2021", ""); c.Source != FromName || c.When.Month() != 3 {
-		t.Errorf("%s %v, want the name's March", c.Source, c.When)
+	for name, want := range map[string]string{
+		"IMG-20161229-WA0010.jpg": "2016-12-29 nameday", // filed under its upload's year
+		"IMG_20170312_101558.jpg": "2017-03-12 name",
+		"IMG_20991231_101558.jpg": "2017-01-01 folder", // a day not yet come
+		"IMG_20211345_101558.jpg": "2017-01-01 folder", // no day at all
+	} {
+		write(t, dir, "Photos from 2017/"+name, []byte("no date inside"))
+		c := DateOf(filepath.Join(dir, "Photos from 2017", name), "Photos from 2017", "")
+		if got := c.When.Format("2006-01-02 ") + string(c.Source); got != want {
+			t.Errorf("%s: %s, want %s", name, got, want)
+		}
 	}
 }
