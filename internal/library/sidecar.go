@@ -166,11 +166,19 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 				found[m] = pairing{path: filepath.Join(dir, n), shared: true}
 			}
 		}
-		for _, p := range partners(m) {
+		// A partner with a sidecar of its own first. One that borrows its own
+		// passes it on only if it has no number: a copy that lost its number
+		// may be reading another photo's.
+		with := partners(m)
+		slices.SortStableFunc(with, func(a, b string) int {
+			return strings.Compare(strconv.FormatBool(found[a].shared), strconv.FormatBool(found[b].shared))
+		})
+		for _, p := range with {
 			if _, ok := found[m]; ok {
 				break
 			}
-			if s, ok := found[p]; ok {
+			_, _, number := mediaName(p)
+			if s, ok := found[p]; ok && (!s.shared || number == "") {
 				found[m] = pairing{s.path, true, filepath.Join(dir, p)}
 				break
 			}

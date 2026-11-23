@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -193,16 +194,24 @@ func TestALivePhotosVideoHasItsPhotosDate(t *testing.T) {
 	write(t, dir, "Photos from 2018/HEIC.heic", exifPhoto("2018:11:17 20:40:31", "HEIC"))
 	write(t, dir, "Photos from 2018/HEIC.json", []byte(fmt.Sprintf(`{"title":"HEIC.JPG","photoTakenTime":{"timestamp":"%d"}}`, google.Unix())))
 	write(t, dir, "Photos from 2018/HEIC.mp4", movie(google.Add(2*time.Second)))
+	// A numbered copy whose sidecar is another photo's does not pass it on.
+	long := "IMG_" + strings.Repeat("a", 42)
+	other := time.Date(2016, 1, 1, 10, 0, 0, 0, rome)
+	write(t, dir, "Photos from 2018/"+long+".jpg", exifPhoto("2016:01:01 10:00:00", "long"))
+	write(t, dir, "Photos from 2018/"+long+"(1).jpg", exifPhoto("2018:11:17 20:40:31", "long1"))
+	write(t, dir, "Photos from 2018/"+long+".json", []byte(fmt.Sprintf(`{"title":"%s.jpg","photoTakenTime":{"timestamp":"%d"}}`, long, other.Unix())))
+	write(t, dir, "Photos from 2018/"+long+"(1).mp4", movie(google.Add(2*time.Second)))
 	items, err := ReadTakeout(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"HEIC.mp4": "2018-11-17 20:40:31 exif false",
-		"TRIP.mp4": "2018-11-17 20:40:31 exif false",
-		"HOME.mp4": "2018-11-18 02:40:31 sidecar false",
-		"CLIP.mp4": "2018-11-18 02:40:31 sidecar true",
-		"ZERO.mp4": "2018-11-18 02:40:31 sidecar true",
+		long + "(1).mp4": "2018-11-18 02:40:33 video false",
+		"HEIC.mp4":       "2018-11-17 20:40:31 exif false",
+		"TRIP.mp4":       "2018-11-17 20:40:31 exif false",
+		"HOME.mp4":       "2018-11-18 02:40:31 sidecar false",
+		"CLIP.mp4":       "2018-11-18 02:40:31 sidecar true",
+		"ZERO.mp4":       "2018-11-18 02:40:31 sidecar true",
 	}
 	for _, item := range items {
 		name := filepath.Base(item.Path)
