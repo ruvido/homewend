@@ -158,6 +158,18 @@ func TestAPhotoNeverTakesAnothersDate(t *testing.T) {
 				"00100dPORTRAIT_00100_BURST20200124165858452_COV.jpg": "00100dPORTRAIT_00100_BURST20200124165858452_CO.json",
 			},
 		},
+		"two photos of a name, and a sidecar with no extension": {
+			map[string][]byte{"DSC_0100.json": note("DSC_0100.JPG", year2001)},
+			map[string]string{"DSC_0100.HEIC": "~DSC_0100.json", "DSC_0100.jpg": "DSC_0100.json"},
+		},
+		"one of them filed already": {
+			map[string][]byte{"DSC_0100.json": note("DSC_0100.JPG", year2001)},
+			map[string]string{"DSC_0100.HEIC": "~DSC_0100.json"},
+		},
+		"a long name's, filed already": {
+			map[string][]byte{long + ".json": note(long+"xxxx.jpg", year2001)},
+			map[string]string{long + "xx.jpeg": "~" + long + ".json"},
+		},
 		"the original filed already": {
 			map[string][]byte{"IMG_4471.jpg.json": note("IMG_4471.jpg", year2001)},
 			map[string]string{"IMG_4471-modificato.jpg": "~IMG_4471.jpg.json"},

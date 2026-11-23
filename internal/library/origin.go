@@ -64,7 +64,8 @@ var packageOrigins = map[string]Origin{
 // the date. Each is a naming convention the app itself imposes, not a
 // guess: WhatsApp really does name every image IMG-<date>-WA<counter>. The
 // date's groups are named y, m, d and, where the name has the time, H, M, S
-// (nameDate), U where they are UTC; a name with no origin here says only its date.
+// (nameDate), U where they are UTC; a name with no origin here says only its
+// date.
 var names = []struct {
 	pattern *regexp.Regexp
 	origin  Origin

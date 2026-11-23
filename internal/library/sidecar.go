@@ -124,31 +124,32 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 			if _, ok := found[m]; ok {
 				continue
 			}
-			if n := first(names(m)); n != "" && titled(dir, n, m) && (pass > 0 || whole(dir, n, m)) {
+			if n := first(names(m)); n != "" && titled(dir, n, m, pass == 0) {
 				claims[n] = append(claims[n], m)
 			}
 		}
 		for n, by := range claims {
-			// Two with the same claim on a cut name: the one with the title's
-			// extension, and the other shares it (COV.jpg, and its copy
-			// CO.jpeg); else nobody's.
-			if len(by) > 1 && pass > 0 {
-				note, _ := readSidecar(filepath.Join(dir, n))
-				as := func(m string) bool { return filepath.Ext(m) == filepath.Ext(note.Title) }
-				i := slices.IndexFunc(by, as)
-				if i < 0 || slices.ContainsFunc(by[i+1:], as) {
+			// Two with the same claim: the one with the title's extension,
+			// and the other shares it (COV.jpg, and its copy CO.jpeg). On a
+			// cut name with nothing to tell them apart, nobody's.
+			if len(by) > 1 {
+				other := func(m string) bool { return otherExt(dir, n, m) }
+				mine := slices.DeleteFunc(slices.Clone(by), other)
+				if pass > 0 && len(mine) != 1 {
 					continue
 				}
 				for _, m := range by {
 					found[m] = pairing{filepath.Join(dir, n), true}
 				}
-				by = by[i:]
+				by = append(mine, by...)
 			}
 			// A copy that lost its number may be reading the one of a photo
 			// filed already: its own may still come.
 			_, _, number := mediaName(by[0])
-			lost := number != "" && pass == 2
-			owner[n], found[by[0]] = by[0], pairing{filepath.Join(dir, n), lost}
+			shared := number != "" && pass == 2
+			// So may one whose title has another extension.
+			shared = shared || !holdsName(n, by[0]) && otherExt(dir, n, by[0])
+			owner[n], found[by[0]] = by[0], pairing{filepath.Join(dir, n), shared}
 		}
 	}
 	for _, m := range media {
@@ -173,8 +174,8 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 				continue
 			}
 			// The partner is filed already, or in another part.
-			for _, names := range []func(string) []string{wholeNames, cutNumbered} {
-				if n := first(names(p)); n != "" && titled(dir, n, p) {
+			for pass, names := range []func(string) []string{wholeNames, cutNumbered} {
+				if n := first(names(p)); n != "" && titled(dir, n, p, pass == 0) {
 					found[m] = pairing{filepath.Join(dir, n), true}
 					break
 				}
@@ -278,35 +279,39 @@ func cutNames(media, number string) []string {
 
 // titled is whether the sidecar called name can be media's: one that holds
 // its whole name is; a cut one, or one with no extension, is if the title
-// inside begins as media's name does, and is as much a video: a photo's
-// extension changes (COVER.jpg, downloaded as CO.jpeg).
-func titled(dir, name, media string) bool {
-	stem, ext, _ := mediaName(media)
-	if strings.HasPrefix(name, stem+ext) || strings.HasPrefix(name, media) {
+// inside begins as media's name does, and is as much a video (a photo's
+// extension changes: COVER.jpg, downloaded as CO.jpeg). exact: the title goes
+// no further than media's name (20030616.json).
+func titled(dir, name, media string, exact bool) bool {
+	if holdsName(name, media) {
 		return true
 	}
 	note, err := readSidecar(filepath.Join(dir, name))
-	if err != nil {
+	if err != nil || note.Title == "" {
+		return err == nil
+	}
+	if IsMedia(note.Title) && IsVideo(note.Title) != IsVideo(media) {
 		return false
 	}
-	if note.Title == "" {
-		return true
+	stem, _, _ := mediaName(media)
+	if exact {
+		title, _, _ := mediaName(note.Title)
+		return plain(title) == plain(stem)
 	}
-	e := filepath.Ext(note.Title)
-	return strings.HasPrefix(plain(note.Title), plain(stem)) &&
-		(e == "" || !IsMedia(note.Title) || IsVideo(note.Title) == IsVideo(media))
+	return strings.HasPrefix(plain(note.Title), plain(stem))
 }
 
-// whole is whether a sidecar's name holds all of media's: without its
-// extension, only if the title inside goes no further (20030616.json).
-func whole(dir, name, media string) bool {
+// holdsName is whether a sidecar's name has all of media's in it.
+func holdsName(name, media string) bool {
 	stem, ext, _ := mediaName(media)
-	if strings.HasPrefix(name, stem+ext) || strings.HasPrefix(name, media) {
-		return true
-	}
+	return strings.HasPrefix(name, stem+ext) || strings.HasPrefix(name, media)
+}
+
+// otherExt is whether the title inside a sidecar has another extension than
+// media: it may be another photo's.
+func otherExt(dir, name, media string) bool {
 	note, _ := readSidecar(filepath.Join(dir, name))
-	title, _, _ := mediaName(note.Title)
-	return note.Title == "" || plain(title) == plain(stem)
+	return IsMedia(note.Title) && !strings.EqualFold(filepath.Ext(note.Title), filepath.Ext(media))
 }
 
 // plain is a name as Google may have rewritten it: & and ' become _.
