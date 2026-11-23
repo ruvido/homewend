@@ -30,7 +30,7 @@ func TestASidecarIsFoundByItsName(t *testing.T) {
 		{"Backyard_ceremony_wedding_photography_xxxxxxx_m(494).jpg", "Backyard_ceremony_wedding_photography_xxxxxxx_(494).json", own},
 		{"Backyard_ceremony_wedding_photography_xxxxxxx_m(185).jpg", "Backyard_ceremony_wedding_photography_xxxxxxx_(494).json", none},
 		{"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P.jpg", "original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json", own},
-		{"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P(1).jpg", "original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json", own},
+		{"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P(1).jpg", "original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json", shared},
 		{"PXL_20210102_221126856.MP~2.jpg", "PXL_20210102_221126856.MP~2.jpg.json", own},
 		{"13039_327707840323_537645323_9470255_27214_n(1).jpg", "13039_327707840323_537645323_9470255_27214_n.j(1).json", own},
 		{"20161105_170829.jpg", "20161105_170829.jpg.supplemental-metadata.json", own},
@@ -138,6 +138,14 @@ func TestAPhotoNeverTakesAnothersDate(t *testing.T) {
 		"a clip with its own, undated": {
 			map[string][]byte{"DSC_0100.JPG.json": note("DSC_0100.JPG", year2001), "DSC_0100.MOV.json": note("DSC_0100.MOV", "0")},
 			map[string]string{"DSC_0100.JPG": "DSC_0100.JPG.json", "DSC_0100.MOV": "DSC_0100.MOV.json"},
+		},
+		"a copy whose own comes later": {
+			map[string][]byte{"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json": note("original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P.jpg", year2001)},
+			map[string]string{"original_1d4caa6f-16c6-4c3d-901b-9387de10e528_P(1).jpg": "~original_1d4caa6f-16c6-4c3d-901b-9387de10e528_.json"},
+		},
+		"a clip beside a photo filed with no extension": {
+			map[string][]byte{"DSC_0100.json": note("DSC_0100.JPG", year2001)},
+			map[string]string{"DSC_0100.MOV": "~DSC_0100.json"},
 		},
 		"the original filed already": {
 			map[string][]byte{"IMG_4471.jpg.json": note("IMG_4471.jpg", year2001)},

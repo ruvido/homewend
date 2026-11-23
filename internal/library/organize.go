@@ -295,29 +295,31 @@ func destination(src, root string, capture Capture, opt Options, catalog *Catalo
 //	<root>/2019/07/IMG_1234.jpg
 //	<root>/.homewend/metadata/2019/07/IMG_1234.jpg.json
 func place(item Item, home, root string) error {
-	if err := move(item.Path, home); err != nil {
-		return err
+	// The sidecar first: a run stopped between the two finds the photo still
+	// to place, and not a photo in without it.
+	if item.Sidecar != "" {
+		kept := filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")
+		if err := keepSidecar(item.Sidecar, kept); err != nil {
+			return err
+		}
 	}
-	if item.Sidecar == "" {
-		return nil
-	}
-	kept := filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")
-	if exists(kept) {
-		return nil
-	}
+	return move(item.Path, home)
+}
+
+// keepSidecar gives a sidecar a second name, or a copy on a disk with no
+// hard links. What a run that stopped left there may be half a copy.
+func keepSidecar(sidecar, kept string) error {
+	os.Remove(kept)
 	if err := os.MkdirAll(filepath.Dir(kept), 0o755); err != nil {
 		return err
 	}
-	if os.Link(item.Sidecar, kept) == nil {
+	if os.Link(sidecar, kept) == nil {
 		return nil
 	}
-	// A disk with no hard links.
-	_, err := copyFile(item.Sidecar, kept, nil)
+	_, err := copyFile(sidecar, kept, nil)
 	return err
 }
 
-// move renames src to dst. Both are on the library's filesystem, so this never
-// copies a byte.
 func move(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err

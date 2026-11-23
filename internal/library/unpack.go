@@ -104,6 +104,9 @@ func extract(entry *zip.File, target string) error {
 	}
 	defer source.Close()
 
+	// What is there may be a second name of a sidecar the library keeps:
+	// written over, it would be emptied there too.
+	os.Remove(target)
 	file, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("writing %s: %w", target, err)

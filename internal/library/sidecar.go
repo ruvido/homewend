@@ -133,7 +133,11 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 			if len(by) > 1 && !slices.Contains(wholeNames(by[0]), n) {
 				continue
 			}
-			owner[n], found[by[0]] = by[0], pairing{path: filepath.Join(dir, n)}
+			// A copy that lost its number may be reading the one of a photo
+			// filed already: its own may still come.
+			_, _, number := mediaName(by[0])
+			lost := number != "" && !slices.Contains(wholeNames(by[0]), n) && !slices.Contains(cutNumbered(by[0]), n)
+			owner[n], found[by[0]] = by[0], pairing{filepath.Join(dir, n), lost}
 		}
 	}
 	for _, m := range media {
@@ -252,10 +256,11 @@ func cutNames(media, number string) []string {
 }
 
 // titled is whether the sidecar called name can be media's: one that holds its
-// whole name is; a cut one is if the title inside begins as media's name
+// whole name is; a cut one, or one with no extension, is if the title inside begins as media's name
 // does, with its extension.
 func titled(dir, name, media string) bool {
-	if slices.Contains(wholeNames(media), name) {
+	stem, ext, _ := mediaName(media)
+	if strings.HasPrefix(name, stem+ext) || strings.HasPrefix(name, media) {
 		return true
 	}
 	note, err := readSidecar(filepath.Join(dir, name))
@@ -265,7 +270,6 @@ func titled(dir, name, media string) bool {
 	if note.Title == "" {
 		return true
 	}
-	stem, ext, _ := mediaName(media)
 	e := filepath.Ext(note.Title)
 	return strings.HasPrefix(plain(note.Title), plain(stem)) && (e == "" || strings.EqualFold(e, ext) || !IsMedia(note.Title))
 }
