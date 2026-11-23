@@ -281,7 +281,7 @@
 								<dt>{text.infoTaken}</dt>
 								<dd>
 									{date}
-									{#if about}<small>{text.dated[about.dated]}</small>{/if}
+									{#if about && text.dated[about.dated]}<small>{text.dated[about.dated]}</small>{/if}
 									{#if p.guessed}<span class="tag">{text.estimatedTag}</span>{/if}
 								</dd>
 							</div>
