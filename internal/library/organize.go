@@ -320,6 +320,8 @@ func keepSidecar(sidecar, kept string) error {
 	return err
 }
 
+// move renames src to dst. Both are on the library's filesystem, so this never
+// copies a byte.
 func move(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err

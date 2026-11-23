@@ -255,9 +255,9 @@ func cutNames(media, number string) []string {
 	return names
 }
 
-// titled is whether the sidecar called name can be media's: one that holds its
-// whole name is; a cut one, or one with no extension, is if the title inside begins as media's name
-// does, with its extension.
+// titled is whether the sidecar called name can be media's: one that holds
+// its whole name is; a cut one, or one with no extension, is if the title
+// inside begins as media's name does, with its extension.
 func titled(dir, name, media string) bool {
 	stem, ext, _ := mediaName(media)
 	if strings.HasPrefix(name, stem+ext) || strings.HasPrefix(name, media) {
