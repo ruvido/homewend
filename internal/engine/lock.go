@@ -45,6 +45,9 @@ func lockLibrary(root string) (unlock func(), err error) {
 	return func() { unlockFile(file); file.Close() }, nil
 }
 
+// lockPoll is how often a run waiting for the library's turn asks for it.
+const lockPoll = 100 * time.Millisecond
+
 // takeLibrary takes the library's turn, waiting a moment for a run that
 // holds it for one photo: a date read from a name, a phone's photo placed.
 // One that holds it longer is busy.
@@ -58,8 +61,8 @@ func takeLibrary(ctx context.Context, root string) (unlock func(), err error) {
 	return unlock, err
 }
 
-// waitLibrary waits for the library's turn, asking again every quarter of a
-// second, or for ctx to end. A download in the background waits for an
+// waitLibrary waits for the library's turn, asking again every lockPoll,
+// or for ctx to end. A download in the background waits for an
 // import to finish placing rather than failing.
 func waitLibrary(ctx context.Context, root string, emit progress.Func) (unlock func(), err error) {
 	for said := false; ; said = true {
@@ -74,7 +77,7 @@ func waitLibrary(ctx context.Context, root string, emit progress.Func) (unlock f
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(250 * time.Millisecond):
+		case <-time.After(lockPoll):
 		}
 	}
 }

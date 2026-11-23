@@ -590,7 +590,7 @@ func (f Filter) where(query string) (string, []any) {
 	return query, args
 }
 
-// photo is the record of one photo.
+// Photo is the record of one photo.
 func (c *Catalog) Photo(hash string) (Photo, error) {
 	rows, err := c.db.Query(`SELECT `+photoColumns+` FROM photos WHERE hash = ?`, hash)
 	if err != nil {

@@ -30,7 +30,7 @@
 			await refresh();
 			onclose(true);
 		} catch (e) {
-			failed = e instanceof ApiError && e.status === 409 ? text.takeOutBusy : text.changeDateFailed;
+			failed = e instanceof ApiError && e.status === 409 ? text.changeDateBusy : text.changeDateFailed;
 		} finally {
 			busy = false;
 		}

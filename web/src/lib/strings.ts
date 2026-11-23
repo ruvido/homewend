@@ -46,6 +46,7 @@ export const text = {
 		`${count(n, 'photo')}${year ? ` of ${year}` : ''} ${n === 1 ? 'is' : 'are'} not on the disk any more.`,
 	missingDetail: 'Deleted or moved outside Homewend. If the files come back, so do the photos.',
 	showThem: 'Show them',
+	changeDateBusy: 'An import or a download is placing photos in the library: change the date when it ends.',
 	takeOutBusy: 'An import or a download is placing photos in the library: take them out when it ends.',
 	takeOutFailed: 'They were not taken out. Try again.',
 	libraryNotAnswering: "The library's disk does not answer.",
@@ -424,9 +425,9 @@ export const text = {
 		folder: "Google's folder says only the year",
 		name: "Read from the file's name: no date inside the file",
 		nameday: "Read from the file's name, which says only the day: no date inside the file",
-		none: 'Neither the file nor its name says it'
+		none: 'Neither Google, the file nor its name says it'
 	},
-	noDateSub: (n: string) => `${n} photos and videos with no date: neither Google nor the photo says when it was taken`,
+	noDateSub: (n: string) => `${n} photos and videos with no date: neither Google, the file nor its name says when it was taken`,
 	rotateLeft: 'Rotate',
 	archive: 'Archive',
 	unarchive: 'Unarchive',

@@ -4,12 +4,14 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/session"
@@ -95,36 +97,21 @@ func Now(sess *session.Session) (State, error) {
 	return st, nil
 }
 
-// settle moves a library filed before profiles into them, once: the photos
-// of each source to its account's profile, those of no source to the first
-// account's. Then it gives a photo with no date the one its name says.
-func settle(root string) error {
-	if root == "" {
-		return nil
-	}
-	if library.Filed(root) {
-		if err := relayout(root); err != nil {
-			return err
-		}
-	}
-	return dateByName(root)
-}
-
 // datedByName are the libraries whose photos with no date were given the
 // one their name says, in this run. Once is enough: every way in reads the
-// name since (library.DateByName).
+// name since.
 var (
 	datedByNameMu sync.Mutex
 	datedByName   = map[string]bool{}
 )
 
 // dateByName files the library's photos with no date under the date their
-// name says, once a run. An import or a download holding the library
-// leaves it for the next look.
+// name says (library.DateByName), once a run and in the background: the
+// window follows the catalog as they move.
 func dateByName(root string) error {
 	datedByNameMu.Lock()
 	defer datedByNameMu.Unlock()
-	if datedByName[root] {
+	if root == "" || datedByName[root] {
 		return nil
 	}
 	if _, err := os.Stat(catalogPath(root)); err != nil {
@@ -134,20 +121,39 @@ func dateByName(root string) error {
 	if err != nil {
 		return err
 	}
-	defer catalog.Close()
-	err = library.DateByName(root, catalog, func() (func(), error) { return lockLibrary(root) })
-	if errors.Is(err, ErrLibraryBusy) {
-		return nil
-	}
+	photos, err := library.NamedPhotos(catalog)
 	if err != nil {
-		// Tried again at the next start; the library is read all the same.
-		log.Printf("dates from names: %v", err)
+		catalog.Close()
+		return err
 	}
 	datedByName[root] = true
+	if len(photos) == 0 {
+		return catalog.Close()
+	}
+	go func() {
+		defer catalog.Close()
+		if err := library.DateByName(root, catalog, photos, func() (func(), error) { return yieldingTurn(root) }); err != nil {
+			// Tried again at the next start.
+			log.Printf("dates from names: %v", err)
+		}
+	}()
 	return nil
 }
 
-func relayout(root string) error {
+// yieldingTurn is the library's turn, for one photo of many: whoever waits
+// for it asks in the pause before.
+func yieldingTurn(root string) (unlock func(), err error) {
+	time.Sleep(2 * lockPoll)
+	return waitLibrary(context.Background(), root, nil)
+}
+
+// settle moves a library filed before profiles into them, once: the photos
+// of each source to its account's profile, those of no source to the first
+// account's.
+func settle(root string) error {
+	if root == "" || !library.Filed(root) {
+		return nil
+	}
 	accounts, err := Accounts()
 	if err != nil {
 		return err

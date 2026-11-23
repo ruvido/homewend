@@ -460,7 +460,8 @@ type PhotoAbout struct {
 	Path  string             `json:"path"` // in the library
 }
 
-// About is a photo's albums and the accounts it came from.
+// About is what the viewer says of a photo: its albums, where it came from,
+// its date's source, its size and its place.
 func About(hash string) (PhotoAbout, error) {
 	c, _, err := openLibrary()
 	if err != nil || c == nil {

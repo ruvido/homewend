@@ -66,3 +66,36 @@ func TestAMomentsTurnIsWaitedFor(t *testing.T) {
 		t.Errorf("held longer: %v, want ErrLibraryBusy", err)
 	}
 }
+
+// A run of many photos, one turn each, lets another in between two.
+func TestAManyPhotosRunLetsAnotherIn(t *testing.T) {
+	root := t.TempDir()
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			unlock, err := yieldingTurn(root)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+			unlock()
+		}
+	}()
+	for range 3 {
+		unlock, err := takeLibrary(context.Background(), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		unlock()
+	}
+	close(stop)
+	<-done
+}

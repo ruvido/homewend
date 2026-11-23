@@ -134,14 +134,9 @@ func TestTwoPhotosFromOnePhoneAtOnce(t *testing.T) {
 		go func() {
 			photo := []byte(strings.Repeat("photo ", 100000) + string(rune('a'+i)))
 			sum := sha256.Sum256(photo)
-			for {
-				_, err := ReceivePhoto(context.Background(), phone, hex.EncodeToString(sum[:]), "IMG.JPG", int64(len(photo)), bytes.NewReader(photo))
-				// The other holds the library's turn: a phone sends again.
-				if !errors.Is(err, ErrLibraryBusy) {
-					errs <- err
-					return
-				}
-			}
+			// One holds the library's turn: the other waits for it.
+			_, err := ReceivePhoto(context.Background(), phone, hex.EncodeToString(sum[:]), "IMG.JPG", int64(len(photo)), bytes.NewReader(photo))
+			errs <- err
 		}()
 	}
 	for range 2 {

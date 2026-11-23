@@ -159,7 +159,6 @@
 	let wasAt = $state('');
 	$effect(() => {
 		const hash = p?.hash;
-		about = null;
 		wasAt = '';
 		if (hash && p?.missing)
 			pathOf(hash).then((r) => {
@@ -169,6 +168,8 @@
 			getAbout(hash).then((a) => {
 				if (p?.hash !== hash) return;
 				about = a;
+			}).catch(() => {
+				if (p?.hash === hash) about = null;
 			});
 	});
 
@@ -280,8 +281,8 @@
 								<dt>{text.infoTaken}</dt>
 								<dd>
 									{date}
-									{#if p.guessed}<span class="tag">{text.estimatedTag}</span>{/if}
 									{#if about}<small>{text.dated[about.dated]}</small>{/if}
+									{#if p.guessed}<span class="tag">{text.estimatedTag}</span>{/if}
 								</dd>
 							</div>
 							{#if about}
@@ -481,6 +482,9 @@
 		padding: 0;
 		justify-content: center;
 	}
+	.pill[aria-pressed='true'] {
+		background: #ffffff29;
+	}
 	.body {
 		flex: 1;
 		min-height: 0;
@@ -541,7 +545,7 @@
 	}
 	.tag {
 		padding: 0 8px;
-		border-radius: 999px;
+		border-radius: var(--radius-full);
 		background: var(--warn-soft);
 		color: var(--warn);
 		font-size: var(--text-subheadline);

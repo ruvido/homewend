@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -259,21 +260,24 @@ func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (
 	return len(records), nil
 }
 
-// DateByName files under the date its name says each photo of the library
-// whose date is not known, or only its year from Google's folder and the
-// name agrees: the photos that came in before names were read. turn takes
-// the library's turn for one photo, so nobody waits for all of them. One
-// that cannot move stays as it was and the rest still move; what went wrong
-// is returned.
-func DateByName(root string, catalog *Catalog, turn func() (func(), error)) error {
+// NamedPhotos are the photos of the library that take their name's date
+// (dateNamed): those that came in before names were read.
+func NamedPhotos(catalog *Catalog) ([]Photo, error) {
 	all, err := catalog.Page(Filter{})
-	if err != nil {
-		return err
-	}
+	return slices.DeleteFunc(all, func(p Photo) bool {
+		_, ok := dateNamed(p.capture(), p.Name)
+		return !ok
+	}), err
+}
+
+// DateByName files photos under the date their name says. turn takes the
+// library's turn for one photo, so nobody waits for all of them. One that
+// cannot move stays as it was and the rest still move; what went wrong is
+// returned.
+func DateByName(root string, catalog *Catalog, photos []Photo, turn func() (func(), error)) error {
 	var failed []error
-	for _, p := range all {
-		capture, ok := namedCapture(p)
-		if !ok || !onDisk(root, p) {
+	for _, p := range photos {
+		if !onDisk(root, p) {
 			continue
 		}
 		unlock, err := turn()
@@ -282,29 +286,16 @@ func DateByName(root string, catalog *Catalog, turn func() (func(), error)) erro
 		}
 		// Read again in its turn: a date given meanwhile stays.
 		if p, err = catalog.Photo(p.Hash); err == nil {
-			if _, ok := namedCapture(p); ok {
+			if capture, ok := dateNamed(p.capture(), p.Name); ok {
 				err = redateFiled(root, catalog, p, capture)
 			}
 		}
 		unlock()
 		if err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", p.Name, err))
+			failed = append(failed, fmt.Errorf("%s: %w", p.Path, err))
 		}
 	}
 	return errors.Join(failed...)
-}
-
-// namedCapture is the date p takes from its name, when it has none better.
-// Google's year stands against a name that says another.
-func namedCapture(p Photo) (Capture, bool) {
-	if p.Source != NoDate && p.Source != FromFolder {
-		return Capture{}, false
-	}
-	when, source, ok := nameDate(p.Name)
-	if p.Source == FromFolder && when.Year() != p.Taken.Year() {
-		ok = false
-	}
-	return Capture{When: when, Source: source}, ok
 }
 
 // onDisk is whether p's file is in the library: one gone is left as it is.

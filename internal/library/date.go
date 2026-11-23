@@ -91,32 +91,34 @@ func DateOf(mediaPath string, folder string) Capture {
 	if ok {
 		return Capture{When: taken, Source: FromSidecar, Origin: origin}
 	}
-	when, source, ok := fileDate(mediaPath, filepath.Base(mediaPath))
-	capture := Capture{When: when, Source: source, Origin: origin}
-	if ok && source.Guessed() == "" {
-		return capture
+	if when, source, ok := cameraDate(mediaPath); ok {
+		return Capture{When: when, Source: source, Origin: origin}
 	}
 	// "Photos from 2019" is not a date, but it is Google's own filing and it is
 	// better than nothing: the photo lands in the right year, in a month folder
 	// that says it is unknown.
+	capture := Capture{Source: NoDate, Origin: origin}
 	if match := yearFolder.FindStringSubmatch(folder); match != nil {
-		year, err := strconv.Atoi(match[1])
-		if err == nil && ok && when.Year() == year {
-			// The name agrees with Google's year, and says the month too.
-			return capture
-		}
-		if err == nil {
-			return Capture{
-				When:   time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC),
-				Source: FromFolder,
-				Origin: origin,
-			}
+		if year, err := strconv.Atoi(match[1]); err == nil {
+			capture.When, capture.Source = time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC), FromFolder
 		}
 	}
-	if ok {
-		return capture
+	capture, _ = dateNamed(capture, filepath.Base(mediaPath))
+	return capture
+}
+
+// dateNamed is c with the date name says, when c has none or only Google's
+// year; Google's year stands against a name that says another.
+func dateNamed(c Capture, name string) (Capture, bool) {
+	if c.Source != NoDate && c.Source != FromFolder {
+		return c, false
 	}
-	return Capture{Source: NoDate, Origin: origin}
+	when, source, ok := nameDate(name)
+	if !ok || c.Source == FromFolder && when.Year() != c.When.Year() {
+		return c, false
+	}
+	c.When, c.Source = when, source
+	return c, true
 }
 
 // Takeout writes one sidecar per media file. The name is usually
@@ -518,6 +520,13 @@ func nameDate(name string) (time.Time, DateSource, bool) {
 		timed := re.SubexpIndex("H") >= 0 && m[re.SubexpIndex("H")] != ""
 		if timed {
 			h, mi, s = field("H"), field("M"), field("S")
+		}
+		// A clock of 12 hours: 12 AM is midnight, 12 PM noon.
+		if i := re.SubexpIndex("P"); i >= 0 && m[i] != "" && h >= 1 && h <= 12 {
+			h %= 12
+			if strings.EqualFold(m[i], "PM") {
+				h += 12
+			}
 		}
 		when := time.Date(y, time.Month(mo), d, h, mi, s, 0, time.UTC)
 		real := when.Year() == y && int(when.Month()) == mo && when.Day() == d &&
