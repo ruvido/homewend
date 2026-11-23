@@ -157,8 +157,10 @@ func catalogDSN(path, options string) string {
 	return dsn
 }
 
-// waiting is how long a connection waits for another to let go of the catalog.
-const waiting = "_pragma=busy_timeout(5000)"
+// waiting is how long a connection waits for others to let go of the catalog.
+// They take turns by chance, not in order: between two that write without
+// pause, one was seen to wait more than 5 seconds on Windows.
+const waiting = "_pragma=busy_timeout(30000)"
 
 // openCatalog opens the index at path with options, out of WAL mode if it was
 // left in it. Every system keeps the catalog the same way, with a rollback
@@ -229,11 +231,18 @@ func OpenCatalog(path string) (*Catalog, error) {
 		}
 	}
 	// A catalog from before sources named their service kept bare Google
-	// addresses.
-	if _, err := db.Exec(`UPDATE OR IGNORE owners SET account = 'google/' || account WHERE instr(account, '/') = 0;
-UPDATE OR IGNORE album_owners SET account = 'google/' || account WHERE instr(account, '/') = 0;`); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("naming the catalog's sources: %w", err)
+	// addresses. Looked for first: an opening that has nothing to write does
+	// not wait for those who write.
+	for _, table := range []string{"owners", "album_owners"} {
+		var bare bool
+		err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM ` + table + ` WHERE instr(account, '/') = 0)`).Scan(&bare)
+		if err == nil && bare {
+			_, err = db.Exec(`UPDATE OR IGNORE ` + table + ` SET account = 'google/' || account WHERE instr(account, '/') = 0`)
+		}
+		if err != nil {
+			db.Close()
+			return nil, fmt.Errorf("naming the catalog's sources: %w", err)
+		}
 	}
 	if err := clockDates(db, path); err != nil {
 		db.Close()

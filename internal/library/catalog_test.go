@@ -482,7 +482,7 @@ func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
 			select {
 			case err := <-done:
 				return err
-			default:
+			case <-time.After(5 * time.Millisecond):
 			}
 			c, err := OpenCatalog(path)
 			if err != nil {
