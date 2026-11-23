@@ -455,33 +455,48 @@ func TestWritersAndAReaderWaitForEachOther(t *testing.T) {
 // window imports: both write, and open the catalog again and again as pages
 // do. No row is lost and the catalog is whole.
 func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
-	work := func(path, name string) error {
+	const each = 300
+	write := func(path, name string) error {
 		c, err := OpenCatalog(path)
 		if err != nil {
 			return err
 		}
 		defer c.Close()
-		for i := range 100 {
-			if err := c.Put(Photo{Hash: fmt.Sprint(name, i), Path: fmt.Sprint(name, i), Name: "a"}); err != nil {
+		for i := range each {
+			hash := fmt.Sprint(name, i)
+			if err := c.Put(Photo{Hash: hash, Path: hash, Name: "a"}); err != nil {
 				return err
 			}
-			page, err := OpenCatalog(path)
-			if err != nil {
-				return err
-			}
-			_, err = page.Page(Filter{})
-			if err == nil {
-				_, err = page.Mark(Archived, []string{fmt.Sprint(name, i)}, "", true)
-			}
-			page.Close()
-			if err != nil {
-				return err
-			}
-			if err := look(path); err != nil {
+			if _, err := c.Mark(Archived, []string{hash}, "", true); err != nil {
 				return err
 			}
 		}
 		return nil
+	}
+	// Pages open and close the catalog while the same process writes it: a
+	// lock let go by a closing would let the other process in mid-write.
+	work := func(path, name string) error {
+		done := make(chan error, 1)
+		go func() { done <- write(path, name) }()
+		for {
+			select {
+			case err := <-done:
+				return err
+			default:
+			}
+			c, err := OpenCatalog(path)
+			if err != nil {
+				return err
+			}
+			_, err = c.Page(Filter{})
+			c.Close()
+			if err == nil {
+				err = look(path)
+			}
+			if err != nil {
+				return err
+			}
+		}
 	}
 	if path := os.Getenv("HOMEWEND_TEST_CATALOG"); path != "" {
 		if err := work(path, "b"); err != nil {
@@ -517,8 +532,8 @@ func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
 		t.Errorf("integrity %q, %v", whole, err)
 	}
 	var n, archived int
-	if err := c.db.QueryRow(`SELECT COUNT(*), SUM(archived) FROM photos`).Scan(&n, &archived); err != nil || n != 200 || archived != 200 {
-		t.Errorf("%d photos, %d archived, %v, want 200 of each", n, archived, err)
+	if err := c.db.QueryRow(`SELECT COUNT(*), SUM(archived) FROM photos`).Scan(&n, &archived); err != nil || n != 2*each || archived != 2*each {
+		t.Errorf("%d photos, %d archived, %v, want %d of each", n, archived, err, 2*each)
 	}
 }
 
@@ -528,7 +543,7 @@ func look(path string) error {
 		return err
 	}
 	defer c.Close()
-	_, err = c.Count(Filter{})
+	_, _, err = c.PathOf("late")
 	return err
 }
 
