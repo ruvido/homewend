@@ -206,7 +206,10 @@ func TestAWhatsAppFileUploadedLateTakesItsNamesDay(t *testing.T) {
 		{"VID-20161225-WA0005.mp4", at(2015, 12, 19, 0, 51), "2015-12-19 sidecar received"},
 		// Not WhatsApp's.
 		{"signal-2021-07-17-181447.jpg", at(2021, 7, 20, 12, 11), "2021-07-20 sidecar received"},
-		{"Screenshot_20191112-112004.png", at(2020, 1, 14, 11, 51), "2020-01-14 sidecar received"},
+		{"Screenshot_20191112-112004.png", at(2020, 1, 14, 11, 51), "2019-11-12 name guessed"},
+		{"Screenshot_20191112-112004.png", at(2019, 11, 12, 11, 20), "2019-11-12 sidecar received"},
+		// Nothing says a screenshot is after Google's date.
+		{"Screenshot_20191112-112005.png", at(2019, 11, 1, 11, 20), "2019-11-01 sidecar received"},
 	} {
 		path := "Photos from 2016/" + c.name
 		write(t, dir, path, []byte("no date inside"))

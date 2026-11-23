@@ -6,6 +6,7 @@ package library
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -164,5 +165,50 @@ func TestAPhotoTakenElsewhereKeepsTheCamerasClock(t *testing.T) {
 		if at := got.Local(rome).Format("2006:01:02 15:04:05"); got.Source != c.source || at != want {
 			t.Errorf("%s: %s %s, want %s %s", c.name, at, got.Source, want, c.source)
 		}
+	}
+}
+
+// A Live Photo is one picture in two files: its video has the photo's clock.
+// A clip that only shares the photo's name keeps the date it had.
+func TestALivePhotosVideoHasItsPhotosDate(t *testing.T) {
+	rome, err := time.LoadLocation("Europe/Rome")
+	if err != nil {
+		t.Skip("no timezone database")
+	}
+	was := time.Local
+	time.Local = rome
+	t.Cleanup(func() { time.Local = was })
+	dir := t.TempDir()
+	google := time.Date(2018, 11, 18, 2, 40, 31, 0, rome)
+	for name, camera := range map[string]string{"TRIP": "2018:11:17 20:40:31", "HOME": "2018:11:18 02:40:31", "CLIP": "2018:11:17 20:40:31", "ZERO": "2018:11:17 20:40:31"} {
+		path := "Photos from 2018/" + name
+		write(t, dir, path+".jpg", exifPhoto(camera, name))
+		sidecar(t, dir, path+".jpg", google.Unix())
+	}
+	write(t, dir, "Photos from 2018/TRIP.mp4", movie(google.Add(2*time.Second)))
+	write(t, dir, "Photos from 2018/HOME.mp4", movie(google.Add(3*time.Second)))
+	write(t, dir, "Photos from 2018/CLIP.mp4", movie(google.Add(5*time.Minute)))
+	write(t, dir, "Photos from 2018/ZERO.mp4", movie(time.Time{}))
+	items, err := ReadTakeout(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"TRIP.mp4": "2018-11-17 20:40:31 exif false",
+		"HOME.mp4": "2018-11-18 02:40:31 sidecar false",
+		"CLIP.mp4": "2018-11-18 02:40:31 sidecar true",
+		"ZERO.mp4": "2018-11-18 02:40:31 sidecar true",
+	}
+	for _, item := range items {
+		name := filepath.Base(item.Path)
+		c := item.Capture
+		got := fmt.Sprintf("%s %s %t", c.Local(rome).Format("2006-01-02 15:04:05"), c.Source, item.Shared)
+		if want[name] != "" && got != want[name] {
+			t.Errorf("%s: %s, want %s", name, got, want[name])
+		}
+		delete(want, name)
+	}
+	if len(want) > 0 {
+		t.Errorf("not read: %v", want)
 	}
 }

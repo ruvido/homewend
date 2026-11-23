@@ -119,8 +119,30 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 	return capture
 }
 
+// ofLivePhoto is a video's date when it is part of the Live Photo still: the
+// camera's clock there too, or the two would be hours apart. Its header must
+// say the same minute as Google's date, the still's: 1,483 of 1,500 in a real
+// export, and the 17 others were a zone off. Any other video keeps its own.
+func ofLivePhoto(c Capture, path, still string) (Capture, bool) {
+	if still == "" || c.Source != FromSidecar {
+		return c, false
+	}
+	google := c.Local(time.Local)
+	ended, ok := videoDate(path)
+	if !ok || ended.Sub(google).Abs() > time.Minute {
+		return c, false
+	}
+	if when, ok := elsewhere(still, google); ok {
+		c.When, c.Source = when, FromEXIF
+	}
+	return c, true
+}
+
 // uploadedLate is the date in a WhatsApp file's name, when Google's is more
-// than a day after it. WhatsApp leaves no date inside, so Google has the day
+// than a day after it, or in a screenshot's, when it is more than a minute.
+// A screenshot's name has the second it was taken: in a real export 137 of
+// 171 agree with Google's within minutes, 34 are later and none earlier.
+// WhatsApp leaves no date inside, so Google has the day
 // of the upload: in a real export 3,765 of 10,498, most of them months late.
 // The name is the day the file came through the chat, and no picture is
 // taken after it was sent: a date a person corrected is an earlier one, which
@@ -128,8 +150,14 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 func uploadedLate(name string, google time.Time) (time.Time, DateSource, bool) {
 	when, source, ok := nameDate(name)
 	day := func(t time.Time) time.Time { return t.Truncate(24 * time.Hour) }
-	late := ok && OriginOf("", name) == OriginWhatsApp && day(google).Sub(day(when)) > 24*time.Hour
-	return when, source, late
+	late := false
+	switch OriginOf("", name) {
+	case OriginWhatsApp:
+		late = day(google).Sub(day(when)) > 24*time.Hour
+	case OriginScreenshot:
+		late = google.Sub(when) > time.Minute
+	}
+	return when, source, ok && late
 }
 
 // elsewhere is the camera's clock in a photo, when it and Google's, on this

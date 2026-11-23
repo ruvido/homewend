@@ -46,10 +46,12 @@ var editedSuffixes = []string{"-edited", "-effects", "-smile", "-mix", "-edytowa
 var stillExts = []string{".HEIC", ".heic", ".JPG", ".jpg", ".JPEG", ".jpeg", ".PNG", ".png"}
 
 // pairing is where a media file's date is. shared: it is another photo's,
-// whose date this one has until its own arrives.
+// whose date this one has until its own arrives; that photo is of, when it
+// is in the same folder.
 type pairing struct {
 	path   string
 	shared bool
+	of     string
 }
 
 // sidecarNote is what Homewend reads of a sidecar.
@@ -139,7 +141,7 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 					continue
 				}
 				for _, m := range by {
-					found[m] = pairing{filepath.Join(dir, n), true}
+					found[m] = pairing{path: filepath.Join(dir, n), shared: true}
 				}
 				by = append(mine, by...)
 			}
@@ -149,7 +151,7 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 			shared := number != "" && pass == 2
 			// So may one whose title has another extension.
 			shared = shared || !holdsName(n, by[0]) && otherExt(dir, n, by[0])
-			owner[n], found[by[0]] = by[0], pairing{filepath.Join(dir, n), shared}
+			owner[n], found[by[0]] = by[0], pairing{path: filepath.Join(dir, n), shared: shared}
 		}
 	}
 	for _, m := range media {
@@ -159,7 +161,7 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 		// A copy whose name lost its number where it was cut.
 		for _, n := range cutBare(m) {
 			if o := owner[n]; o != "" && sameName(o, m) {
-				found[m] = pairing{filepath.Join(dir, n), true}
+				found[m] = pairing{path: filepath.Join(dir, n), shared: true}
 			}
 		}
 		for _, p := range partners(m) {
@@ -167,7 +169,7 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 				break
 			}
 			if s, ok := found[p]; ok && !s.shared {
-				found[m] = pairing{s.path, true}
+				found[m] = pairing{s.path, true, filepath.Join(dir, p)}
 				break
 			}
 			if here[p] {
@@ -176,7 +178,7 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 			// The partner is filed already, or in another part.
 			for pass, names := range []func(string) []string{wholeNames, cutNumbered} {
 				if n := first(names(p)); n != "" && titled(dir, n, p, pass == 0) {
-					found[m] = pairing{filepath.Join(dir, n), true}
+					found[m] = pairing{path: filepath.Join(dir, n), shared: true}
 					break
 				}
 			}

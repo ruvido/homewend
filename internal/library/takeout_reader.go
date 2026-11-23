@@ -33,9 +33,13 @@ func ReadTakeout(root string) ([]Item, error) {
 	for _, file := range files {
 		dir := filepath.Dir(file)
 		s := sidecars[dir][filepath.Base(file)]
+		capture := DateOf(file, filepath.Base(dir), s.path)
+		if c, ok := ofLivePhoto(capture, file, s.of); ok {
+			capture, s.shared = c, false
+		}
 		items = append(items, Item{
 			Path:    file,
-			Capture: DateOf(file, filepath.Base(dir), s.path),
+			Capture: capture,
 			Album:   albumOf(root, file),
 			Sidecar: s.path,
 			Shared:  s.shared,
