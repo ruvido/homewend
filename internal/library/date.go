@@ -124,7 +124,7 @@ func DateOf(mediaPath, folder, sidecar string) Capture {
 // say the same minute as Google's date, the still's: 1,483 of 1,500 in a real
 // export, and the 17 others were a zone off. Any other video keeps its own.
 func ofLivePhoto(c Capture, path, still string) (Capture, bool) {
-	if still == "" || c.Source != FromSidecar {
+	if still == "" || IsVideo(still) || c.Source != FromSidecar {
 		return c, false
 	}
 	google := c.Local(time.Local)
@@ -140,13 +140,13 @@ func ofLivePhoto(c Capture, path, still string) (Capture, bool) {
 
 // uploadedLate is the date in a WhatsApp file's name, when Google's is more
 // than a day after it, or in a screenshot's, when it is more than a minute.
-// A screenshot's name has the second it was taken: in a real export 137 of
-// 171 agree with Google's within minutes, 34 are later and none earlier.
 // WhatsApp leaves no date inside, so Google has the day
 // of the upload: in a real export 3,765 of 10,498, most of them months late.
 // The name is the day the file came through the chat, and no picture is
 // taken after it was sent: a date a person corrected is an earlier one, which
 // stands. Signal's names say the same, but 2 late files are too few to rule on.
+// A screenshot's name has the second it was taken: of 171 in a real export
+// Google's is later by over six minutes in 34, and earlier in none.
 func uploadedLate(name string, google time.Time) (time.Time, DateSource, bool) {
 	when, source, ok := nameDate(name)
 	day := func(t time.Time) time.Time { return t.Truncate(24 * time.Hour) }

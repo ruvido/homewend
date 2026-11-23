@@ -189,11 +189,16 @@ func TestALivePhotosVideoHasItsPhotosDate(t *testing.T) {
 	write(t, dir, "Photos from 2018/HOME.mp4", movie(google.Add(3*time.Second)))
 	write(t, dir, "Photos from 2018/CLIP.mp4", movie(google.Add(5*time.Minute)))
 	write(t, dir, "Photos from 2018/ZERO.mp4", movie(time.Time{}))
+	// The photo's sidecar has another extension in its title.
+	write(t, dir, "Photos from 2018/HEIC.heic", exifPhoto("2018:11:17 20:40:31", "HEIC"))
+	write(t, dir, "Photos from 2018/HEIC.json", []byte(fmt.Sprintf(`{"title":"HEIC.JPG","photoTakenTime":{"timestamp":"%d"}}`, google.Unix())))
+	write(t, dir, "Photos from 2018/HEIC.mp4", movie(google.Add(2*time.Second)))
 	items, err := ReadTakeout(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
+		"HEIC.mp4": "2018-11-17 20:40:31 exif false",
 		"TRIP.mp4": "2018-11-17 20:40:31 exif false",
 		"HOME.mp4": "2018-11-18 02:40:31 sidecar false",
 		"CLIP.mp4": "2018-11-18 02:40:31 sidecar true",

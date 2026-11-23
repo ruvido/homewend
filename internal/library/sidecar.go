@@ -143,7 +143,9 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 				for _, m := range by {
 					found[m] = pairing{path: filepath.Join(dir, n), shared: true}
 				}
-				by = append(mine, by...)
+				if len(mine) > 0 {
+					by = mine
+				}
 			}
 			// A copy that lost its number may be reading the one of a photo
 			// filed already: its own may still come.
@@ -168,7 +170,7 @@ func sidecarsOf(dir string, media []string) map[string]pairing {
 			if _, ok := found[m]; ok {
 				break
 			}
-			if s, ok := found[p]; ok && !s.shared {
+			if s, ok := found[p]; ok {
 				found[m] = pairing{s.path, true, filepath.Join(dir, p)}
 				break
 			}
