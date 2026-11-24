@@ -117,11 +117,13 @@ func Dimensions(path string) (w, h int) {
 	}()
 	// The decoder of a HEIC turns it already.
 	if library.IsHEIC(path) {
-		c, err := heic.DecodeConfig(f)
-		if err != nil {
+		if c, err := heic.DecodeConfig(f); err == nil {
+			return c.Width, c.Height
+		}
+		// A JPEG saved with the wrong name.
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return 0, 0
 		}
-		return c.Width, c.Height
 	}
 	c, _, err := image.DecodeConfig(f)
 	if err != nil {

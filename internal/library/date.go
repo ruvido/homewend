@@ -554,10 +554,12 @@ func exifThumbnail(path string) []byte {
 // make and the model its EXIF names, the make once; "" when it does not say.
 func CameraOf(path string) string {
 	var maker, model string
+	var exif *heic.Exif
 	if IsHEIC(path) {
-		if exif := heicExif(path); exif != nil {
-			maker, model = exif.Make, exif.Model
-		}
+		exif = heicExif(path)
+	}
+	if exif != nil {
+		maker, model = exif.Make, exif.Model
 	} else if head, tiff, order, ok := exifHead(path); ok {
 		ifd0 := int(order.Uint32(head[tiff+4 : tiff+8]))
 		maker, _ = readTag(head, tiff, ifd0, 0x010f, order)

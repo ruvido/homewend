@@ -51,6 +51,9 @@
 	let dating = $state(false);
 
 	const p = $derived(index === null ? null : photos[index]);
+	// What is asked about it is asked once: a heart or a turn makes another p.
+	const hash = $derived(p?.hash);
+	const missing = $derived(p?.missing);
 	// What Chromium shows by itself: zoomed in, the original; anything else
 	// (HEIC, a raw file) is zoomed in on its preview.
 	const ext = $derived(p ? p.name.toLowerCase().split('.').pop() ?? '' : '');
@@ -170,9 +173,8 @@
 	// What its file says: read only while Info shows it, of this photo alone.
 	let file = $state<PhotoFile | null>(null);
 	$effect(() => {
-		const hash = p?.hash;
 		file = null;
-		if (!hash || !info || p?.missing) return;
+		if (!hash || !info || missing) return;
 		let left = false;
 		getFile(hash).then((f) => left || (file = f)).catch(() => {});
 		return () => (left = true);
@@ -181,18 +183,18 @@
 	// Where its file was, whole, when it is gone: the person looks there.
 	let wasAt = $state('');
 	$effect(() => {
-		const hash = p?.hash;
+		const of = hash;
 		wasAt = '';
-		if (hash && p?.missing)
-			pathOf(hash).then((r) => {
-				if (p?.hash === hash) wasAt = r.path;
+		if (of && missing)
+			pathOf(of).then((r) => {
+				if (hash === of) wasAt = r.path;
 			});
-		if (hash)
-			getAbout(hash).then((a) => {
-				if (p?.hash !== hash) return;
+		if (of)
+			getAbout(of).then((a) => {
+				if (hash !== of) return;
 				about = a;
 			}).catch(() => {
-				if (p?.hash === hash) about = null;
+				if (hash === of) about = null;
 			});
 	});
 
@@ -207,8 +209,8 @@
 			if (e.key === 'Escape') dating = takingOut = false;
 			return;
 		}
-		// On a button, Space presses it.
-		if (e.key === ' ' && (e.target as Element).closest?.('button')) return;
+		// On a button of its own, Space presses it.
+		if (e.key === ' ' && (e.target as Element).closest?.('.viewer button')) return;
 		// Space closes it, as it closes Quick Look.
 		if (e.key === 'Escape' || e.key === ' ') {
 			e.preventDefault();
@@ -300,8 +302,8 @@
 						{/if}
 					{/key}
 				</div>
-				<button class="round nav left" aria-label={text.previous} onclick={() => move(-1)}><Icon name="chevron-left" size={20} /></button>
-				<button class="round nav right" aria-label={text.next} onclick={() => move(1)}><Icon name="chevron-right" size={20} /></button>
+				<button class="round nav left" aria-label={text.previous} onclick={(e) => (e.currentTarget.blur(), move(-1))}><Icon name="chevron-left" size={20} /></button>
+				<button class="round nav right" aria-label={text.next} onclick={(e) => (e.currentTarget.blur(), move(1))}><Icon name="chevron-right" size={20} /></button>
 			</div>
 			{#if info}
 				<aside in:pane out:pane={{ leaving: true }}>
@@ -323,7 +325,7 @@
 							</div>
 							{#if about}
 								<div><dt>{text.infoSize}</dt><dd>{pixels}{bytes(about.bytes)}</dd></div>
-								{#if file && !p.video}<div in:swap><dt>{text.infoCamera}</dt><dd>{file.camera || '—'}{#if !file.camera}<small>{text.infoNoCamera}</small>{/if}</dd></div>{/if}
+								{#if !p.video && !p.missing}<div><dt>{text.infoCamera}</dt><dd>{file ? file.camera || '—' : '\u00a0'}{#if file && !file.camera}<small in:swap>{text.infoNoCamera}</small>{/if}</dd></div>{/if}
 								{#if from.length}<div><dt>{text.infoFrom}</dt><dd>{from.join(', ')}</dd></div>{/if}
 								<div><dt>{text.infoFile}</dt><dd>{p.name}<small>{about.path.slice(0, about.path.lastIndexOf('/') + 1)}</small></dd></div>
 							{/if}
