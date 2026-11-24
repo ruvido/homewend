@@ -171,16 +171,17 @@ func openLibrary() (*library.Catalog, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	c, err := openAt(root)
+	c, err := openAt(root, library.OpenCatalog)
 	return c, root, err
 }
 
-// openAt opens the catalog of the library at root, nil when nothing is in it.
-func openAt(root string) (*library.Catalog, error) {
+// openAt opens the catalog of the library at root as open does, nil when
+// nothing is in it.
+func openAt(root string, open func(string) (*library.Catalog, error)) (*library.Catalog, error) {
 	if _, err := os.Stat(catalogPath(root)); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
-	return library.OpenCatalog(catalogPath(root))
+	return open(catalogPath(root))
 }
 
 // openHere is openAt of the chosen library, which is there (LibraryHere).
@@ -189,7 +190,7 @@ func openHere() (*library.Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return openAt(root)
+	return openAt(root, library.OpenCatalog)
 }
 
 // The views of the library besides the grid, a year and an album.
@@ -444,16 +445,21 @@ func TakeOutMissing(one *library.Key, keepOut bool) (int, error) {
 }
 
 // Mark sets state on photos, or clears it, and says which are in their
-// library. With the library away none is said to be.
+// library; with the library away, none.
 func Mark(state library.State, photos []library.Key, on bool) ([]library.Key, error) {
-	c, err := openHere()
+	c, _, err := openLibrary()
 	if err != nil || c == nil {
 		return []library.Key{}, err
 	}
+	return markIn(c, state, photos, on)
+}
+
+// markIn is Mark in the catalog c, which it closes.
+func markIn(c *library.Catalog, state library.State, photos []library.Key, on bool) ([]library.Key, error) {
 	defer c.Close()
 	done, err := c.Mark(state, photos, on)
 	if state == library.Favorite {
-		tellPhones()
+		lookNow()
 	}
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {

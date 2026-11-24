@@ -99,8 +99,10 @@ func heartIs(t testing.TB, c *Catalog, profile string, want bool) {
 func TestTheLastHeartWins(t *testing.T) {
 	window := func(on bool, ago int64) func(*testing.T, *Catalog) {
 		return func(t *testing.T, c *Catalog) {
-			if _, err := c.Mark(Favorite, []Key{{hashed(0), "ron"}}, on); err != nil {
-				t.Fatal(err)
+			for _, on := range []bool{!on, on} { // from what it was: the same makes no mark
+				if _, err := c.Mark(Favorite, []Key{{hashed(0), "ron"}}, on); err != nil {
+					t.Fatal(err)
+				}
 			}
 			at := time.Now().UnixMilli() - ago
 			if ago == noTime {
@@ -118,27 +120,30 @@ func TestTheLastHeartWins(t *testing.T) {
 		does []func(*testing.T, *Catalog)
 		want bool
 	}{
-		"a first heart":                           {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0))}, true},
-		"later than the window's":                 {[]func(*testing.T, *Catalog){window(true, 5000), phone("A", act(1, false, 100))}, false},
-		"before the window's":                     {[]func(*testing.T, *Catalog){window(true, 100), phone("A", act(1, false, 5000))}, true},
-		"the window's after the phone's":          {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0)), window(false, 0)}, false},
-		"between two phones, the later":           {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100)), phone("B", act(1, false, 5000))}, true},
-		"no time over none":                       {[]func(*testing.T, *Catalog){phone("A", act(1, true, noTime))}, true},
-		"no time over a timed off":                {[]func(*testing.T, *Catalog){window(false, 5000), phone("A", act(1, true, noTime))}, false},
-		"no time and false over a heart":          {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, noTime))}, true},
-		"a time over a heart with none":           {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, 1<<50))}, false},
-		"a time before everything":                {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, math.MaxInt64))}, false},
-		"no time said after a time":               {[]func(*testing.T, *Catalog){phone("A", act(2, false, 100)), phone("A", act(3, true, noTime))}, false},
-		"no time before a time, in one call":      {[]func(*testing.T, *Catalog){phone("A", act(2, true, 100), act(1, true, noTime))}, true},
-		"two of one call, in order":               {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100), act(2, false, 100))}, false},
-		"said again after the window's":           {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), window(false, 50), phone("A", act(7, true, 0))}, false},
-		"a lower count of one install":            {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("A", act(6, false, 0))}, true},
-		"the same count of another install":       {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("B", act(7, false, 0))}, false},
-		"the greatest count there is":             {[]func(*testing.T, *Catalog){phone("A", act(math.MaxInt64, true, 100)), phone("B", act(1, false, 0))}, false},
-		"an action from the future is now's":      {[]func(*testing.T, *Catalog){phone("A", act(1, true, -1)), phone("B", act(1, false, 0))}, false},
-		"a window's of tomorrow, then one now":    {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 0))}, false},
-		"a window's of tomorrow, then one before": {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 300))}, false},
-		"a window's of tomorrow, then no time":    {[]func(*testing.T, *Catalog){window(false, -86400e3), phone("A", act(1, true, noTime))}, false},
+		"a first heart":                              {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0))}, true},
+		"later than the window's":                    {[]func(*testing.T, *Catalog){window(true, 5000), phone("A", act(1, false, 100))}, false},
+		"before the window's":                        {[]func(*testing.T, *Catalog){window(true, 100), phone("A", act(1, false, 5000))}, true},
+		"the window's after the phone's":             {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0)), window(false, 0)}, false},
+		"between two phones, the later":              {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100)), phone("B", act(1, false, 5000))}, true},
+		"no time over none":                          {[]func(*testing.T, *Catalog){phone("A", act(1, true, noTime))}, true},
+		"no time over a timed off":                   {[]func(*testing.T, *Catalog){window(false, 5000), phone("A", act(1, true, noTime))}, false},
+		"no time and false over a heart":             {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, noTime))}, true},
+		"a time over a heart with none":              {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, 1<<50))}, false},
+		"a time before everything":                   {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, math.MaxInt64))}, false},
+		"no time said after a time":                  {[]func(*testing.T, *Catalog){phone("A", act(2, false, 100)), phone("A", act(3, true, noTime))}, false},
+		"no time before a time, in one call":         {[]func(*testing.T, *Catalog){phone("A", act(2, true, 100), act(1, true, noTime))}, true},
+		"a time with a lower count than one without": {[]func(*testing.T, *Catalog){phone("A", act(3, true, noTime)), phone("A", act(2, false, 100))}, false},
+		"an off where there was none, then no time":  {[]func(*testing.T, *Catalog){phone("A", act(1, false, 100)), phone("B", act(1, true, noTime))}, false},
+		"an off where there was none, then an older": {[]func(*testing.T, *Catalog){phone("A", act(1, false, 100)), phone("B", act(1, true, 5000))}, false},
+		"two of one call, in order":                  {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100), act(2, false, 100))}, false},
+		"said again after the window's":              {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), window(false, 50), phone("A", act(7, true, 0))}, false},
+		"a lower count of one install":               {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("A", act(6, false, 0))}, true},
+		"the same count of another install":          {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("B", act(7, false, 0))}, false},
+		"the greatest count there is":                {[]func(*testing.T, *Catalog){phone("A", act(math.MaxInt64, true, 100)), phone("B", act(1, false, 0))}, false},
+		"an action from the future is now's":         {[]func(*testing.T, *Catalog){phone("A", act(1, true, -1)), phone("B", act(1, false, 0))}, false},
+		"a window's of tomorrow, then one now":       {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 0))}, false},
+		"a window's of tomorrow, then one before":    {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 300))}, false},
+		"a window's of tomorrow, then no time":       {[]func(*testing.T, *Catalog){window(false, -86400e3), phone("A", act(1, true, noTime))}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cat, _ := marking(t, 1)
@@ -527,8 +532,27 @@ func TestAProgramFromBeforeMarks(t *testing.T) {
 	if a := say(t, c, "A", act(1, false, 60_000)); !a.Said[0].Value {
 		t.Error("a heart set now was taken off by one a minute old")
 	}
+	// Its merge writes the heart as it was: no mark is made of none.
+	olderAt(t, path, linksSince, `UPDATE library_photos SET favorite = max(favorite, 0) WHERE hash = '`+hashed(1)+`'`)
+	if a, err := c.Marks("ron", MarkQuestion{}, time.Now()); err != nil || len(a.Marks) != 1 {
+		t.Errorf("%+v %v, want no mark of a photo given none", a, err)
+	}
+	// Its relayout files a photo of no library in ron's.
+	addPhotos(t, c, "", 3)
+	old := Key{hashed(2), ""}
+	if _, err := c.Mark(Favorite, []Key{old}, true); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := c.Shelf("ron")
+	olderAt(t, path, linksSince, `UPDATE OR IGNORE library_photos SET profile = 'ron', path = 'ron/2' WHERE hash = '`+hashed(2)+`' AND profile = ''`)
+	if a, err := c.Marks("ron", MarkQuestion{Shelf: s.ID, After: s.Cursor}, time.Now()); err != nil || len(a.Marks) != 1 || a.Marks[0].Hash != hashed(2) || !a.Marks[0].Value {
+		t.Errorf("filed: %+v %v", a, err)
+	}
+	if a, err := c.Marks("", MarkQuestion{}, time.Now()); err != nil || len(a.Marks) != 0 {
+		t.Errorf("left behind: %+v %v", a, err)
+	}
 	olderAt(t, path, linksSince, `DELETE FROM library_photos WHERE hash = '`+hashed(0)+`'`)
-	if a, err := c.Marks("ron", MarkQuestion{}, time.Now()); err != nil || len(a.Marks) != 0 {
+	if a, err := c.Marks("ron", MarkQuestion{}, time.Now()); err != nil || len(a.Marks) != 1 {
 		t.Errorf("%+v %v", a, err)
 	}
 }
@@ -557,6 +581,27 @@ func TestHeartsWhereNothingCanBeWritten(t *testing.T) {
 		}
 		c.Close()
 	}
+	// One with marks takes no more, and says what it has.
+	os.Chmod(path, 0o644)
+	os.Chmod(dir, 0o755)
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	os.Chmod(path, 0o444)
+	os.Chmod(dir, 0o555)
+	if c, err = OpenCatalog(path); err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	a, err := c.Marks("ron", MarkQuestion{}, time.Now())
+	if err != nil || len(a.Marks) != 2 {
+		t.Errorf("%+v %v", a, err)
+	}
+	if _, err := c.Marks("ron", MarkQuestion{Shelf: a.ID, Install: "A", Marks: []MarkAction{act(1, false, 0)}}, time.Now()); !errors.Is(err, ErrNoMarks) {
+		t.Errorf("said: %v, want ErrNoMarks", err)
+	}
 }
 
 // Two processes give an older catalog its marks at once, then both set hearts
@@ -569,7 +614,7 @@ func TestTwoProcessesMark(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			_, err = c.Mark(Favorite, []Key{{hashed(i), "ann"}}, i%2 == 0)
+			_, err = c.Mark(Favorite, []Key{{hashed(i), "ann"}}, true)
 			if err == nil {
 				a := MarkAction{N: int64(i), Hash: hashed(i), State: Favorite, Value: json.RawMessage("true"), Ago: new(int64)}
 				var s Shelf
@@ -592,7 +637,7 @@ func TestTwoProcessesMark(t *testing.T) {
 	}
 	c, made := marking(t, each)
 	addPhotos(t, c, "ann", each)
-	if _, err := c.db.Exec(`DROP TABLE catalog_id; DROP TABLE marks; DROP TABLE mark_seqs; DROP TRIGGER mark_noted; DROP TRIGGER mark_forgotten; PRAGMA user_version = 3`); err != nil {
+	if _, err := c.db.Exec(`DROP TABLE catalog_id; DROP TABLE marks; DROP TABLE mark_seqs; DROP TRIGGER mark_noted; DROP TRIGGER mark_refiled; DROP TRIGGER mark_forgotten; PRAGMA user_version = 3`); err != nil {
 		t.Fatal(err)
 	}
 	c.Close()
@@ -658,8 +703,10 @@ func TestAPhotoFiledTakesItsMark(t *testing.T) {
 				if at < 0 {
 					continue
 				}
-				if _, err := cat.Mark(Favorite, []Key{{hashed(0), profile}}, on == 1); err != nil {
-					t.Fatal(err)
+				for _, on := range []bool{on == 0, on == 1} {
+					if _, err := cat.Mark(Favorite, []Key{{hashed(0), profile}}, on); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if _, err := cat.db.Exec(`UPDATE marks SET at = ?, install = 'A', n = ? WHERE profile = ?`, at, at, profile); err != nil {
 					t.Fatal(err)

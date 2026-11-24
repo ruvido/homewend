@@ -168,9 +168,6 @@ func lookAtLibrary() (root string, catalog *library.Catalog, err error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if _, err := os.Stat(catalogPath(root)); errors.Is(err, os.ErrNotExist) {
-		return root, nil, nil
-	}
-	catalog, err = library.OpenCatalogReadOnly(catalogPath(root))
+	catalog, err = openAt(root, library.OpenCatalogReadOnly)
 	return root, catalog, err
 }

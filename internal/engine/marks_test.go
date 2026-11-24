@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -127,7 +128,7 @@ func TestAQuestionIsHeldUntilAHeart(t *testing.T) {
 	answer(t, "ended", anns, false, time.Second)
 	held(t, 0)
 	waiting.Lock()
-	if waiting.stop != nil {
+	if waiting.watching {
 		t.Error("it still looks with no phone waiting")
 	}
 	waiting.Unlock()
@@ -211,7 +212,7 @@ func TestHowAQuestionEnds(t *testing.T) {
 	if err := SetDefaultLibrary(other); err != nil {
 		t.Fatal(err)
 	}
-	if err := answer(t, "a library with nothing in it", anns, false, time.Second); !errors.Is(err, ErrNoLibrary) {
+	if err := answer(t, "a library with nothing in it", anns, false, time.Second); !errors.Is(err, ErrEmptyLibrary) {
 		t.Errorf("%v", err)
 	}
 	send(t, ann, "IMG_2.JPG", "another")
@@ -274,4 +275,43 @@ func TestManyPhonesWait(t *testing.T) {
 		}
 	}
 	held(t, 0)
+}
+
+// A catalog another keeps locked holds no question past its while, nor one
+// given up, and a window's mark with the disk away is none.
+func TestAQuestionOfALockedCatalog(t *testing.T) {
+	root, ron, _, hash, _ := twoPhones(t)
+	shelf := shelfOf(t, ron)
+	db, err := sql.Open("sqlite", catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`BEGIN EXCLUSIVE`); err != nil {
+		t.Fatal(err)
+	}
+	was := marksHeld
+	marksHeld = 300 * time.Millisecond
+	answer(t, "its while", waits(context.Background(), ron, shelf), false, 3*time.Second)
+	marksHeld = was
+	ctx, cancel := context.WithCancel(context.Background())
+	given := waits(ctx, ron, shelf)
+	held(t, 1)
+	cancel()
+	answer(t, "given up", given, false, 3*time.Second)
+	db.Close()
+	// Let go of, the next is told as ever.
+	answer(t, "let go of", waits(context.Background(), ron, library.Shelf{}), true, 40*time.Second)
+	if err := os.Rename(root, root+"-away"); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := Mark(library.Favorite, []library.Key{{Hash: hash, Profile: "ron"}}, true); err != nil || len(done) != 0 {
+		t.Errorf("the window, the disk away: %v %v", done, err)
+	}
+	if _, err := MarkOf(ron, library.Archived, []string{hash}, true); !errors.As(err, new(LibraryGoneError)) {
+		t.Errorf("a phone, the disk away: %v", err)
+	}
+	if err := os.Rename(root+"-away", root); err != nil {
+		t.Fatal(err)
+	}
 }

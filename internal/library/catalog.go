@@ -231,6 +231,11 @@ func patient(do func() error) error {
 	}
 }
 
+// unwritable is whether err is of a catalog that cannot be written.
+func unwritable(err error) bool {
+	return slices.Contains([]int{sqlite3.SQLITE_READONLY, sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_FULL}, sqliteCode(err))
+}
+
 // sqliteCode is the primary code of SQLite's error, 0 when err is none.
 func sqliteCode(err error) int {
 	var e *sqlite.Error
@@ -1026,26 +1031,28 @@ func (c *Catalog) setPath(k Key, path, name string) error {
 
 // refile records that the photo k, of no library, is of profile's, at path.
 // One that library has already is that photo: it takes what k has that it has
-// not, its archive, turn, albums and sources, its heart when it was the last set, is out of the Trash when either is, and is where it was, or at path when its file is gone.
+// not, its archive, turn, albums and sources, its heart when it was the last
+// set, is out of the Trash when either is, and is where it was, or at path
+// when its file is gone.
 func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 	return c.inTx(func(tx *sql.Tx) error {
-		into := Key{k.Hash, profile}
-		hearts, err := markIn(tx, Favorite)
-		if err != nil {
-			return err
-		}
-		its, err := hearts.of(k)
-		if err != nil {
-			return err
-		}
 		var id int64
-		err = tx.QueryRow(`UPDATE OR IGNORE library_photos SET profile = ?, path = ?, name = ? WHERE hash = ? AND profile = ? RETURNING id`,
+		err := tx.QueryRow(`UPDATE OR IGNORE library_photos SET profile = ?, path = ?, name = ? WHERE hash = ? AND profile = ? RETURNING id`,
 			profile, path, filepath.Base(path), k.Hash, k.Profile).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			err = tx.QueryRow(`UPDATE library_photos AS t SET archived = max(t.archived, f.archived),
 				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END, trashed = CASE f.out WHEN 1 THEN t.trashed ELSE min(t.trashed, f.trashed) END
 				FROM library_photos AS f WHERE t.hash = ? AND t.profile = ? AND f.hash = t.hash AND f.profile = ? RETURNING id`,
 				k.Hash, profile, k.Profile).Scan(&id)
+			if err != nil {
+				return err
+			}
+			into := Key{k.Hash, profile}
+			hearts, err := markIn(tx, Favorite)
+			if err != nil {
+				return err
+			}
+			its, err := hearts.of(k)
 			if err != nil {
 				return err
 			}
@@ -1075,13 +1082,6 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			}
 		} else if err != nil {
 			return err
-		} else if its.value || its.at != 0 {
-			if err := hearts.put(into, its); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(`DELETE FROM marks WHERE profile = ? AND hash = ?`, k.Profile, k.Hash); err != nil {
-				return err
-			}
 		}
 		return ownAlbums(tx, id, k.Profile)
 	})

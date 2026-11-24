@@ -5,6 +5,9 @@ package engine
 
 import (
 	"context"
+	"errors"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -27,17 +30,20 @@ func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 	defer c.Close()
 	a, err := c.Marks(phone.Profile, q, then)
 	if len(a.Said) > 0 {
-		tellPhones()
+		lookNow()
 	}
 	return MarksAnswer{a, phone.Profile}, err
 }
 
-// openMarks is openHere, a library with nothing in it being none yet: its
-// marks begin with its first photo.
+// ErrEmptyLibrary is asking the marks of a library with nothing in it yet:
+// they begin with its first photo.
+var ErrEmptyLibrary = errors.New("the library has nothing in it yet")
+
+// openMarks is openHere, or ErrEmptyLibrary.
 func openMarks() (*library.Catalog, error) {
 	c, err := openHere()
 	if err == nil && c == nil {
-		err = ErrNoLibrary
+		err = ErrEmptyLibrary
 	}
 	return c, err
 }
@@ -50,14 +56,14 @@ var (
 )
 
 // waiting are the phones told of the next change, one question each. While
-// there are any, one goroutine looks for changes; asking it to look now is a
-// send on look.
-var waiting struct {
+// there are any, one goroutine looks for changes, at once when there is
+// something in look. Never two: one held by a slow disk is not joined by others.
+var waiting = struct {
 	sync.Mutex
-	phones map[string]*waiter
-	look   chan struct{}
-	stop   context.CancelFunc
-}
+	phones   map[string]*waiter
+	watching bool
+	look     chan struct{}
+}{phones: map[string]*waiter{}, look: make(chan struct{}, 1)}
 
 // waiter is one phone's question, and where its answer goes.
 type waiter struct {
@@ -83,38 +89,28 @@ func (w *waiter) tell(changed bool, err error) {
 // is not the one named; false when none came in a while, the phone asked
 // again or was unpaired, or ctx ended. The catalog is closed meanwhile.
 func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64) (bool, error) {
+	timer := time.NewTimer(marksHeld)
+	defer timer.Stop()
 	w := &waiter{profile: phone.Profile, shelf: shelf, after: after, told: make(chan told, 1)}
-	seen, _ := LibraryChanges()
 	waiting.Lock()
-	if waiting.phones == nil {
-		waiting.phones = map[string]*waiter{}
-	}
 	if old := waiting.phones[phone.ID]; old != nil {
 		old.tell(false, nil)
 	}
 	waiting.phones[phone.ID] = w
-	if waiting.stop == nil {
-		var watching context.Context
-		watching, waiting.stop = context.WithCancel(context.Background())
-		waiting.look = make(chan struct{}, 1)
-		go watchMarks(watching, waiting.look, time.NewTicker(marksEvery), seen)
+	if !waiting.watching {
+		waiting.watching = true
+		go watchMarks(time.NewTicker(marksEvery))
 	}
 	waiting.Unlock()
 	defer func() {
 		waiting.Lock()
-		defer waiting.Unlock()
 		if waiting.phones[phone.ID] == w {
 			delete(waiting.phones, phone.ID)
 		}
-		if len(waiting.phones) == 0 && waiting.stop != nil {
-			waiting.stop()
-			waiting.stop = nil
-		}
+		waiting.Unlock()
+		lookNow() // with none left, it ends
 	}()
-	// What changes from here on is told; what had already is looked for.
-	lookFor([]*waiter{w})
-	timer := time.NewTimer(marksHeld)
-	defer timer.Stop()
+	lookNow()
 	select {
 	case t := <-w.told:
 		return t.changed, t.err
@@ -124,31 +120,32 @@ func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64) (
 	return false, nil
 }
 
-// watchMarks looks for the phones waiting when the library changes, until ctx
-// ends: at once when told to, and by tick for what others do.
-func watchMarks(ctx context.Context, look <-chan struct{}, tick *time.Ticker, seen string) {
+// watchMarks looks for the phones waiting, while there are any: at once when
+// told to, and by tick when the library changed.
+func watchMarks(tick *time.Ticker) {
 	defer tick.Stop()
+	seen := ""
 	for {
 		asked := false
 		select {
-		case <-ctx.Done():
-			return
-		case <-look:
+		case <-waiting.look:
 			asked = true
 		case <-tick.C:
 		}
+		waiting.Lock()
+		all := slices.Collect(maps.Values(waiting.phones))
+		if len(all) == 0 {
+			waiting.watching = false
+			waiting.Unlock()
+			return
+		}
+		waiting.Unlock()
 		// One that cannot be told is looked at no more than one unchanged.
 		now, err := LibraryChanges()
 		if !asked && (err != nil || now == seen) {
 			continue
 		}
 		seen = now
-		waiting.Lock()
-		var all []*waiter
-		for _, w := range waiting.phones {
-			all = append(all, w)
-		}
-		waiting.Unlock()
 		lookFor(all)
 	}
 }
@@ -171,13 +168,8 @@ func lookFor(waiters []*waiter) {
 	}
 }
 
-// tellPhones has the phones waiting told of a change made here, at once.
-func tellPhones() {
-	waiting.Lock()
-	defer waiting.Unlock()
-	if waiting.stop == nil {
-		return
-	}
+// lookNow has the phones waiting looked for, at once.
+func lookNow() {
 	select {
 	case waiting.look <- struct{}{}:
 	default:

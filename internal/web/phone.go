@@ -321,7 +321,7 @@ func phoneReply(w http.ResponseWriter, v any, err error) {
 		phoneError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, library.ErrNotMarks):
 		phoneError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, engine.ErrNoLibrary), errors.Is(err, library.ErrNoMarks), errors.As(err, new(engine.LibraryGoneError)):
+	case errors.Is(err, engine.ErrNoLibrary), errors.Is(err, engine.ErrEmptyLibrary), errors.Is(err, library.ErrNoMarks), errors.As(err, new(engine.LibraryGoneError)):
 		phoneError(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		log.Printf("phone: %v", err)

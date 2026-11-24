@@ -14,8 +14,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // The catalog's user_version, as it grew.
@@ -120,7 +118,7 @@ func upgrade(db *sql.DB, path string) error {
 	defer db.SetMaxOpenConns(0)
 	for try := 1; ; try++ {
 		again, err := upgradeOnce(db, path, try >= upgradeTries)
-		if err != nil && version >= librariesSince && slices.Contains([]int{sqlite3.SQLITE_READONLY, sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_FULL}, sqliteCode(err)) {
+		if err != nil && version >= librariesSince && unwritable(err) {
 			return nil // where nothing can be written, it is shown without marks
 		}
 		if err != nil || !again {

@@ -324,13 +324,18 @@ func Have(phone Phone, hashes []string) (Held, error) {
 	return out, err
 }
 
-// MarkOf is Mark on phone's photos of these hashes: no other library's.
+// MarkOf is Mark on phone's photos of these hashes, no other library's; with
+// the library away an error, or the phone would forget what it queued.
 func MarkOf(phone Phone, state library.State, hashes []string, on bool) ([]string, error) {
 	keys := make([]library.Key, len(hashes))
 	for i, h := range hashes {
 		keys[i] = library.Key{Hash: h, Profile: phone.Profile}
 	}
-	marked, err := Mark(state, keys, on)
+	c, err := openHere()
+	if err != nil || c == nil {
+		return []string{}, err
+	}
+	marked, err := markIn(c, state, keys, on)
 	done := make([]string, len(marked))
 	for i, k := range marked {
 		done[i] = k.Hash

@@ -4,10 +4,7 @@
 package engine
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -149,11 +146,8 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 		o.Gone = root
 		return o, nil
 	}
-	if _, err := os.Stat(catalogPath(root)); errors.Is(err, fs.ErrNotExist) {
-		return o, nil
-	}
-	c, err := library.OpenCatalog(catalogPath(root))
-	if err != nil {
+	c, err := openAt(root, library.OpenCatalog)
+	if err != nil || c == nil {
 		return o, err
 	}
 	defer c.Close()

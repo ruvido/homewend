@@ -19,7 +19,8 @@ import (
 
 // marksSchema is what keeps them. A heart is noted by the triggers, in the
 // statement that sets it: nothing, not even a program from before marks, sets
-// one and leaves it unnoted, or forgets a photo and leaves its mark.
+// one and leaves it unnoted, or forgets or refiles a photo and leaves its
+// mark. A photo with no mark, given the state it has, has none after.
 //
 // at is the computer's, in ms; the hearts there are have no time, 0. install
 // and n are of the last phone's mark it took. The seq is taken from a counter
@@ -44,12 +45,19 @@ INSERT INTO marks (profile, hash, state, value, at, seq)
   SELECT profile, hash, '` + string(Favorite) + `', 1, 0, ROW_NUMBER() OVER (PARTITION BY profile ORDER BY id)
   FROM library_photos WHERE ` + string(Favorite) + ` = 1;
 INSERT INTO mark_seqs SELECT profile, MAX(seq) FROM marks GROUP BY profile;
-CREATE TRIGGER mark_noted AFTER UPDATE OF ` + string(Favorite) + ` ON library_photos BEGIN
+CREATE TRIGGER mark_noted AFTER UPDATE OF ` + string(Favorite) + ` ON library_photos
+WHEN NEW.` + string(Favorite) + ` <> OLD.` + string(Favorite) + ` OR EXISTS (SELECT 1 FROM marks WHERE profile = NEW.profile AND hash = NEW.hash) BEGIN
   INSERT INTO mark_seqs VALUES (NEW.profile, 1) ON CONFLICT DO UPDATE SET last = last + 1;
   INSERT INTO marks (profile, hash, state, value, at, seq)
     SELECT profile, NEW.hash, '` + string(Favorite) + `', NEW.` + string(Favorite) + `, CAST(unixepoch('subsec') * 1000 AS INTEGER), last
     FROM mark_seqs WHERE profile = NEW.profile
     ON CONFLICT DO UPDATE SET value = excluded.value, at = excluded.at, seq = excluded.seq;
+END;
+CREATE TRIGGER mark_refiled AFTER UPDATE OF profile ON library_photos
+WHEN EXISTS (SELECT 1 FROM marks WHERE profile = OLD.profile AND hash = NEW.hash) BEGIN
+  INSERT INTO mark_seqs VALUES (NEW.profile, 1) ON CONFLICT DO UPDATE SET last = last + 1;
+  UPDATE marks SET profile = NEW.profile, seq = (SELECT last FROM mark_seqs WHERE profile = NEW.profile)
+    WHERE profile = OLD.profile AND hash = NEW.hash;
 END;
 CREATE TRIGGER mark_forgotten AFTER DELETE ON library_photos BEGIN
   DELETE FROM marks WHERE profile = OLD.profile AND hash = OLD.hash;
@@ -59,8 +67,9 @@ END;
 var (
 	// ErrNotMarks is a question that is not one of marks.
 	ErrNotMarks = errors.New("not a question of marks")
-	// ErrNoMarks is a catalog from before marks that could not be given them.
-	ErrNoMarks = errors.New("the library keeps no marks, and cannot be written")
+	// ErrNoMarks is a catalog that cannot be written: it takes no marks, or is
+	// from before them and could not be given any.
+	ErrNoMarks = errors.New("the library cannot be written")
 )
 
 // maxMarks is how many marks a question says and an answer has, and
@@ -83,7 +92,7 @@ func (c *Catalog) Shelf(profile string) (Shelf, error) {
 	var id string
 	err := c.db.QueryRow(`SELECT id, COALESCE((SELECT last FROM mark_seqs WHERE profile = ?), 0) FROM catalog_id`, profile).Scan(&id, &s.Cursor)
 	if err != nil {
-		// Asked only now: every other opening has them.
+		// Asked only now: every other catalog has them.
 		var version int
 		if c.db.QueryRow(`PRAGMA user_version`).Scan(&version) == nil && version < marksSince {
 			err = ErrNoMarks
@@ -137,8 +146,8 @@ type Mark struct {
 	Value bool   `json:"value"`
 }
 
-// Check is whether the question is one.
-func (q MarkQuestion) Check() error {
+// check is whether the question is one.
+func (q MarkQuestion) check() error {
 	if q.After < 0 || len(q.Marks) > maxMarks || len(q.Install) > maxInstall || len(q.Marks) > 0 && q.Install == "" {
 		return ErrNotMarks
 	}
@@ -157,7 +166,7 @@ func (q MarkQuestion) Check() error {
 // changed. A plain question takes no lock to write.
 func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAnswer, error) {
 	a := MarkAnswer{Said: []Mark{}, Marks: []Mark{}, Unknown: []string{}}
-	if err := q.Check(); err != nil {
+	if err := q.check(); err != nil {
 		return a, err
 	}
 	var err error
@@ -176,7 +185,9 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 		}
 	}
 	if len(known) > 0 {
-		if err := c.inTx(func(tx *sql.Tx) error { return a.apply(tx, profile, q.Install, known, then) }); err != nil {
+		if err := c.inTx(func(tx *sql.Tx) error { return a.apply(tx, profile, q.Install, known, then) }); unwritable(err) {
+			return a, ErrNoMarks
+		} else if err != nil {
 			return a, err
 		}
 		// Those just applied are heard too.
@@ -272,8 +283,8 @@ type mark struct {
 // marker reads and sets the marks of one state in one write, each of its
 // queries prepared once for the hundreds a phone says.
 type marker struct {
-	find, set, sign *sql.Stmt
-	state           State
+	find, begin, set, sign *sql.Stmt
+	state                  State
 }
 
 func markIn(tx *sql.Tx, state State) (marker, error) {
@@ -283,8 +294,9 @@ func markIn(tx *sql.Tx, state State) (marker, error) {
 		&m.find: `SELECT p.id, p.out = 0, p.` + string(state) + `, COALESCE(m.at, 0), COALESCE(m.install, ''), COALESCE(m.n, 0)
 			FROM library_photos p LEFT JOIN marks m ON m.profile = p.profile AND m.hash = p.hash AND m.state = ?
 			WHERE p.hash = ? AND p.profile = ?`,
-		&m.set:  setting(state),
-		&m.sign: `UPDATE marks SET at = ?, install = ?, n = ? WHERE profile = ? AND hash = ? AND state = ?`,
+		&m.begin: `INSERT OR IGNORE INTO marks (profile, hash, state, value, at, seq) VALUES (?, ?, ?, 0, 0, 0)`,
+		&m.set:   setting(state),
+		&m.sign:  `UPDATE marks SET at = ?, install = ?, n = ? WHERE profile = ? AND hash = ? AND state = ?`,
 	} {
 		if *into, err = tx.Prepare(query); err != nil {
 			return m, err
@@ -319,24 +331,18 @@ func (m marker) give(k Key, was, is mark) error {
 	if is.at != 0 && is.at < was.at && was.at <= time.Now().UnixMilli() {
 		return nil
 	}
-	if is.install == "" {
+	// One with no time is counted nowhere: said before a timed one, it must
+	// not keep that out.
+	if is.install == "" || is.at == 0 {
 		is.install, is.n = was.install, was.n
 	}
-	is.id = was.id
-	return m.put(k, is)
-}
-
-// put marks the photo k, whose id is in is.
-func (m marker) put(k Key, is mark) error {
-	if _, err := m.set.Exec(is.value, is.id); err != nil {
+	// An off where there was no mark is one too.
+	if _, err := m.begin.Exec(k.Profile, k.Hash, m.state); err != nil {
 		return err
 	}
-	return m.signed(k, is)
-}
-
-// signed says when the mark of k was made and by which phone: until then it
-// is as of now, and of the last phone.
-func (m marker) signed(k Key, is mark) error {
+	if _, err := m.set.Exec(is.value, was.id); err != nil {
+		return err
+	}
 	_, err := m.sign.Exec(is.at, is.install, is.n, k.Profile, k.Hash, m.state)
 	return err
 }
