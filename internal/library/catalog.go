@@ -89,8 +89,12 @@ type Photo struct {
 // Key is the photo's.
 func (p Photo) Key() Key { return Key{p.Hash, p.Profile} }
 
-// photoColumns are what scanPhotos reads, in its order.
-const photoColumns = `hash, profile, path, name, bytes, taken, source, kind, origin, turn, archived, favorite`
+// tileColumns are what a list shows of a photo, and photoColumns all of it,
+// as scanPhotos reads them: of a hundred thousand rows no more than is shown.
+const (
+	tileColumns  = `hash, profile, name, taken, source, origin, turn, archived, favorite`
+	photoColumns = tileColumns + `, kind, bytes, path`
+)
 
 // Catalog is the index the interface reads: what there is, where it is, and
 // what can be said about it.
@@ -104,27 +108,29 @@ type Catalog struct{ db *sql.DB }
 const schema = `
 -- One row for each photo of each library: the same content in two libraries
 -- is two rows. Its id is what the other tables name it by.
+-- What lists are narrowed by comes first: SQLite reads a row up to the last
+-- column asked.
 CREATE TABLE library_photos (
   id      INTEGER PRIMARY KEY,
-  hash    TEXT NOT NULL,
-  profile TEXT NOT NULL,    -- whose library; '' before profiles
-  path    TEXT NOT NULL,
-  name    TEXT NOT NULL,
-  bytes   INTEGER NOT NULL,
   taken   INTEGER,          -- unix seconds, NULL when nothing is known
-  source  TEXT NOT NULL,
-  kind    TEXT NOT NULL,
-  origin  TEXT NOT NULL,
   -- Taken out of the library and kept out of the imports: out of every list,
   -- still known, so that an import leaves it out as deleted.
   out     INTEGER NOT NULL DEFAULT 0,
-  -- Turned by the person, in quarter turns; archived: out of the grid and the
-  -- years, still in its albums, still backed up; in the Trash: out of every
-  -- list and every import until restored; given a heart.
-  turn     INTEGER NOT NULL DEFAULT 0,
-  archived INTEGER NOT NULL DEFAULT 0,
+  -- In the Trash: out of every list and every import until restored; archived:
+  -- out of the grid and the years, still in its albums, still backed up;
+  -- turned by the person, in quarter turns; given a heart.
   trashed  INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  turn     INTEGER NOT NULL DEFAULT 0,
   favorite INTEGER NOT NULL DEFAULT 0,
+  hash    TEXT NOT NULL,
+  profile TEXT NOT NULL,    -- whose library; '' before profiles
+  name    TEXT NOT NULL,
+  source  TEXT NOT NULL,
+  origin  TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  bytes   INTEGER NOT NULL,
+  path    TEXT NOT NULL,
   UNIQUE (hash, profile)
 );
 CREATE TABLE album_members (
@@ -185,7 +191,9 @@ func catalogDSN(path, options string) string {
 	// picks AFP-style locks, which the Go SQLite cannot do: it panics on
 	// fsctl. flock locks work there and on local disks alike, and go with the
 	// process if it dies. Measured on a NAS share, 2026-09-27.
-	if runtime.GOOS == "darwin" {
+	if vfs := os.Getenv("HOMEWEND_TEST_VFS"); vfs != "" {
+		dsn += "&vfs=" + vfs // locks as exclusive as flock's, tried elsewhere
+	} else if runtime.GOOS == "darwin" {
 		dsn += "&vfs=unix-flock"
 	}
 	return dsn
@@ -515,9 +523,10 @@ type Filter struct {
 	Limit    int // the first of them; 0 is all
 }
 
-// Page returns photos newest first, narrowed by the filter.
+// Page returns photos newest first, narrowed by the filter: what a list shows
+// of them, without their path, bytes and kind.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
-	query, args := f.where(`SELECT ` + photoColumns + ` FROM library_photos`)
+	query, args := f.where(`SELECT ` + tileColumns + ` FROM library_photos`)
 	// A few are found by the index, in its order; all of them are read as
 	// they lie and sorted here, three times as fast (100,000, 23/11).
 	if f.Limit > 0 {
@@ -658,15 +667,20 @@ func (p Photo) capture() Capture {
 // scanPhotos reads the rows of a SELECT of the photos' columns, in order.
 func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 	defer rows.Close()
+	columns, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
 	var photos []Photo
+	var photo Photo
+	var taken sql.NullInt64
+	var source, kind, origin string
+	into := []any{&photo.Hash, &photo.Profile, &photo.Name, &taken, &source, &origin, &photo.Turn, &photo.Archived, &photo.Favorite, &kind, &photo.Bytes, &photo.Path}[:len(columns)]
 	for rows.Next() {
-		var photo Photo
-		var taken sql.NullInt64
-		var source, kind, origin string
-		if err := rows.Scan(&photo.Hash, &photo.Profile, &photo.Path, &photo.Name, &photo.Bytes,
-			&taken, &source, &kind, &origin, &photo.Turn, &photo.Archived, &photo.Favorite); err != nil {
+		if err := rows.Scan(into...); err != nil {
 			return nil, err
 		}
+		photo.Taken = time.Time{}
 		if taken.Valid {
 			photo.Taken = time.Unix(taken.Int64, 0).UTC()
 		}
@@ -978,8 +992,8 @@ func (c *Catalog) setPath(k Key, path, name string) error {
 
 // refile records that the photo k, of no library, is of profile's, at path.
 // One that library has already is that photo: it takes what k has that it has
-// not, its heart, archive, turn, albums and sources, and is where it was, or
-// at path when its file is gone.
+// not, its heart, archive, turn, albums and sources, is out of the Trash when
+// either is, and is where it was, or at path when its file is gone.
 func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 	return c.inTx(func(tx *sql.Tx) error {
 		var id int64
@@ -987,7 +1001,7 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			profile, path, filepath.Base(path), k.Hash, k.Profile).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			err = tx.QueryRow(`UPDATE library_photos AS t SET favorite = max(t.favorite, f.favorite), archived = max(t.archived, f.archived),
-				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END
+				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END, trashed = min(t.trashed, f.trashed)
 				FROM library_photos AS f WHERE t.hash = ? AND t.profile = ? AND f.hash = t.hash AND f.profile = ? RETURNING id`,
 				k.Hash, profile, k.Profile).Scan(&id)
 			if err != nil {

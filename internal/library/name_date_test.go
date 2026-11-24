@@ -81,7 +81,7 @@ func TestAPhotoWithNoDateInsideTakesTheOneInItsName(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer catalog.Close()
-	all, err := catalog.Page(Filter{})
+	all, err := catalog.photos(``)
 	if err != nil || len(all) != 1 {
 		t.Fatalf("%d photos, %v", len(all), err)
 	}

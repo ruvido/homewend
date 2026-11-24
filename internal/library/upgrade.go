@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -89,58 +90,107 @@ DROP TABLE old_members;
 DROP TABLE old_photos;
 `
 
+// upgrading holds one opening of this process at a time that has an older
+// catalog before it: the window opens it for several requests at once.
+var upgrading sync.Mutex
+
 // upgrade makes the catalog at path, or brings an older one up to date, once:
 // a copy of it as it was is kept beside it first. An opening that has
 // nothing to do reads one number.
 //
-// The window opens the catalog for several requests at once, and a command
-// in a terminal may too: it is all done under the write lock, taken at the
-// start, and the version read again under it, so one of them does it and the
-// others find it done.
+// It is done under the write lock, taken at the start, and the version read
+// again under it: a command in a terminal may open the catalog too, and one of
+// them does it, the others find it done. On one connection: a second one, on
+// macOS, waits for the first even to read (catalogDSN), and it for the second.
 func upgrade(db *sql.DB, path string) error {
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
 		return err
 	}
+	upgrading.Lock()
+	defer upgrading.Unlock()
+	db.SetMaxOpenConns(1)
+	defer db.SetMaxOpenConns(0)
+	for {
+		if again, err := upgradeOnce(db, path); err != nil || !again {
+			return err
+		}
+	}
+}
+
+// upgradeOnce is upgrade, or again when the catalog changed between its copy
+// and the lock: a copy cannot be made inside a transaction.
+func upgradeOnce(db *sql.DB, path string) (again bool, err error) {
+	// What other connections committed moves it; what this one does not.
+	const changed = `PRAGMA data_version`
+	var before, now, version int
+	if err := db.QueryRow(changed).Scan(&before); err != nil {
+		return false, err
+	}
+	part, err := copyBefore(db, path)
+	if errors.Is(err, errTakenAway) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if part != "" {
+		defer os.Remove(part) // left only when it was not needed
+	}
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
-		return err
+		return false, err
 	}
-	var older bool
-	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos')`).Scan(&older); err != nil {
-		return err
+	if err := tx.QueryRow(changed).Scan(&now); err != nil || now != before {
+		return err == nil, err
 	}
-	steps, now, done := schema, linksSince, false
+	kept, err := keepBefore(path, part)
+	if errors.Is(err, errTakenAway) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	done := false
+	// Not brought up to date, the catalog is as it was: no copy needed, and
+	// one more at every try.
+	defer func() {
+		if kept != "" && !done {
+			os.Remove(kept)
+		}
+	}()
+	older, err := hasPhotos(tx)
+	if err != nil {
+		return false, err
+	}
+	steps, since := schema, linksSince
 	if older {
-		kept, err := keepBefore(db, path)
-		if err != nil {
-			return err
-		}
-		// Not brought up to date, the catalog is as it was: no copy needed,
-		// and one more at every try.
-		defer func() {
-			if kept != "" && !done {
-				os.Remove(kept)
-			}
-		}()
 		if err := complete(tx, version); err != nil {
-			return err
+			return false, err
 		}
-		steps, now = setAside+schema+intoLibraries, librariesSince
+		steps, since = setAside+schema+intoLibraries, librariesSince
 	}
 	if _, err := tx.Exec(steps); err != nil {
-		return err
+		return false, err
 	}
-	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, now)); err != nil {
-		return err
+	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, since)); err != nil {
+		return false, err
 	}
 	err = tx.Commit()
 	done = err == nil
-	return err
+	return false, err
+}
+
+// hasPhotos is whether the catalog is one from before libraries.
+func hasPhotos(db interface {
+	QueryRow(query string, args ...any) *sql.Row
+}) (older bool, err error) {
+	err = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos')`).Scan(&older)
+	return older, err
 }
 
 // complete gives an older catalog what the last of them had: its tables and
@@ -181,34 +231,61 @@ func complete(tx *sql.Tx, version int) error {
 	return err
 }
 
-// keepBefore copies an older catalog, when it holds photos, into a file of its
-// own beside it and says which, "" when none is needed. An earlier copy stays:
-// a catalog made again by an older program is not what that one holds. The
-// write lock is held meanwhile, so one at a time writes the copy, and what one
-// killed left of it is taken away; it is named last, so a copy cut short is
-// never the one kept.
-func keepBefore(db *sql.DB, path string) (string, error) {
-	part := path + beforeLibraries + ".part"
-	for _, left := range []string{part, part + "-journal"} {
-		if err := os.Remove(left); err != nil && !errors.Is(err, fs.ErrNotExist) {
+// errTakenAway is a copy another program, upgrading meanwhile, took for one
+// left by a run killed: it is made again, if it is still to be.
+var errTakenAway = errors.New("the copy was taken away")
+
+// copyBefore copies an older catalog, when it holds photos, into a file of its
+// own beside it: "" when none is needed.
+func copyBefore(db *sql.DB, path string) (string, error) {
+	some, err := hasPhotos(db)
+	if err == nil && some {
+		err = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM photos)`).Scan(&some)
+	}
+	if err != nil || !some {
+		return "", err
+	}
+	// Two programs may be at it: each its own.
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+beforeLibraries+".part-*")
+	if err != nil {
+		return "", err
+	}
+	f.Close()
+	// VACUUM INTO writes into an empty file, and reads one snapshot of the
+	// catalog: a copy as it was at one moment.
+	if _, err := db.Exec(`VACUUM INTO ?`, f.Name()); err != nil {
+		if !exists(f.Name()) {
+			return "", errTakenAway
+		}
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// keepBefore gives the copy its name, under the write lock, and takes away
+// what runs killed left of theirs. An earlier copy stays: a catalog made again
+// by an older program is not what that one holds.
+func keepBefore(path, part string) (string, error) {
+	kept := ""
+	if part != "" {
+		kept = path + beforeLibraries
+		for n := 2; exists(kept); n++ {
+			kept = fmt.Sprintf("%s%s-%d", path, beforeLibraries, n)
+		}
+		if err := os.Rename(part, kept); errors.Is(err, fs.ErrNotExist) {
+			return "", errTakenAway
+		} else if err != nil {
 			return "", err
 		}
 	}
-	var any bool
-	if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM photos)`).Scan(&any); err != nil || !any {
-		return "", err
+	entries, err := os.ReadDir(filepath.Dir(path))
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), filepath.Base(path)+beforeLibraries+".part") {
+			os.Remove(filepath.Join(filepath.Dir(path), e.Name()))
+		}
 	}
-	// Read on a connection of its own, which the lock does not keep out: in
-	// the transaction SQLite copies nothing.
-	if _, err := db.Exec(`VACUUM INTO ?`, part); err != nil {
-		os.Remove(part)
-		return "", err
-	}
-	kept := path + beforeLibraries
-	for n := 2; exists(kept); n++ {
-		kept = fmt.Sprintf("%s%s-%d", path, beforeLibraries, n)
-	}
-	return kept, os.Rename(part, kept)
+	return kept, err
 }
 
 // share puts the photo k in the library of profile too, at path, with its
@@ -413,6 +490,7 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 	// Those a profile has already, received since the catalog was brought up
 	// to date: what is its own of the other's record is still there.
 	byHash := map[string][]Photo{}
+	in := entries{}
 	for _, p := range photos {
 		byHash[p.Hash] = append(byHash[p.Hash], p)
 	}
@@ -420,7 +498,7 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 		for _, of := range copies {
 			for _, p := range copies {
 				if p.Profile != of.Profile && p.Profile != "" {
-					l := linkOf(root, of, p.Profile, p.Path, albums[of.Key()])
+					l := linkOf(root, of, p.Profile, p.Path, albums[of.Key()], in)
 					l.path = ""
 					links = append(links, l)
 				}
@@ -455,7 +533,7 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 				return nil
 			}
 			have[Key{of.Hash, profile}] = true
-			links = append(links, linkOf(root, of, profile, rel, albums[of.Key()]))
+			links = append(links, linkOf(root, of, profile, rel, albums[of.Key()], in))
 			return nil
 		})
 		if err != nil {
@@ -465,14 +543,37 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 	return links, nil
 }
 
+// entries are the files of albums' folders, by folder and size, each folder
+// read once.
+type entries map[string]map[int64][]string
+
+// has is whether the album's folder dir has an entry that is the photo at
+// file, under whatever name: the same file or the same content.
+func (e entries) has(dir, file string) bool {
+	info, err := os.Stat(file)
+	if err != nil {
+		return false
+	}
+	if e[dir] == nil {
+		e[dir] = map[int64][]string{}
+		list, _ := os.ReadDir(dir)
+		for _, d := range list {
+			if i, err := d.Info(); err == nil && i.Mode().IsRegular() {
+				e[dir][i.Size()] = append(e[dir][i.Size()], filepath.Join(dir, d.Name()))
+			}
+		}
+	}
+	return slices.ContainsFunc(e[dir][info.Size()], func(entry string) bool { return same(file, entry) })
+}
+
 // linkOf is the name path of the photo of in profile's folder, with the albums
 // of it that have their entry there: the same photo, by the file or by its
 // content, not another of that name.
-func linkOf(root string, of Photo, profile, path string, albums []string) link {
+func linkOf(root string, of Photo, profile, path string, albums []string, in entries) link {
 	l := link{of: of.Key(), profile: profile, path: path}
 	file := filepath.Join(root, filepath.FromSlash(path))
 	for _, album := range albums {
-		if same(file, filepath.Join(root, profile, "albums", album, filepath.Base(file))) {
+		if in.has(filepath.Join(root, profile, "albums", album), file) {
 			l.albums = append(l.albums, album)
 			if !exists(filepath.Join(root, of.Profile, "albums", album)) {
 				l.left = append(l.left, album)

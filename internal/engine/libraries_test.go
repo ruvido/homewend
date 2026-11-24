@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -530,5 +531,32 @@ func TestWhoseATileIs(t *testing.T) {
 	}
 	if o, err := LibraryOverview(Settings{}); err != nil || !slices.Equal(o.Profiles, l.Profiles) {
 		t.Errorf("the overview's %v %v, want the list's %v", o.Profiles, err, l.Profiles)
+	}
+}
+
+// A library that cannot be written, with nothing to settle, is shown.
+func TestALibraryThatCannotBeWrittenIsShown(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("a mode takes no one's writing away")
+	}
+	root, _, _, _, _ := twoPhones(t)
+	s, err := LoadSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(root, library.WorkDir)
+	os.Remove(filepath.Join(work, "lock"))
+	for _, p := range []string{catalogPath(root), work} {
+		mode := os.FileMode(0o444)
+		if p == work {
+			mode = 0o555
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { os.Chmod(work, 0o755) })
+	if o, err := LibraryOverview(s); err != nil || o.Total != 1 {
+		t.Errorf("%+v %v", o, err)
 	}
 }

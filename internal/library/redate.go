@@ -254,7 +254,7 @@ func GiveDates(root string, catalog *Catalog, photos []Key, when time.Time) (int
 // NamedPhotos are the photos of the library that take their name's date
 // (dateNamed): those that came in before names were read.
 func NamedPhotos(catalog *Catalog) ([]Photo, error) {
-	all, err := catalog.Page(Filter{})
+	all, err := catalog.photos(`WHERE NOT ` + away)
 	return slices.DeleteFunc(all, func(p Photo) bool {
 		_, ok := dateNamed(p.capture(), p.Name)
 		return !ok

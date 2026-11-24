@@ -280,3 +280,69 @@ func TestAProfileNamedMessaging(t *testing.T) {
 		t.Errorf("%+v %v", p, err)
 	}
 }
+
+// A live photo and the same in its library's Trash are one live photo.
+func TestALivePhotoIsNotLeftInTheTrash(t *testing.T) {
+	for _, trashed := range []string{"", "ron"} {
+		root, c, hashes := relaying(t, map[string]string{"2019/07/a.jpg": "the photo"})
+		hash := hashes["2019/07/a.jpg"]
+		write(t, root, "ron/2020/01/a.jpg", []byte("the photo"))
+		if err := c.Put(Photo{Hash: hash, Profile: "ron", Path: "ron/2020/01/a.jpg", Name: "a.jpg", Bytes: 9}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.Mark(Trashed, []Key{{hash, trashed}}, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := Relayout(root, c, nil, ronsAccount, "ron", time.UTC); err != nil {
+			t.Fatal(err)
+		}
+		if n, err := c.Count(Filter{Profile: "ron"}); err != nil || n != 1 {
+			t.Errorf("trashed as %q: %d live %v, want one", trashed, n, err)
+		}
+	}
+}
+
+// Moved and not recorded, then received again as a new photo: the two
+// records become one, with what each had.
+func TestAnOldPhotoReceivedAgainIsOne(t *testing.T) {
+	root, c, hashes := relaying(t, map[string]string{"2019/07/a.jpg": "the photo"})
+	hash := hashes["2019/07/a.jpg"]
+	c.Mark(Favorite, []Key{{Hash: hash}}, true)
+	if err := move(filepath.Join(root, "2019/07/a.jpg"), filepath.Join(root, "ron/2019/07/a.jpg")); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Put(Photo{Hash: hash, Profile: "ron", Path: "ron/2019/07/a.jpg", Name: "a.jpg", Bytes: 9}, "local/Pixel"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Relayout(root, c, nil, ronsAccount, "ron", time.UTC); err != nil {
+		t.Fatal(err)
+	}
+	all, err := c.photos(``)
+	if err != nil || len(all) != 1 || all[0].Profile != "ron" || !all[0].Favorite || !onDisk(root, all[0]) {
+		t.Errorf("%+v %v, want one", all, err)
+	}
+}
+
+// A profile's folder, or a photo in it, that is a link to the old place: the
+// file is the only one, and stays.
+func TestTheOnlyFileReachedTwoWaysStays(t *testing.T) {
+	for name, link := range map[string][2]string{"the folder": {"../2019", "ron/2019"}, "the photo": {"../../../2019/07/a.jpg", "ron/2019/07/a.jpg"}} {
+		t.Run(name, func(t *testing.T) {
+			root, c, hashes := relaying(t, map[string]string{"2019/07/a.jpg": "the photo"})
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, link[1])), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(link[0], filepath.Join(root, link[1])); err != nil {
+				t.Skip(err)
+			}
+			for range 2 {
+				if err := Relayout(root, c, nil, ronsAccount, "ron", time.UTC); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got, err := hashOf(filepath.Join(root, "2019/07/a.jpg")); err != nil || got != hashes["2019/07/a.jpg"] {
+				t.Errorf("its file: %v", err)
+			}
+		})
+	}
+}

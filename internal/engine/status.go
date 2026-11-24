@@ -6,11 +6,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ruvido/homewend/internal/library"
@@ -225,19 +227,27 @@ func settle(root string) error {
 	if err != nil {
 		return err
 	}
+	catalog, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		return err
+	}
+	defer catalog.Close()
+	if unsettled, err := library.Unsettled(root, catalog, known); err != nil {
+		return err
+	} else if !unsettled {
+		settledAs(root, fallback)
+		return nil
+	}
 	unlock, err := lockLibrary(root)
-	if errors.Is(err, ErrLibraryBusy) {
+	// Another run places photos, or the library cannot be written: it is
+	// shown as it is.
+	if errors.Is(err, ErrLibraryBusy) || errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.EROFS) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	catalog, err := library.OpenCatalog(catalogPath(root))
-	if err != nil {
-		return err
-	}
-	defer catalog.Close()
 	// A card's name is nobody's profile.
 	profileOf := func(source string) string {
 		if strings.HasPrefix(source, library.LocalSource) {
@@ -248,9 +258,14 @@ func settle(root string) error {
 	if err := library.Relayout(root, catalog, known, profileOf, fallback, nil); err != nil {
 		return err
 	}
+	settledAs(root, fallback)
+	return nil
+}
+
+// settledAs notes that root is settled; settled is held.
+func settledAs(root, fallback string) {
 	if settled.roots == nil {
 		settled.roots = map[string]string{}
 	}
 	settled.roots[root] = fallback
-	return nil
 }

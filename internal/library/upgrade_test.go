@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -166,7 +167,7 @@ func TestTwoProcessesBringItUpToDateOnce(t *testing.T) {
 	for range 2 {
 		other := exec.Command(os.Args[0], "-test.run=^TestTwoProcessesBringItUpToDateOnce$")
 		other.Env = append(os.Environ(), "HOMEWEND_TEST_OLDER="+path)
-		other.Stderr = &bytes.Buffer{}
+		other.Stdout = &bytes.Buffer{}
 		if err := other.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -179,7 +180,7 @@ func TestTwoProcessesBringItUpToDateOnce(t *testing.T) {
 	defer c.Close()
 	for _, o := range others {
 		if err := o.Wait(); err != nil {
-			t.Errorf("another process: %v\n%s", err, o.Stderr)
+			t.Errorf("another process: %v\n%s", err, o.Stdout)
 		}
 	}
 	var whole string
@@ -595,5 +596,119 @@ func TestAnOpeningWaitsForALongUpgrade(t *testing.T) {
 			t.Errorf("%s: %d %v", name, n, err)
 		}
 		c.Close()
+	}
+}
+
+// On macOS a connection that reads keeps every other out, this program's own
+// too: nothing holds two at once. Locks as exclusive are tried here.
+func TestAnUpgradeUsesOneConnection(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no such locks here")
+	}
+	t.Setenv("HOMEWEND_TEST_VFS", "unix-dotfile")
+	path := older(t, 1, `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('a', 'ron/2019/07/a.jpg', 'a.jpg', 1, 1, '', '', '')`)
+	done := make(chan error, 8)
+	for range 8 {
+		go func() {
+			c, err := OpenCatalog(path)
+			if err == nil {
+				_, err = c.CountsByYear(nil)
+				c.Close()
+			}
+			done <- err
+		}()
+	}
+	for range 8 {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Error(err)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("it waits for itself")
+		}
+	}
+	if !exists(path + beforeLibraries) {
+		t.Error("no copy kept")
+	}
+}
+
+// A catalog written between its copy and the lock is copied again: the copy
+// kept is what was brought up to date.
+func TestTheCopyIsOfWhatWasUpgraded(t *testing.T) {
+	path := older(t, 1, `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('a', 'ron/2019/07/a.jpg', 'a.jpg', 1, 1, '', '', '')`)
+	db, err := sql.Open("sqlite", catalogDSN(path, waiting+"&_txlock=immediate"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`PRAGMA data_version`); err != nil {
+		t.Fatal(err)
+	}
+	// An older program, holding the lock as the copy is made, then writing.
+	other, err := sql.Open("sqlite", catalogDSN(path, waiting))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	other.SetMaxOpenConns(1)
+	if _, err := other.Exec(`BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		for i := 0; i < 200; i++ {
+			if left, _ := filepath.Glob(path + beforeLibraries + ".part*"); len(left) > 0 {
+				break
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		time.Sleep(300 * time.Millisecond)
+		other.Exec(`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('late', 'ron/2019/07/b.jpg', 'b.jpg', 1, 1, '', '', '')`)
+		other.Exec(`COMMIT`)
+	}()
+	if err := upgrade(db, path); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := sql.Open("sqlite", path+beforeLibraries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer kept.Close()
+	var n int
+	if err := kept.QueryRow(`SELECT COUNT(*) FROM photos`).Scan(&n); err != nil || n != 2 {
+		t.Errorf("the copy holds %d %v, want both", n, err)
+	}
+}
+
+// An album's entry keeps the name the photo had as it was made: the album is
+// hers all the same.
+func TestAnAlbumEntryOfAnotherName(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "ron/2019/07/a.jpg", []byte("a photo of two"))
+	for _, to := range []string{"sam/2020/01/a-2.jpg", "sam/albums/Greece/a.jpg"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, to)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Link(filepath.Join(root, "ron/2019/07/a.jpg"), filepath.Join(root, to)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := mustHash(t, filepath.Join(root, "ron/2019/07/a.jpg"))
+	path := older(t, 1, fmt.Sprintf(`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('%[1]s', 'ron/2019/07/a.jpg', 'a.jpg', 14, 1, '', '', '');
+		INSERT INTO album_members VALUES ('Greece', '%[1]s')`, a))
+	if err := FindLinks(root, path, []string{"sam"}, func(string) string { return "" }, func() (func(), error) { return func() {}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if albums, _, err := c.About(Key{a, "sam"}); err != nil || len(albums) != 1 {
+		t.Errorf("sam's albums %v %v", albums, err)
+	}
+	if albums, _, _ := c.About(Key{a, "ron"}); len(albums) != 0 {
+		t.Errorf("ron's albums %v", albums)
 	}
 }

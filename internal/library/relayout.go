@@ -104,6 +104,14 @@ func relayout(root string, catalog *Catalog, p Photo, profileOf func(source stri
 	old := filepath.Join(root, filepath.FromSlash(p.Path))
 	opt := Options{Location: loc, Profile: profiles[0], SeparateMessaging: true}
 	if !exists(old) {
+		// Received again since: that is the photo.
+		there, has, err := catalog.PathOf(Key{p.Hash, opt.Profile})
+		if err != nil {
+			return err
+		}
+		if has && exists(filepath.Join(root, filepath.FromSlash(there))) {
+			return catalog.refile(p.Key(), opt.Profile, there, false)
+		}
 		// Moved by a run that stopped before it was recorded, or gone.
 		home, err := movedTo(root, catalog, p, opt)
 		if err != nil || home == "" {
@@ -206,11 +214,28 @@ func leaveOld(root string, catalog *Catalog, p Photo, opt Options, home, old str
 	if err := catalog.refile(p.Key(), opt.Profile, relativeTo(root, home), true); err != nil {
 		return err
 	}
-	if taken, err := catalog.PathTaken(p.Path, Key{}); err != nil || taken || !exists(old) {
+	if taken, err := catalog.PathTaken(p.Path, Key{}); err != nil || taken || !spare(old, home) {
 		return err
 	}
 	os.Remove(meta(old))
 	return os.Remove(old)
+}
+
+// spare is whether old may go, home being the same photo under a name of its
+// own: not a link to it, nor the same name reached another way, through a
+// linked folder or on a disk that ignores capitals.
+func spare(old, home string) bool {
+	at, err := os.Lstat(home)
+	if err != nil || !at.Mode().IsRegular() || !exists(old) {
+		return false
+	}
+	return !linked(filepath.Dir(old), filepath.Dir(home)) || !strings.EqualFold(filepath.Base(old), filepath.Base(home))
+}
+
+// Unsettled is whether root has anything for Relayout, read alone.
+func Unsettled(root string, catalog *Catalog, known []string) (bool, error) {
+	of, err := texts(catalog.db.Query(`SELECT DISTINCT profile FROM library_photos`))
+	return slices.Contains(of, "") || Filed(root, append(of, known...)), err
 }
 
 // movedTo is where a photo no longer at its old path was moved by a run that
@@ -272,7 +297,7 @@ func clearOldTops(root string, tops []string, photos []Photo) error {
 				return err
 			}
 			for _, p := range named[d.Name()] {
-				if linked(file, filepath.Join(root, filepath.FromSlash(p.Path))) {
+				if at := filepath.Join(root, filepath.FromSlash(p.Path)); linked(file, at) && spare(file, at) {
 					return os.Remove(file)
 				}
 			}
