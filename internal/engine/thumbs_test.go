@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/thumb"
@@ -46,7 +47,9 @@ func TestThumbnailsAreMadeForTheLibrary(t *testing.T) {
 
 	failed := map[string]bool{}
 	for range 2 {
-		makeThumbnails(context.Background(), "", failed)
+		if _, ok := makeThumbnails(context.Background(), "", failed); !ok {
+			t.Error("the library was not looked at")
+		}
 		if got := ThumbsMade(); got != (Thumbs{Done: 2, Of: 2}) {
 			t.Errorf("%+v, want all done", got)
 		}
@@ -61,4 +64,48 @@ func TestThumbnailsAreMadeForTheLibrary(t *testing.T) {
 	if len(failed) != 1 || !failed["hash-bad.jpg"] {
 		t.Errorf("failed %v; want the bad one", failed)
 	}
+}
+
+// The library's disk taken out, nothing is said; the same put back is looked
+// at again, though nothing in it changed.
+func TestThumbnailsComeBackWithTheDisk(t *testing.T) {
+	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "HOME", "AppData", "LocalAppData"} {
+		t.Setenv(home, t.TempDir())
+	}
+	defer func(every time.Duration) { thumbsEvery = every }(thumbsEvery)
+	thumbsEvery = 10 * time.Millisecond
+	root := filepath.Join(t.TempDir(), "library")
+	os.MkdirAll(filepath.Join(root, library.WorkDir), 0o755)
+	if _, err := UpdateSettings(func(s *Settings) { s.Library = root }); err != nil {
+		t.Fatal(err)
+	}
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Put(library.Photo{Hash: "bad", Path: "bad.jpg", Name: "bad.jpg"})
+	c.Close()
+	ctx, stop := context.WithCancel(context.Background())
+	ended := make(chan struct{})
+	go func() { KeepThumbnails(ctx); close(ended) }()
+	defer func() { stop(); <-ended }()
+	wait := func(want Thumbs) {
+		t.Helper()
+		for range 500 {
+			if ThumbsMade() == want {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("%+v, want %+v", ThumbsMade(), want)
+	}
+	wait(Thumbs{1, 1})
+	if err := os.Rename(root, root+"-out"); err != nil {
+		t.Fatal(err)
+	}
+	wait(Thumbs{})
+	if err := os.Rename(root+"-out", root); err != nil {
+		t.Fatal(err)
+	}
+	wait(Thumbs{1, 1})
 }
