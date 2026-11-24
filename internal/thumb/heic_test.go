@@ -4,7 +4,10 @@
 package thumb
 
 import (
+	"context"
 	"encoding/binary"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -21,6 +24,15 @@ func TestAHEICsThumbnailFirst(t *testing.T) {
 		return append(aBox("ftyp", []byte("heic")...), aBox("meta", meta...)...)
 	}
 	thumbnailOf := func(of byte) []byte { return aBox("thmb", 0, 50, 0, 1, 0, of) }
+	// Version 1: an item's number in four bytes.
+	wide := append([]byte{0, 0, 0, 0}, aBox("pitm", 1, 0, 0, 0, 0, 1, 0, 49)...)
+	wide = append(wide, aBox("iref", append([]byte{1, 0, 0, 0}, aBox("thmb", 0, 1, 0, 50, 0, 1, 0, 1, 0, 49)...)...)...)
+	wide = append(aBox("ftyp"), aBox("meta", wide...)...)
+	if !thumbnailFirst(wide) {
+		t.Error("version 1: none")
+	} else if id, _ := item(box(box(wide, "meta")[4:], "pitm")[4:], true); id != 1<<16+50 {
+		t.Errorf("version 1: primary %d", id)
+	}
 	for _, c := range []struct {
 		name string
 		data []byte
@@ -46,4 +58,16 @@ func TestAHEICsThumbnailFirst(t *testing.T) {
 func FuzzThumbnailFirst(f *testing.F) {
 	f.Add(append(aBox("ftyp"), aBox("meta", 0, 0, 0, 0)...))
 	f.Fuzz(func(t *testing.T, data []byte) { thumbnailFirst(data) })
+}
+
+// A JPEG saved as .heic still has its picture.
+func TestAJPEGNamedHEIC(t *testing.T) {
+	path := withThumbnail(t, 1024, 768, 160, 120)
+	named := path[:len(path)-len(".jpg")] + ".heic"
+	if err := os.Rename(path, named); err != nil {
+		t.Fatal(err)
+	}
+	if err := Make(context.Background(), named, filepath.Join(t.TempDir(), "out.jpg"), Size); err != nil {
+		t.Error(err)
+	}
 }

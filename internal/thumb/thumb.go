@@ -168,7 +168,13 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 		if img := smallHEIC(src, size); img != nil {
 			return img, nil
 		}
-		return heic.Decode(f)
+		if img, err := heic.Decode(f); err == nil {
+			return img, nil
+		}
+		// A JPEG saved with the wrong name.
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return nil, err
+		}
 	}
 	img, _, err := image.Decode(f)
 	if errors.Is(err, image.ErrFormat) {
