@@ -226,3 +226,22 @@ func TestALivePhotosVideoHasItsPhotosDate(t *testing.T) {
 		t.Errorf("not read: %v", want)
 	}
 }
+
+// Every kind of file the library takes has a type to be sent as.
+func TestEveryKindOfFileHasAType(t *testing.T) {
+	for name, want := range map[string]string{"A.JPG": "image/jpeg", "a.heic": "image/heic", "a.Dng": "image/x-adobe-dng", "a.MOV": "video/quicktime", "a.txt": "application/octet-stream", "a": "application/octet-stream"} {
+		if got := TypeOf(name); got != want || IsMedia(name) != (got != "application/octet-stream") {
+			t.Errorf("%s is %s, want %s", name, got, want)
+		}
+	}
+	for ext, kind := range photoTypes {
+		if !strings.HasPrefix(kind, "image/") || IsVideo("a"+ext) {
+			t.Errorf("%s is %s", ext, kind)
+		}
+	}
+	for ext, kind := range videoTypes {
+		if !strings.HasPrefix(kind, "video/") || !IsVideo("a"+ext) {
+			t.Errorf("%s is %s", ext, kind)
+		}
+	}
+}

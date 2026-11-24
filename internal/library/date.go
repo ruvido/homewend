@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -264,17 +265,8 @@ func IsHEIC(path string) bool {
 // (Options.Location). A video and the photos of the same minute then sort
 // together, and the grid, which shows a camera's clock, shows its hour.
 func videoDate(path string) (time.Time, bool) {
-	file, err := os.Open(path)
-	if err != nil {
-		return time.Time{}, false
-	}
-	defer file.Close()
-	boxes, err := mp4.ExtractBoxWithPayload(file, nil, mp4.BoxPath{mp4.BoxTypeMoov(), mp4.BoxTypeMvhd()})
-	if err != nil || len(boxes) == 0 {
-		return time.Time{}, false
-	}
-	mvhd, ok := boxes[0].Payload.(*mp4.Mvhd)
-	if !ok {
+	mvhd := movieHeader(path)
+	if mvhd == nil {
 		return time.Time{}, false
 	}
 	seconds := uint64(mvhd.CreationTimeV0)
@@ -291,6 +283,40 @@ func videoDate(path string) (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return asClock(when.In(time.Local)), true
+}
+
+// movieHeader is an MP4's or a MOV's movie header, nil for any other file.
+func movieHeader(path string) *mp4.Mvhd {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	boxes, err := mp4.ExtractBoxWithPayload(file, nil, mp4.BoxPath{mp4.BoxTypeMoov(), mp4.BoxTypeMvhd()})
+	if err != nil || len(boxes) == 0 {
+		return nil
+	}
+	mvhd, _ := boxes[0].Payload.(*mp4.Mvhd)
+	return mvhd
+}
+
+// VideoLength is how long an MP4 or a MOV says it lasts, 0 when it does not.
+func VideoLength(path string) time.Duration {
+	mvhd := movieHeader(path)
+	if mvhd == nil || mvhd.Timescale == 0 {
+		return 0
+	}
+	length, unknown := uint64(mvhd.DurationV0), uint64(math.MaxUint32)
+	if mvhd.GetVersion() == 1 {
+		length, unknown = mvhd.DurationV1, math.MaxUint64
+	}
+	seconds := float64(length) / float64(mvhd.Timescale)
+	// All ones is a length not known (ISO/IEC 14496-12, 8.2.2); more than a
+	// Duration holds is no video's.
+	if length == unknown || seconds > time.Duration(math.MaxInt64).Seconds()/2 {
+		return 0
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 // exifDate reads DateTimeOriginal out of a JPEG or TIFF, and nothing else.

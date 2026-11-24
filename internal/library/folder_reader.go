@@ -4,34 +4,45 @@
 package library
 
 import (
+	"cmp"
 	"io/fs"
 	"path/filepath"
 	"strings"
 )
 
-// The files a library takes in. Anything else in a folder — a camera's
-// firmware, its database, a project's code — stays where it is and is said.
+// The files a library takes in, and their MIME types. Anything else in a
+// folder — a camera's firmware, its database, a project's code — stays where
+// it is and is said. The types are those of the freedesktop.org shared MIME
+// database or its aliases, and Android's for SRW: the system's tables differ,
+// and a month's tag would with them.
 var (
-	photoExtensions = map[string]bool{
-		".jpg": true, ".jpeg": true, ".heic": true, ".heif": true, ".png": true, ".gif": true,
-		".webp": true, ".tif": true, ".tiff": true, ".bmp": true, ".avif": true,
-		".dng": true, ".cr2": true, ".cr3": true, ".nef": true, ".arw": true, ".raf": true,
-		".orf": true, ".rw2": true, ".pef": true, ".srw": true,
+	photoTypes = map[string]string{
+		".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".heic": "image/heic", ".heif": "image/heif", ".png": "image/png", ".gif": "image/gif",
+		".webp": "image/webp", ".tif": "image/tiff", ".tiff": "image/tiff", ".bmp": "image/bmp", ".avif": "image/avif",
+		".dng": "image/x-adobe-dng", ".cr2": "image/x-canon-cr2", ".cr3": "image/x-canon-cr3", ".nef": "image/x-nikon-nef", ".arw": "image/x-sony-arw", ".raf": "image/x-fuji-raf",
+		".orf": "image/x-olympus-orf", ".rw2": "image/x-panasonic-rw2", ".pef": "image/x-pentax-pef", ".srw": "image/x-samsung-srw",
 	}
-	videoExtensions = map[string]bool{
-		".mp4": true, ".mov": true, ".m4v": true, ".3gp": true, ".avi": true, ".mkv": true,
-		".webm": true, ".mts": true, ".m2ts": true,
+	videoTypes = map[string]string{
+		".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/mp4", ".3gp": "video/3gpp", ".avi": "video/x-msvideo", ".mkv": "video/x-matroska",
+		".webm": "video/webm", ".mts": "video/mp2t", ".m2ts": "video/mp2t",
 	}
 )
 
 // IsVideo is whether the file is a video, by its extension.
-func IsVideo(path string) bool { return videoExtensions[strings.ToLower(filepath.Ext(path))] }
+func IsVideo(path string) bool { return videoTypes[strings.ToLower(filepath.Ext(path))] != "" }
 
 // IsMedia is whether the file is a photo or a video, by its extension.
-func IsMedia(path string) bool {
+func IsMedia(path string) bool { return typeOf(path) != "" }
+
+// typeOf is the file's MIME type, by its extension, "" for what is no photo
+// and no video.
+func typeOf(path string) string {
 	ext := strings.ToLower(filepath.Ext(path))
-	return photoExtensions[ext] || videoExtensions[ext]
+	return cmp.Or(photoTypes[ext], videoTypes[ext])
 }
+
+// TypeOf is the type of the file at path as a phone is told it.
+func TypeOf(path string) string { return cmp.Or(typeOf(path), "application/octet-stream") }
 
 // systemNames are what an operating system writes on a disk for itself: a
 // card read on a Mac carries .Spotlight-V100, .fseventsd and a "._" twin of
