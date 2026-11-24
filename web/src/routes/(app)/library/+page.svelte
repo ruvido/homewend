@@ -108,7 +108,7 @@
 	// after another: two quick clicks end as the last.
 	let hearts: Promise<unknown> = Promise.resolve();
 	function favorite(photo: GridPhoto, on: boolean) {
-		const show = (favorite: boolean) => (list = list.map((p) => (p.id === photo.id ? { ...p, favorite } : p)));
+		const show = (favorite: boolean) => (list = list.map((p) => (p.hash === photo.hash && p.id === photo.id ? { ...p, favorite } : p)));
 		markFailed = '';
 		show(on);
 		hearts = hearts

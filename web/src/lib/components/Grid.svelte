@@ -192,7 +192,7 @@
 				if (scroller) scroller.scrollTop = 0;
 				return;
 			}
-			if (reading || was.length === 0 || now === was || was.every((p, i) => now[i]?.id === p.id)) return;
+			if (reading || was.length === 0 || now === was || was.every((p, i) => now[i] === p || now[i]?.id === p.id)) return;
 			const known = new Set(was.map((p) => p.id));
 			arrived = new Set(now.filter((p) => !known.has(p.id)).map((p) => p.id));
 			if (!scroller || scroller.scrollTop === 0) return;
