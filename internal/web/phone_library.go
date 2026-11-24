@@ -66,7 +66,9 @@ func libraryRoutes(mux *http.ServeMux) {
 				return
 			}
 			cacheFor(w, kept)
-			http.ServeFile(&toPhone{ResponseWriter: w, ctx: r.Context()}, r, file)
+			to, stop := newToPhone(w, r)
+			defer stop()
+			http.ServeFile(to, r, file)
 		}))
 	}
 	mux.Handle("GET /v1/info/{hash}", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
@@ -82,7 +84,7 @@ func libraryRoutes(mux *http.ServeMux) {
 		if !ok {
 			return
 		}
-		o, err := engine.PhoneOriginal(phone, hash)
+		o, err := engine.PhoneOriginal(r.Context(), phone, hash)
 		if err != nil {
 			phoneReply(w, nil, err)
 			return
@@ -91,8 +93,10 @@ func libraryRoutes(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", o.Type)
 		w.Header().Set("ETag", `"`+o.Version+`"`)
 		cacheFor(w, o.Kept)
+		to, stop := newToPhone(w, r)
+		defer stop()
 		file := &cutShort{ReadSeeker: o.File}
-		http.ServeContent(&toPhone{ResponseWriter: w, ctx: r.Context()}, r, "", o.Changed, file)
+		http.ServeContent(to, r, "", o.Changed, file)
 		if file.cut {
 			// The disk went, or the file was changed: the answer is not ended
 			// as if it were whole.
@@ -121,16 +125,25 @@ type toPhone struct {
 	ctx context.Context
 }
 
+// newToPhone is the answer w of r, until stop. What waits for the phone to take
+// its bytes is ended with the request.
+func newToPhone(w http.ResponseWriter, r *http.Request) (to *toPhone, stop func() bool) {
+	return &toPhone{ResponseWriter: w, ctx: r.Context()}, context.AfterFunc(r.Context(), func() {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Now())
+	})
+}
+
 // Unwrap is for http.ResponseController.
 func (w *toPhone) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func (w *toPhone) Write(b []byte) (n int, err error) {
 	for {
+		// One that takes no deadline is a test's.
+		_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(stalled))
+		// Asked after it is set, or it would undo the end's.
 		if err := w.ctx.Err(); err != nil {
 			return n, err
 		}
-		// One that takes no deadline is a test's.
-		_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(stalled))
 		piece := b[n:min(n+64<<10, len(b))]
 		m, err := w.ResponseWriter.Write(piece)
 		if n += m; err != nil || n == len(b) {
@@ -145,7 +158,9 @@ func sendJSON(w http.ResponseWriter, r *http.Request, pieces ...[]byte) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("Vary", "Accept-Encoding")
-	var out io.Writer = &toPhone{ResponseWriter: w, ctx: r.Context()}
+	to, stop := newToPhone(w, r)
+	defer stop()
+	var out io.Writer = to
 	if takesGzip(r) {
 		w.Header().Set("Content-Encoding", "gzip")
 		z, _ := gzip.NewWriterLevel(out, gzip.BestSpeed)

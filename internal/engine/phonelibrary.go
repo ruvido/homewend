@@ -52,6 +52,7 @@ func (t *turns) take(ctx context.Context, name string) (end func(), err error) {
 var (
 	listing = turns{n: 1} // of a profile's library
 	reading = turns{n: 4} // a phone's months: those an app asks at once, and some it left
+	sending = turns{n: 6} // a phone's originals: a player asks for two or three parts, and some it left
 	making  = turns{n: 2} // a phone's pictures
 	// All the phones' together, "": the window is left a slot, where there are two.
 	allMaking = turns{n: max(1, cap(thumbSlots)-1)}
@@ -103,7 +104,6 @@ func openForPhone() (string, *library.Catalog, error) {
 	root, c, err := lookAtLibrary()
 	switch {
 	case err != nil:
-		err = orAway(err)
 	case root == "":
 		err = ErrNoLibrary
 	case c == nil:
@@ -246,10 +246,11 @@ func openInside(root, path string) (f *os.File, info fs.FileInfo, err error) {
 func failed(err, otherwise error) error {
 	err = orAway(err)
 	switch {
-	case errors.Is(err, ErrNoLibrary), errors.As(err, new(LibraryGoneError)), errors.As(err, new(syscall.Errno)) && !errors.Is(err, fs.ErrNotExist):
-		return err
-	case errors.Is(err, fs.ErrNotExist):
+	// A folder that is a file now, or a link to itself, has no file in it.
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR), errors.Is(err, syscall.ELOOP):
 		return ErrFileGone
+	case errors.Is(err, ErrNoLibrary), errors.As(err, new(LibraryGoneError)), errors.As(err, new(syscall.Errno)):
+		return err
 	}
 	return otherwise
 }
@@ -360,19 +361,32 @@ type Original struct {
 	// shortcut: by its size, as pictureOf.
 	Version string
 	Kept    bool
+	end     func()
+}
+
+// Close closes it, for the next of its phone's to be opened.
+func (o Original) Close() error {
+	defer o.end()
+	return o.File.Close()
 }
 
 // PhoneOriginal opens the file of a photo of phone's library.
-func PhoneOriginal(phone Phone, hash string) (Original, error) {
+func PhoneOriginal(ctx context.Context, phone Phone, hash string) (Original, error) {
+	end, err := sending.take(ctx, phone.ID)
+	if err != nil {
+		return Original{}, err
+	}
 	root, p, err := phonePhoto(phone, hash)
+	var f *os.File
+	var info fs.FileInfo
+	if err == nil {
+		f, info, err = openInside(root, p.Path)
+	}
 	if err != nil {
+		end()
 		return Original{}, err
 	}
-	f, info, err := openInside(root, p.Path)
-	if err != nil {
-		return Original{}, err
-	}
-	o := Original{File: f, Type: library.TypeOf(p.Name), Changed: info.ModTime(), Version: hash, Kept: info.Size() == p.Bytes}
+	o := Original{File: f, Type: library.TypeOf(p.Name), Changed: info.ModTime(), Version: hash, Kept: info.Size() == p.Bytes, end: end}
 	if !o.Kept {
 		o.Version = versionOf(hash, info)
 	}

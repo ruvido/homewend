@@ -74,13 +74,15 @@ func (p *testPhone) list() (tag string, l library.Listing) {
 // aMonth is a month's answer.
 type aMonth struct {
 	Month, Tag string
-	Photos     []struct {
-		Hash, Taken, Name, Type string
-		Bytes                   int64
-		Turn                    int
-		Archived                bool
-		Albums                  []string
-	}
+	Photos     []aPhoto
+}
+
+type aPhoto struct {
+	Hash, Taken, Name, Type string
+	Bytes                   int64
+	Turn                    int
+	Archived                bool
+	Albums                  []string
 }
 
 func (p *testPhone) month(month string) (m aMonth) {
@@ -426,6 +428,22 @@ func TestTheListIsWorkedOutOnce(t *testing.T) {
 		t.Error("the first library is another list")
 	}
 	ron.is("another library's", "/v1/original/"+one, http.StatusNotFound)
+	// The same photos on another shelf: the albums' ids are others, so the tag is.
+	one = shelve(t, lib, "ron/2026/12/in.jpg", []byte("in"), november, "Sea")
+	before := ron.month("2026-11")
+	db, err := sql.Open("sqlite", filepath.Join(lib, library.WorkDir, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE catalog_id SET id = 'another'`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	_, l := ron.list()
+	if after := ron.month("2026-11"); after.Tag == before.Tag || after.Tag != l.Months[0].Tag || l.Albums[0].ID == before.Photos[slices.IndexFunc(before.Photos, func(p aPhoto) bool { return p.Hash == one })].Albums[0] {
+		t.Errorf("another shelf: %+v, was %+v", after, before)
+	}
+	tag, _ = ron.list()
 	// Its disk away.
 	if err := os.Rename(lib, lib+"-away"); err != nil {
 		t.Fatal(err)
@@ -570,6 +588,21 @@ func TestALinkOutOfTheLibraryIsNotFollowed(t *testing.T) {
 			ron.is("out of the library", "/v1/"+path+"/"+hash, http.StatusGone)
 		}
 		ron.is("a link inside it", "/v1/"+path+"/"+inside, http.StatusOK)
+	}
+	// A folder that is a file now, and a link to itself.
+	nowhere := shelve(t, lib, "ron/2025/11/nowhere.jpg", jpegOf(60, 10), november)
+	loop := shelve(t, lib, "ron/2026/11/loop.jpg", jpegOf(70, 10), november)
+	for _, err := range []error{os.RemoveAll(filepath.Join(lib, "ron/2025")), os.WriteFile(filepath.Join(lib, "ron/2025"), nil, 0o644),
+		os.Remove(at("loop.jpg")), os.Symlink("loop.jpg", at("loop.jpg"))} {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, hash := range []string{nowhere, loop} {
+		for _, path := range []string{"preview", "info", "original"} {
+			ron.is("no file there", "/v1/"+path+"/"+hash, http.StatusGone)
+		}
+		ron.is("no file there", "/v1/thumb/"+hash, http.StatusNotFound)
 	}
 	ron.is("out of the library", "/v1/thumb/"+out, http.StatusNotFound)
 	ron.is("a link inside it", "/v1/thumb/"+inside, http.StatusOK)
@@ -740,8 +773,7 @@ func TestASlowPhoneHoldsNoDisk(t *testing.T) {
 	res, cancel = begin("/v1/original/" + clip)
 	released := func(what string) {
 		t.Helper()
-		// TLS gives its goodbye 5 seconds.
-		for range 300 {
+		for range 100 {
 			if len(openIn(lib)) == 0 {
 				return
 			}
@@ -763,6 +795,88 @@ func TestASlowPhoneHoldsNoDisk(t *testing.T) {
 	released("a phone gone")
 	res.Body.Close()
 	tr.CloseIdleConnections()
+}
+
+// Quitting does not wait for a phone that takes nothing of an original, over
+// the listener as it is.
+func TestQuittingEndsAnOriginalNotTaken(t *testing.T) {
+	lib := newLibrary(t)
+	s := newTestServer(t)
+	if err := s.ListenPhones(); err != nil {
+		t.Fatal(err)
+	}
+	served := make(chan error, 1)
+	go func() { served <- s.Serve() }()
+	original := http.DefaultTransport
+	defer func() { http.DefaultTransport = original }()
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	http.DefaultTransport = tr
+	ron := pairWith(t, fmt.Sprintf("https://127.0.0.1:%d", s.phones.port), "ron")
+	clip := shelve(t, lib, "ron/2026/11/clip.mp4", make([]byte, 40<<20), november)
+	r, _ := http.NewRequest("GET", ron.url+"/v1/original/"+clip, nil)
+	r.Header.Set("Authorization", "Bearer "+ron.token)
+	res, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	// Every buffer on the way is full.
+	time.Sleep(500 * time.Millisecond)
+	began := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Error(err)
+	}
+	if took := time.Since(began); took > 3*time.Second {
+		t.Errorf("it took %v", took)
+	}
+	if err := <-served; err != nil {
+		t.Error(err)
+	}
+}
+
+// A phone has a few originals open at once, and no more; the rest are sent as
+// those end.
+func TestAPhoneHasAFewOriginalsOpen(t *testing.T) {
+	lib, url := phonesLibrary(t)
+	ron, ann := pairWith(t, url, "ron"), pairWith(t, url, "ann")
+	body := make([]byte, 40<<20)
+	clip := shelve(t, lib, "ron/2026/11/clip.mp4", body, november)
+	shelve(t, lib, "ann/2026/11/clip.mp4", body, november)
+	var all sync.WaitGroup
+	begun := make(chan *http.Response, 20)
+	ask := func(p *testPhone) {
+		all.Go(func() {
+			r, _ := http.NewRequest("GET", url+"/v1/original/"+clip, nil)
+			r.Header.Set("Authorization", "Bearer "+p.token)
+			if res, err := http.DefaultClient.Do(r); err != nil {
+				t.Error(err)
+			} else {
+				begun <- res
+			}
+		})
+	}
+	for range 9 {
+		ask(ron)
+	}
+	time.Sleep(time.Second)
+	if n := len(begun); n != 6 {
+		t.Errorf("%d originals open for one phone", n)
+	}
+	ask(ann)
+	time.Sleep(time.Second)
+	if n := len(begun); n != 7 {
+		t.Errorf("another phone waits for its own: %d", n)
+	}
+	for range 10 {
+		res := <-begun
+		if n, err := io.Copy(io.Discard, res.Body); n != int64(len(body)) || err != nil {
+			t.Errorf("%d bytes, %v", n, err)
+		}
+		res.Body.Close()
+	}
+	all.Wait()
 }
 
 // A file cut while it is sent does not end as if it were whole.

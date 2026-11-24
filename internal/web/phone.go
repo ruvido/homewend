@@ -80,7 +80,7 @@ func listenPhones() (*phoneListener, error) {
 		}
 	}
 	l := &phoneListener{port: port, pin: pin,
-		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})}
+		ln: tls.NewListener(phoneConns{ln}, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})}
 	// No ReadTimeout: a video takes minutes. An idle connection is closed.
 	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	// shortcut: the addresses advertised are those at start; a new address
@@ -110,6 +110,25 @@ func listenPhones() (*phoneListener, error) {
 		log.Printf("phones: not advertised on the network: %v", err)
 	}
 	return l, nil
+}
+
+// phoneConns closes a connection whose write was given up: TLS cannot go on
+// after it, and would wait 5 seconds more for its goodbye to be taken.
+type phoneConns struct{ net.Listener }
+
+func (l phoneConns) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	return phoneConn{c}, err
+}
+
+type phoneConn struct{ net.Conn }
+
+func (c phoneConn) Write(b []byte) (int, error) {
+	n, err := c.Conn.Write(b)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		c.Conn.Close()
+	}
+	return n, err
 }
 
 // pairText is what the QR says: the addresses, the key's pin, the code.
