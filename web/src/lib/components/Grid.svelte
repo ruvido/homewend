@@ -9,16 +9,16 @@
 	// them the browser keeps decoded. Raised if going back further ever shows.
 	const KEPT = 1000;
 	const kept = new Map<string, HTMLImageElement>();
-	function keep(src: string) {
+	function keep(id: string, src: string) {
 		// One of its own: the tile's would hold the whole tile with it.
-		const img = kept.get(src) ?? Object.assign(new Image(), { src });
-		kept.delete(src);
-		kept.set(src, img);
+		const img = kept.get(id) ?? Object.assign(new Image(), { src });
+		kept.delete(id);
+		kept.set(id, img);
 		if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
 	}
 	// Said once, as the tile comes: one loading now fades in to the end.
-	function shown(img: HTMLImageElement) {
-		if (kept.has(img.src)) img.classList.add('in', 'known');
+	function shown(img: HTMLImageElement, id: string) {
+		if (kept.has(id)) img.classList.add('in', 'known');
 		else img.decoding = 'async';
 	}
 </script>
@@ -242,7 +242,7 @@
 		onloadcapture={(e) => {
 			const img = e.target as HTMLImageElement;
 			img.classList.add('in');
-			keep(img.src);
+			keep(idAt(e), img.src);
 		}}
 	>
 		{#each visible as row (row.top)}
@@ -268,11 +268,14 @@
 								src={pictureOf(p)}
 								alt={p.name}
 								style:transform={turned(p)}
-								use:shown
+								use:shown={p.id}
 							/>
 							{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
-							{#if p.shared}<span class="avatar whose" style:background={colourOf(p.of ?? 0)} title={p.profile}>{letterOf(p.profile)}</span>{/if}
-							{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
+							{#if p.missing || p.shared}
+								<!-- Few have either: one thing to ask of every tile. -->
+								{#if p.shared}<span class="avatar whose" style:background={colourOf(p.of ?? 0)} title={p.profile}>{letterOf(p.profile)}</span>{/if}
+								{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
+							{/if}
 							<!-- Only where it can be seen: a tile is as little as it can be. -->
 							{#if onselect && (selecting || over === p.id)}
 								<span class="pick" in:swap>{#if selected?.has(p.id)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
