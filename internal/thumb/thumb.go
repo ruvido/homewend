@@ -8,6 +8,7 @@
 // gen2brain/heic (a Rust decoder run as WASM, or the system's libheif when
 // there is one). A video's first frame is ffmpeg's, as every photo app we
 // looked at does it: Ente, Immich, PhotoPrism, Photoview.
+// When it is there, the tiles of a HEIC are too, for the large picture.
 package thumb
 
 import (
@@ -24,8 +25,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/gen2brain/heic"
 	"golang.org/x/image/draw"
@@ -167,6 +171,12 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 	if library.IsHEIC(src) {
 		if img := smallHEIC(src, size); img != nil {
 			return img, nil
+		}
+		if img := gridHEIC(ctx, src, size); img != nil {
+			return img, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return heic.Decode(f)
 	}
@@ -323,7 +333,26 @@ func fit(img image.Image, size int) image.Image {
 		w, h = max(1, w*size/h), size
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, b, draw.Src, nil)
+	// In strips, one a core: the pixels are the same.
+	var wg sync.WaitGroup
+	var failed atomic.Value
+	strips := min(h, runtime.GOMAXPROCS(0))
+	for i := range strips {
+		wg.Go(func() {
+			// Make cannot recover it in here: it is handed over.
+			defer func() {
+				if r := recover(); r != nil {
+					failed.Store(fmt.Sprint(r))
+				}
+			}()
+			strip := dst.SubImage(image.Rect(0, h*i/strips, w, h*(i+1)/strips)).(*image.RGBA)
+			draw.ApproxBiLinear.Scale(strip, dst.Bounds(), img, b, draw.Src, nil)
+		})
+	}
+	wg.Wait()
+	if r := failed.Load(); r != nil {
+		panic(r)
+	}
 	return dst
 }
 
@@ -334,6 +363,11 @@ func upright(img image.Image, orientation int) image.Image {
 	}
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
+	src, ok := img.(*image.RGBA)
+	if !ok {
+		src = image.NewRGBA(b)
+		draw.Draw(src, b, img, b.Min, draw.Src)
+	}
 	swap := orientation >= 5
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	if swap {
@@ -358,7 +392,8 @@ func upright(img image.Image, orientation int) image.Image {
 			case 8:
 				nx, ny = y, w-1-x
 			}
-			out.Set(nx, ny, img.At(b.Min.X+x, b.Min.Y+y))
+			from, to := src.PixOffset(b.Min.X+x, b.Min.Y+y), out.PixOffset(nx, ny)
+			copy(out.Pix[to:to+4], src.Pix[from:from+4])
 		}
 	}
 	return out

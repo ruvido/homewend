@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"image"
+	"iter"
 	"os"
+	"slices"
 
 	"github.com/gen2brain/heic"
 )
@@ -20,14 +22,8 @@ import (
 // thumbnail as that (ISO/IEC 14496-12: in the meta box, pitm names the
 // primary item, and iref's thmb says which item is a thumbnail of which).
 func heicThumbnail(path string) image.Image {
-	fi, err := os.Stat(path)
-	// shortcut: read whole, a photo's few MB; by its place when one of a
-	// hundred is met.
-	if err != nil || fi.Size() > 64<<20 {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil || !thumbnailFirst(data) {
+	data := readHEIC(path)
+	if !thumbnailFirst(data) {
 		return nil
 	}
 	img, err := heic.Decode(bytes.NewReader(data))
@@ -37,82 +33,162 @@ func heicThumbnail(path string) image.Image {
 	return img
 }
 
+// readHEIC is the file at path, or nil.
+func readHEIC(path string) []byte {
+	fi, err := os.Stat(path)
+	// shortcut: read whole, a photo's few MB; by its place when one of a
+	// hundred is met.
+	if err != nil || fi.Size() > 64<<20 {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
 // thumbnailFirst makes the thumbnail of data's primary item the primary one,
 // and says whether there is one.
 func thumbnailFirst(data []byte) bool {
-	meta := box(data, "meta")
-	if len(meta) < 4 {
-		return false
-	}
-	// Full boxes: a version and flags before what they hold.
-	pitm, iref := box(meta[4:], "pitm"), box(meta[4:], "iref")
-	if len(pitm) < 4 || len(iref) < 4 {
-		return false
-	}
-	primary, ok := item(pitm[4:], pitm[0] > 0)
+	meta := fullBox(data, "meta")
+	primary, ok := primaryItem(meta)
 	if !ok {
 		return false
 	}
-	wide := iref[0] > 0
-	size := 2
-	if wide {
-		size = 4
-	}
-	for rest := iref[4:]; len(rest) >= 8; {
-		n := binary.BigEndian.Uint32(rest)
-		if n < 8 || uint64(n) > uint64(len(rest)) {
-			return false
+	for _, r := range references(meta, "thmb") {
+		if slices.Contains(r.to, primary) {
+			return setPrimary(meta, r.from)
 		}
-		ref := rest[8:n]
-		if string(rest[4:8]) == "thmb" && len(ref) >= size+2 {
-			from, _ := item(ref, wide)
-			for to := ref[size+2:]; len(to) >= size; to = to[size:] {
-				if id, _ := item(to, wide); id != primary {
-					continue
-				}
-				if pitm[0] > 0 {
-					binary.BigEndian.PutUint32(pitm[4:], from)
-				} else {
-					binary.BigEndian.PutUint16(pitm[4:], uint16(from))
-				}
-				return true
-			}
-		}
-		rest = rest[n:]
 	}
 	return false
 }
 
-// item is the item's number at the start of b, in four bytes or two.
-func item(b []byte, wide bool) (uint32, bool) {
-	if wide {
-		if len(b) < 4 {
-			return 0, false
+// primaryItem is the number of the item meta calls primary.
+func primaryItem(meta []byte) (uint32, bool) {
+	r := reader{b: box(meta, "pitm")}
+	n := idSize(r.u(4))
+	id := uint32(r.u(n))
+	return id, !r.bad
+}
+
+// setPrimary makes id the primary item of meta, if it fits where that is.
+func setPrimary(meta []byte, id uint32) bool {
+	pitm := box(meta, "pitm")
+	switch {
+	case len(pitm) >= 8 && pitm[0] > 0:
+		binary.BigEndian.PutUint32(pitm[4:], id)
+	case len(pitm) >= 6 && pitm[0] == 0 && id <= 0xffff:
+		binary.BigEndian.PutUint16(pitm[4:], uint16(id))
+	default:
+		return false
+	}
+	return true
+}
+
+// reference is an item and those it is made from, or of.
+type reference struct {
+	from uint32
+	to   []uint32
+}
+
+// references are meta's of kind.
+func references(meta []byte, kind string) (refs []reference) {
+	r := reader{b: box(meta, "iref")}
+	n := idSize(r.u(4))
+	for k, b := range boxes(r.b) {
+		if k != kind {
+			continue
 		}
-		return binary.BigEndian.Uint32(b), true
+		r := reader{b: b}
+		ref := reference{from: uint32(r.u(n))}
+		for range r.u(2) {
+			if len(r.b) < n {
+				break
+			}
+			ref.to = append(ref.to, uint32(r.u(n)))
+		}
+		refs = append(refs, ref)
 	}
-	if len(b) < 2 {
-		return 0, false
+	return refs
+}
+
+// idSize is the bytes of an item's number in a box with this version and
+// flags.
+func idSize(versionFlags uint64) int {
+	if versionFlags>>24 > 0 {
+		return 4
 	}
-	return uint32(binary.BigEndian.Uint16(b)), true
+	return 2
+}
+
+// reader reads numbers off the start of b; past its end they are 0, and bad.
+type reader struct {
+	b   []byte
+	bad bool
+}
+
+// u is the next number, of n bytes.
+func (r *reader) u(n int) (v uint64) {
+	if len(r.b) < n {
+		r.b, r.bad = nil, true
+		return 0
+	}
+	for _, c := range r.b[:n] {
+		v = v<<8 | uint64(c)
+	}
+	r.b = r.b[n:]
+	return v
+}
+
+// next are the next n bytes.
+func (r *reader) next(n uint64) []byte {
+	if uint64(len(r.b)) < n {
+		r.b, r.bad = nil, true
+		return nil
+	}
+	b := r.b[:n]
+	r.b = r.b[n:]
+	return b
 }
 
 // box is what the first box of kind in data holds, or nil.
 func box(data []byte, kind string) []byte {
-	for len(data) >= 8 {
-		n, head := uint64(binary.BigEndian.Uint32(data)), uint64(8)
-		if n == 1 && len(data) >= 16 { // its length in eight bytes
-			n, head = binary.BigEndian.Uint64(data[8:]), 16
-		} else if n == 0 { // to the end
-			n = uint64(len(data))
+	for k, b := range boxes(data) {
+		if k == kind {
+			return b
 		}
-		if n < head || n > uint64(len(data)) {
-			return nil
-		}
-		if string(data[4:8]) == kind {
-			return data[head:n]
-		}
-		data = data[n:]
 	}
 	return nil
+}
+
+// fullBox is box, past the version and flags some begin with.
+func fullBox(data []byte, kind string) []byte {
+	b := box(data, kind)
+	if len(b) < 4 {
+		return nil
+	}
+	return b[4:]
+}
+
+// boxes are the kinds of the boxes in data and what each holds, up to the
+// first whose length is wrong.
+func boxes(data []byte) iter.Seq2[string, []byte] {
+	return func(yield func(string, []byte) bool) {
+		for data := data; len(data) >= 8; {
+			n, head := uint64(binary.BigEndian.Uint32(data)), uint64(8)
+			if n == 1 && len(data) >= 16 { // its length in eight bytes
+				n, head = binary.BigEndian.Uint64(data[8:]), 16
+			} else if n == 0 { // to the end
+				n = uint64(len(data))
+			}
+			if n < head || n > uint64(len(data)) {
+				return
+			}
+			if !yield(string(data[4:8]), data[head:n]) {
+				return
+			}
+			data = data[n:]
+		}
+	}
 }

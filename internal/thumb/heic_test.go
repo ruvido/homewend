@@ -36,7 +36,7 @@ func TestAHEICsThumbnailFirst(t *testing.T) {
 			t.Errorf("%s: %v", c.name, got)
 		}
 		if c.want {
-			if id, _ := item(box(box(c.data, "meta")[4:], "pitm")[4:], false); id != 50 {
+			if id, _ := primaryItem(fullBox(c.data, "meta")); id != 50 {
 				t.Errorf("%s: primary %d, want 50", c.name, id)
 			}
 		}
