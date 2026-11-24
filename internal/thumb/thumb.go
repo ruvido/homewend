@@ -61,10 +61,20 @@ func Path(cacheDir, hash string) string {
 
 // Make writes the picture of src at dst, its long edge size at most (Size
 // or PreviewSize), whole or not at all.
-func Make(ctx context.Context, src, dst string, size int) error {
+func Make(ctx context.Context, src, dst string, size int) (err error) {
+	// A damaged file a decoder does not survive is a file with no picture,
+	// not the end of the program that met it.
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("decoding %s: %v", src, r)
+		}
+	}()
 	img, err := decode(ctx, src, size)
 	if err != nil {
 		return err
+	}
+	if img.Bounds().Empty() {
+		return fmt.Errorf("%w: %s is empty", ErrNoDecoder, src)
 	}
 	img = upright(fit(img, size), library.Orientation(src))
 	var buf bytes.Buffer
@@ -134,7 +144,7 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 // large as asked and of the photo's shape: a photo cropped or turned since by
 // a program that left it behind is another. It is read in 5 ms where decoding
 // 12 MP takes 350 and 26 MP a second; the 491 large enough in a real library
-// were all the photo.
+// are all the photo.
 // shortcut: an edit that kept the shape and left the old thumbnail shows the
 // photo as it was, in the grid only; decode the photo if one is ever met.
 func embedded(f io.ReadSeeker, src string, size int) image.Image {
@@ -145,31 +155,45 @@ func embedded(f io.ReadSeeker, src string, size int) image.Image {
 	if _, back := f.Seek(0, io.SeekStart); err != nil || back != nil {
 		return nil
 	}
-	for _, data := range library.EmbeddedThumbnails(src) {
-		b, err := jpeg.DecodeConfig(bytes.NewReader(data))
-		// As large as asked, and no larger than a camera makes one.
-		if long := max(b.Width, b.Height); err != nil || long < size || long > 4*Size {
-			continue
+	if whole.Width == 0 || whole.Height == 0 {
+		return nil
+	}
+	exif, flashPix := library.EmbeddedThumbnails(src)
+	if img := cameras(exif, size); img != nil {
+		// Within two of its own pixels: cameras round.
+		b := img.Bounds()
+		if off := b.Dx()*whole.Height - b.Dy()*whole.Width; max(off, -off) <= 2*max(whole.Width, whole.Height) {
+			return img
 		}
-		img, err := jpeg.Decode(bytes.NewReader(data))
-		if err != nil {
-			continue
-		}
-		if img = ofShape(img, whole.Width, whole.Height); img != nil && max(img.Bounds().Dx(), img.Bounds().Dy()) >= size {
+	}
+	// Bars are looked for only here: the dark top of a night photo, cropped
+	// since, is not one.
+	if img := cameras(flashPix, size); img != nil {
+		if img = unbarred(img, whole.Width, whole.Height); img != nil && max(img.Bounds().Dx(), img.Bounds().Dy()) >= size {
 			return img
 		}
 	}
 	return nil
 }
 
-// ofShape is img when it has the shape of w by h, or the part of it that has
-// between two black bars, as cameras fill a 4:3 thumbnail; else nil.
-func ofShape(img image.Image, w, h int) image.Image {
-	b := img.Bounds()
-	// Within two of its own pixels: cameras round.
-	if off := b.Dx()*h - b.Dy()*w; max(off, -off) <= 2*max(w, h) {
-		return img
+// cameras is the thumbnail data decoded: as large as asked, and no larger
+// than a camera makes one.
+func cameras(data []byte, size int) image.Image {
+	b, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	if long := max(b.Width, b.Height); err != nil || long < size || long > 4*Size {
+		return nil
 	}
+	img, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil
+	}
+	return img
+}
+
+// unbarred is the part of img with the shape of w by h, when all around it
+// is black bars, or nothing; else nil.
+func unbarred(img image.Image, w, h int) image.Image {
+	b := img.Bounds()
 	in := b
 	if height := b.Dx() * h / w; height < b.Dy() {
 		in.Min.Y += (b.Dy() - height + 1) / 2
@@ -178,6 +202,9 @@ func ofShape(img image.Image, w, h int) image.Image {
 		width := b.Dy() * w / h
 		in.Min.X += (b.Dx() - width + 1) / 2
 		in.Max.X = in.Min.X + width
+	}
+	if in == b {
+		return img
 	}
 	for y := b.Min.Y; y < b.Max.Y; y++ {
 		for x := b.Min.X; x < b.Max.X; x++ {
@@ -199,9 +226,9 @@ func ofShape(img image.Image, w, h int) image.Image {
 	return cut.SubImage(in.Inset(1))
 }
 
-// black is the brightest a black bar is, JPEG's noise included: 22 the
+// black is the brightest a black bar is, JPEG's noise included: 33 the
 // brightest of 38 measured.
-const black = 32
+const black = 40
 
 // frame is a video's first frame, already at size, from ffmpeg.
 func frame(ctx context.Context, src string, size int) (image.Image, error) {

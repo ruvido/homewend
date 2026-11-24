@@ -445,21 +445,16 @@ func exifHead(path string) (head []byte, tiff int, order binary.ByteOrder, ok bo
 }
 
 // EmbeddedThumbnails are the small JPEGs a camera writes in the photo at
-// path, beside the photo itself: in the EXIF, and in a FlashPix stream.
-func EmbeddedThumbnails(path string) [][]byte {
-	var found [][]byte
-	for _, data := range [][]byte{exifThumbnail(path), flashPixThumbnail(path)} {
-		if data != nil {
-			found = append(found, data)
-		}
-	}
-	return found
+// path, beside the photo itself: in the EXIF, and in a FlashPix stream, each
+// nil when there is none.
+func EmbeddedThumbnails(path string) (exif, flashPix []byte) {
+	return exifThumbnail(path), flashPixThumbnail(path)
 }
 
 // flashPixThumbnail is the JPEG in a FlashPix stream of a photo's APP2
 // segments (the EXIF standard, "FPXR"): after the name and a version byte,
-// 2 says a piece of a stream, then its number, its offset and the piece.
-// A Fuji's is 320 by 240, where its EXIF's is 160 by 120.
+// 2 says a piece of a stream, then its number, its offset and the piece. One
+// with a piece missing or out of its place is left. A Fuji's is 320 by 240, where its EXIF's is 160 by 120.
 func flashPixThumbnail(path string) []byte {
 	file, err := os.Open(path)
 	if err != nil {
@@ -471,8 +466,10 @@ func flashPixThumbnail(path string) []byte {
 	if _, err := io.ReadFull(in, b[:2]); err != nil || b[0] != 0xff || b[1] != 0xd8 {
 		return nil
 	}
+	// A camera's is some 20 KB: what asks for more is no thumbnail.
+	const most = 1 << 20
+	read := 0
 	streams := map[uint16][]byte{}
-	var first []byte
 	for {
 		if _, err := io.ReadFull(in, b[:]); err != nil || b[0] != 0xff || b[1] < 0xe0 || b[1] > 0xef {
 			break // past the APP segments
@@ -492,16 +489,20 @@ func flashPixThumbnail(path string) []byte {
 			break
 		}
 		if len(data) > 13 && string(data[:5]) == "FPXR\x00" && data[6] == 2 {
-			n := binary.BigEndian.Uint16(data[7:])
+			n, at := binary.BigEndian.Uint16(data[7:]), binary.BigEndian.Uint32(data[9:])
+			if read += len(data); read > most || int(at) != len(streams[n]) {
+				return nil
+			}
 			streams[n] = append(streams[n], data[13:]...)
 		}
 	}
+	var largest []byte
 	for _, data := range streams {
-		if at := bytes.Index(data, []byte{0xff, 0xd8, 0xff}); at >= 0 && len(data)-at > len(first) {
-			first = data[at:]
+		if at := bytes.Index(data, []byte{0xff, 0xd8, 0xff}); at >= 0 && len(data)-at > len(largest) {
+			largest = data[at:]
 		}
 	}
-	return first
+	return largest
 }
 
 // exifThumbnail is the JPEG in IFD1, where tags 0x0201 and 0x0202 say where

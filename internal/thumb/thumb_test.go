@@ -172,7 +172,8 @@ func withStream(t *testing.T, w, h int, bar color.Color, some bool) string {
 		draw.Draw(img, image.Rect(0, top, 320, top+high), image.NewUniform(color.White), image.Point{}, draw.Src)
 		stream := append(make([]byte, 47), encode(img)...)
 		for at := 0; at < len(stream); at += 900 {
-			piece := append([]byte("FPXR\x00\x00\x02\x00\x02\x00\x00\x00\x00"), stream[at:min(at+900, len(stream))]...)
+			head := binary.BigEndian.AppendUint32([]byte("FPXR\x00\x00\x02\x00\x02"), uint32(at))
+			piece := append(head, stream[at:min(at+900, len(stream))]...)
 			file = append(file, 0xff, 0xe2)
 			file = binary.BigEndian.AppendUint16(file, uint16(len(piece)+2))
 			file = append(file, piece...)
@@ -228,5 +229,23 @@ func TestNoBarsInAThumbnail(t *testing.T) {
 		if shape, want := float64(b.Dx())/float64(b.Dy()), float64(c.w)/float64(c.h); shape < want*0.97 || shape > want*1.03 {
 			t.Errorf("%s: shape %.2f, want %.2f", c.name, shape, want)
 		}
+	}
+}
+
+// A JPEG that says it is 0 wide is a file with no picture, whatever its
+// thumbnail.
+func TestANoWidePhoto(t *testing.T) {
+	path := withStream(t, 1500, 1000, color.Black, true)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := bytes.LastIndex(b, []byte{0xff, 0xc0})
+	b[at+7], b[at+8] = 0, 0
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Make(context.Background(), path, filepath.Join(t.TempDir(), "out.jpg"), Size); err == nil {
+		t.Error("made one")
 	}
 }
