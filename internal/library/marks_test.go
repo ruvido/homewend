@@ -118,27 +118,27 @@ func TestTheLastHeartWins(t *testing.T) {
 		does []func(*testing.T, *Catalog)
 		want bool
 	}{
-		"a first heart":                        {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0))}, true},
-		"later than the window's":              {[]func(*testing.T, *Catalog){window(true, 5000), phone("A", act(1, false, 100))}, false},
-		"before the window's":                  {[]func(*testing.T, *Catalog){window(true, 100), phone("A", act(1, false, 5000))}, true},
-		"the window's after the phone's":       {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0)), window(false, 0)}, false},
-		"between two phones, the later":        {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100)), phone("B", act(1, false, 5000))}, true},
-		"no time over none":                    {[]func(*testing.T, *Catalog){phone("A", act(1, true, noTime))}, true},
-		"no time over a timed off":             {[]func(*testing.T, *Catalog){window(false, 5000), phone("A", act(1, true, noTime))}, false},
-		"no time and false over a heart":       {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, noTime))}, true},
-		"a time over a heart with none":        {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, 1<<50))}, false},
-		"a time before everything":             {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, math.MaxInt64))}, false},
-		"no time said after a time":            {[]func(*testing.T, *Catalog){phone("A", act(2, false, 100)), phone("A", act(3, true, noTime))}, false},
-		"no time before a time, in one call":   {[]func(*testing.T, *Catalog){phone("A", act(2, true, 100), act(1, true, noTime))}, true},
-		"two of one call, in order":            {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100), act(2, false, 100))}, false},
-		"said again after the window's":        {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), window(false, 50), phone("A", act(7, true, 0))}, false},
-		"a lower count of one install":         {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("A", act(6, false, 0))}, true},
-		"the same count of another install":    {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("B", act(7, false, 0))}, false},
-		"the greatest count there is":          {[]func(*testing.T, *Catalog){phone("A", act(math.MaxInt64, true, 100)), phone("B", act(1, false, 0))}, false},
-		"an action from the future is now's":   {[]func(*testing.T, *Catalog){phone("A", act(1, true, -1)), phone("B", act(1, false, 0))}, false},
-		"a window's of tomorrow, then one now": {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 0))}, false},
-		// Looked at once it is of now, and locks the photo no longer.
-		"a window's of tomorrow, then two": {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 300)), phone("A", act(2, false, 0))}, false},
+		"a first heart":                           {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0))}, true},
+		"later than the window's":                 {[]func(*testing.T, *Catalog){window(true, 5000), phone("A", act(1, false, 100))}, false},
+		"before the window's":                     {[]func(*testing.T, *Catalog){window(true, 100), phone("A", act(1, false, 5000))}, true},
+		"the window's after the phone's":          {[]func(*testing.T, *Catalog){phone("A", act(1, true, 0)), window(false, 0)}, false},
+		"between two phones, the later":           {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100)), phone("B", act(1, false, 5000))}, true},
+		"no time over none":                       {[]func(*testing.T, *Catalog){phone("A", act(1, true, noTime))}, true},
+		"no time over a timed off":                {[]func(*testing.T, *Catalog){window(false, 5000), phone("A", act(1, true, noTime))}, false},
+		"no time and false over a heart":          {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, noTime))}, true},
+		"a time over a heart with none":           {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, 1<<50))}, false},
+		"a time before everything":                {[]func(*testing.T, *Catalog){window(true, noTime), phone("A", act(1, false, math.MaxInt64))}, false},
+		"no time said after a time":               {[]func(*testing.T, *Catalog){phone("A", act(2, false, 100)), phone("A", act(3, true, noTime))}, false},
+		"no time before a time, in one call":      {[]func(*testing.T, *Catalog){phone("A", act(2, true, 100), act(1, true, noTime))}, true},
+		"two of one call, in order":               {[]func(*testing.T, *Catalog){phone("A", act(1, true, 100), act(2, false, 100))}, false},
+		"said again after the window's":           {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), window(false, 50), phone("A", act(7, true, 0))}, false},
+		"a lower count of one install":            {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("A", act(6, false, 0))}, true},
+		"the same count of another install":       {[]func(*testing.T, *Catalog){phone("A", act(7, true, 100)), phone("B", act(7, false, 0))}, false},
+		"the greatest count there is":             {[]func(*testing.T, *Catalog){phone("A", act(math.MaxInt64, true, 100)), phone("B", act(1, false, 0))}, false},
+		"an action from the future is now's":      {[]func(*testing.T, *Catalog){phone("A", act(1, true, -1)), phone("B", act(1, false, 0))}, false},
+		"a window's of tomorrow, then one now":    {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 0))}, false},
+		"a window's of tomorrow, then one before": {[]func(*testing.T, *Catalog){window(true, -86400e3), phone("A", act(1, false, 300))}, false},
+		"a window's of tomorrow, then no time":    {[]func(*testing.T, *Catalog){window(false, -86400e3), phone("A", act(1, true, noTime))}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cat, _ := marking(t, 1)
@@ -149,6 +149,24 @@ func TestTheLastHeartWins(t *testing.T) {
 			heartIs(t, cat, "ron", c.want)
 		})
 	}
+}
+
+// A heart set here while a phone's older one waited its turn is believed.
+func TestAHeartSetWhileAPhoneWaited(t *testing.T) {
+	c, _ := marking(t, 1)
+	s, err := c.Shelf("ron")
+	if err != nil {
+		t.Fatal(err)
+	}
+	then := time.Now()
+	time.Sleep(5 * time.Millisecond)
+	if _, err := c.Mark(Favorite, []Key{{hashed(0), "ron"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Marks("ron", MarkQuestion{Shelf: s.ID, Install: "A", Marks: []MarkAction{act(1, false, 0)}}, then); err != nil {
+		t.Fatal(err)
+	}
+	heartIs(t, c, "ron", true)
 }
 
 // The window's action leaves the phone's count, and a phone's lost one is not

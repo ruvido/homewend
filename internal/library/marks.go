@@ -234,7 +234,7 @@ func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkActi
 				// Never 0, which is no time, and never later than now.
 				is.at = max(1, then.UnixMilli()-max(0, *m.Ago))
 			}
-			if err := hearts.give(k, was, is, then); err != nil {
+			if err := hearts.give(k, was, is); err != nil {
 				return err
 			}
 		}
@@ -305,27 +305,19 @@ func (m marker) of(k Key) (mark, error) {
 
 // give makes the photo k, marked was, marked is, when is is the last of the
 // two: by its time, the same time being the new one's; one with no time only
-// adds, to what has none. None is later than now. One of the same install that
-// is no newer was applied already.
-func (m marker) give(k Key, was, is mark, now time.Time) error {
+// adds, to what has none. One of the same install that is no newer was applied
+// already.
+func (m marker) give(k Key, was, is mark) error {
 	if is.install != "" && is.install == was.install && is.n <= was.n {
 		return nil
 	}
 	if is.at == 0 && (!is.value || was.value || was.at != 0) {
 		return nil
 	}
-	if is.at != 0 {
-		// The clock was ahead as that was set: it was set by now, and stays so.
-		// Otherwise nothing could be set until the clock is there again.
-		if was.at > now.UnixMilli() {
-			was.at = now.UnixMilli()
-			if err := m.signed(k, was); err != nil {
-				return err
-			}
-		}
-		if is.at < was.at {
-			return nil
-		}
+	// The clock was ahead as a later one was set: it is not believed. Now, not
+	// when the question came: one set here meanwhile is.
+	if is.at != 0 && is.at < was.at && was.at <= time.Now().UnixMilli() {
+		return nil
 	}
 	if is.install == "" {
 		is.install, is.n = was.install, was.n

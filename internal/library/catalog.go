@@ -1053,7 +1053,7 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			if err != nil {
 				return err
 			}
-			if err := hearts.give(into, was, its, time.Now()); err != nil {
+			if err := hearts.give(into, was, its); err != nil {
 				return err
 			}
 			queries := []string{
