@@ -34,7 +34,7 @@ const (
 )
 
 // features are the calls a phone may find, or not on an older computer.
-var features = []string{"marks"}
+var features = []string{"marks", "library"}
 
 // phoneListener is the second listener, on the local network, for the
 // phones' calls only: nothing of /api/ is reachable from it. Over TLS with
@@ -80,9 +80,14 @@ func listenPhones() (*phoneListener, error) {
 		}
 	}
 	l := &phoneListener{port: port, pin: pin,
-		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})}
+		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13,
+			NextProtos: []string{"h2", "http/1.1"}})}
 	// No ReadTimeout: a video takes minutes. An idle connection is closed.
-	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
+	// A phone gone from the network without a word is found out by its bytes
+	// not being taken. An upload is not held to HTTP/2's 1 MB on the way, a
+	// VPN's tenth of a second from here.
+	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute,
+		HTTP2: &http.HTTP2Config{WriteByteTimeout: stalled, MaxReceiveBufferPerConnection: 4 << 20, MaxReceiveBufferPerStream: 4 << 20}}
 	// shortcut: the addresses advertised are those at start; a new address
 	// is advertised after the app starts again, meanwhile /v1/hello tells it.
 	var ips []net.IP
@@ -168,6 +173,16 @@ func askedHashes(w http.ResponseWriter, r *http.Request) ([]string, bool) {
 		return nil, false
 	}
 	return in.Hashes, true
+}
+
+// askedHash is the hash a call names, and answers 400 when it is not one.
+func askedHash(w http.ResponseWriter, r *http.Request) (string, bool) {
+	hash := r.PathValue("hash")
+	if b, err := hex.DecodeString(hash); err != nil || len(b) != 32 || strings.ToLower(hash) != hash {
+		phoneError(w, http.StatusBadRequest, "the hash is SHA-256 in lowercase hex")
+		return "", false
+	}
+	return hash, true
 }
 
 func phoneRoutes(l *phoneListener) http.Handler {
@@ -259,9 +274,8 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		}))
 	}
 	mux.Handle("PUT /v1/photo/{hash}", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
-		hash := r.PathValue("hash")
-		if b, err := hex.DecodeString(hash); err != nil || len(b) != 32 || strings.ToLower(hash) != hash {
-			phoneError(w, http.StatusBadRequest, "the hash is SHA-256 in lowercase hex")
+		hash, ok := askedHash(w, r)
+		if !ok {
 			return
 		}
 		// A file's name, not a path: "..", "." or one with a slash is refused.
@@ -283,6 +297,7 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		}
 		phoneReply(w, got, err)
 	}))
+	libraryRoutes(mux)
 	return mux
 }
 
@@ -319,6 +334,13 @@ func phoneReply(w http.ResponseWriter, v any, err error) {
 		phoneError(w, http.StatusInsufficientStorage, err.Error())
 	case errors.Is(err, engine.ErrLibraryBusy):
 		phoneError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, engine.ErrNotHere):
+		phoneError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, engine.ErrFileGone):
+		phoneError(w, http.StatusGone, err.Error())
+	// The phone is gone, or Homewend quits.
+	case errors.Is(err, context.Canceled):
+		phoneError(w, http.StatusServiceUnavailable, err.Error())
 	case errors.Is(err, library.ErrNotMarks):
 		phoneError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, engine.ErrNoLibrary), errors.Is(err, engine.ErrEmptyLibrary), errors.Is(err, library.ErrNoMarks), errors.As(err, new(engine.LibraryGoneError)):

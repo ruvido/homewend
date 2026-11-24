@@ -211,12 +211,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 				reply(w, nil, err)
 				return
 			}
-			// The content's never changes: it is named by it. That of a file
-			// another program changed does.
-			w.Header().Set("Cache-Control", "private, no-cache")
-			if kept {
-				w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-			}
+			cacheFor(w, kept)
 			http.ServeFile(w, r, file)
 		})
 	}
@@ -401,6 +396,15 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, importing.State(), nil)
 	})
 	return mux
+}
+
+// cacheFor says how long an answer is good for. The content's never changes:
+// it is named by it. That of a file another program changed does.
+func cacheFor(w http.ResponseWriter, kept bool) {
+	w.Header().Set("Cache-Control", "private, no-cache")
+	if kept {
+		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	}
 }
 
 // photoOf is the photo a request is about: its hash, and whose library's.
