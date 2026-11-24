@@ -181,14 +181,11 @@ func TestAGridTurned(t *testing.T) {
 func TestNotAKnownGrid(t *testing.T) {
 	nclx := aBox("colr", []byte("nclx\x00\x01\x00\x0d\x00\x01\x80")...)
 	for name, change := range map[string]func(*aGrid){
-		"a crop":           func(a *aGrid) { a.ofPhoto = aBox("clap", make([]byte, 32)...) },
-		"a mirror":         func(a *aGrid) { a.ofPhoto = aBox("imir", 0) },
-		"its colours said": func(a *aGrid) { a.ofPhoto = nclx },
-		"a tile unlike":    func(a *aGrid) { a.ofTile = nclx },
-		"transparency": func(a *aGrid) {
-			a.after = nil
-			a.ofPhoto = aBox("auxC", []byte("\x00\x00\x00\x00urn:mpeg:hevc:2015:auxid:1\x00")...)
-		},
+		"a crop":              func(a *aGrid) { a.ofPhoto = aBox("clap", make([]byte, 32)...) },
+		"a mirror":            func(a *aGrid) { a.ofPhoto = aBox("imir", 0) },
+		"its colours said":    func(a *aGrid) { a.ofPhoto = nclx },
+		"a tile unlike":       func(a *aGrid) { a.ofTile = nclx },
+		"transparency":        func(a *aGrid) { a.ofPhoto = aBox("auxC", []byte("\x00\x00\x00\x00urn:mpeg:hevc:2015:auxid:1\x00")...) },
 		"an overlay":          func(a *aGrid) { a.kind = "iovl" },
 		"a sequence":          func(a *aGrid) { a.after = aBox("moov") },
 		"fewer tiles":         func(a *aGrid) { a.columns = 4 },
