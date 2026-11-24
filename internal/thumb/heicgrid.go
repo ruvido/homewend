@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gen2brain/heic"
 )
@@ -40,7 +41,8 @@ type tile struct {
 }
 
 // maxGridPixels and maxTiles are more than a phone's 48 megapixels and their
-// 192 tiles: no file, whatever it says, has more memory or time taken here.
+// 192 tiles: the most the photo put together here takes. What the decoder
+// takes for a tile is the tile's to say, and one is tried alone first.
 const (
 	maxGridPixels = 1 << 26
 	maxTiles      = 512
@@ -72,11 +74,38 @@ func gridHEIC(ctx context.Context, src string, size int) image.Image {
 	if g == nil {
 		return nil
 	}
-	img, err := g.byFFmpeg(ctx)
+	stream, err := g.annexB()
 	if err != nil {
-		if img, err = g.byDecoder(ctx); err != nil {
-			return nil
+		return nil
+	}
+	// What a tile really is, its colours and its size, only its own header
+	// says: the one with the most in it is decoded alone, so a size the file
+	// lies about is never met on every core, and ffmpeg's must be the same.
+	most := 0
+	for i, t := range g.tiles {
+		if len(t.data) > len(g.tiles[most].data) {
+			most = i
 		}
+	}
+	var video *image.YCbCr
+	var videoErr error
+	var wg sync.WaitGroup
+	trying, cancel := context.WithCancel(ctx)
+	defer cancel()
+	wg.Go(func() { video, videoErr = g.byFFmpeg(trying, stream) })
+	sample, err := g.decodeTile(bytes.Clone(g.data), most)
+	if err != nil {
+		cancel()
+	}
+	wg.Wait()
+	if err != nil {
+		return nil
+	}
+	var img image.Image
+	if videoErr == nil && alike(video.SubImage(g.place(most)), sample) {
+		img = video.SubImage(g.bounds())
+	} else if img, err = g.byDecoder(ctx); err != nil {
+		return nil
 	}
 	return upright(fit(img, size), g.orientation)
 }
@@ -378,39 +407,19 @@ func (g *grid) decodeTile(data []byte, i int) (img image.Image, err error) {
 	return img, nil
 }
 
-// byFFmpeg is the photo, its tiles decoded as the frames of a video. Colours
-// are said in a tile's own header, which only ffmpeg reads here: the tile with
-// the most in it is decoded by the decoder too, and must be the same.
-func (g *grid) byFFmpeg(ctx context.Context) (image.Image, error) {
+// byFFmpeg is the photo, not yet cut to its size, its tiles decoded as the
+// frames of the video stream.
+func (g *grid) byFFmpeg(ctx context.Context, stream []byte) (*image.YCbCr, error) {
 	ffmpeg, err := exec.LookPath("ffmpeg")
-	if err != nil {
-		return nil, err
-	}
-	stream, err := g.annexB()
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	most := 0
-	for i, t := range g.tiles {
-		if len(t.data) > len(g.tiles[most].data) {
-			most = i
-		}
-	}
-	var same image.Image
-	var sameErr error
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		if same, sameErr = g.decodeTile(bytes.Clone(g.data), most); sameErr != nil {
-			cancel()
-		}
-	})
-	defer wg.Wait()
-
 	// y4m says its frames' size and kind of pixel.
 	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "error", "-xerror", "-err_detect", "explode",
-		"-f", "hevc", "-i", "pipe:0", "-fps_mode", "passthrough", "-f", "yuv4mpegpipe", "pipe:1")
+		"-f", "hevc", "-i", "pipe:0", "-f", "yuv4mpegpipe", "pipe:1")
+	cmd.WaitDelay = time.Second
 	cmd.Stdin = bytes.NewReader(stream)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
@@ -428,17 +437,11 @@ func (g *grid) byFFmpeg(ctx context.Context) (image.Image, error) {
 	if err := cmd.Wait(); err != nil {
 		return nil, fmt.Errorf("ffmpeg: %w", err)
 	}
-	wg.Wait()
-	if sameErr != nil {
-		return nil, sameErr
-	}
-	if !alike(img.SubImage(g.place(most)), same) {
-		return nil, fmt.Errorf("ffmpeg: other colours")
-	}
-	return img.SubImage(g.bounds()), nil
+	return img, nil
 }
 
-// annexB is the tiles as a video's stream, each NAL unit after a start code.
+// annexB is the tiles as a video's stream, each NAL unit after a start code;
+// none may bring parameters of its own.
 func (g *grid) annexB() ([]byte, error) {
 	var out []byte
 	add := func(nal []byte) { out = append(append(out, 0, 0, 0, 1), nal...) }
@@ -449,8 +452,11 @@ func (g *grid) annexB() ([]byte, error) {
 		r := reader{b: t.data}
 		for len(r.b) > 0 {
 			nal := r.next(r.u(g.lengthSize))
-			if r.bad {
+			if r.bad || len(nal) == 0 {
 				return nil, fmt.Errorf("tile %d: cut short", i)
+			}
+			if kind := nal[0] >> 1 & 63; kind >= 32 && kind <= 34 { // VPS, SPS, PPS
+				return nil, fmt.Errorf("tile %d: parameters", i)
 			}
 			add(nal)
 		}

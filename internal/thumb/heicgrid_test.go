@@ -144,11 +144,15 @@ func TestAGridIsItsWhole(t *testing.T) {
 		if _, err := exec.LookPath("ffmpeg"); err != nil {
 			t.Skip("no ffmpeg")
 		}
-		img, err := g.byFFmpeg(t.Context())
+		stream, err := g.annexB()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !alike(upright(img, g.orientation), want) {
+		img, err := g.byFFmpeg(t.Context(), stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !alike(upright(img.SubImage(g.bounds()), g.orientation), want) {
 			t.Error("ffmpeg's tiles are not the whole")
 		}
 	})
@@ -230,6 +234,23 @@ func TestAGridDamaged(t *testing.T) {
 		img := gridHEIC(t.Context(), path, PreviewSize)
 		if img != nil && (err != nil || !alike(img, whole)) {
 			t.Error(name, err)
+		}
+	}
+	// Tiles of another size than the file says, or with parameters of their own.
+	a := defaults()
+	a.width, a.height = 75, 50
+	lies := bytes.Replace(a.file(), aBox("ispe", 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 64), aBox("ispe", 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 32), 1)
+	if gridOf(lies) == nil {
+		t.Error("a lie only a tile's header tells")
+	}
+	a = defaults()
+	a.wreck = func(b []byte) { b[4] = 33 << 1 }
+	for _, data := range [][]byte{lies, a.file()} {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if gridHEIC(t.Context(), path, PreviewSize) != nil {
+			t.Error("tiles that are not what they are said to be")
 		}
 	}
 	if err := os.WriteFile(path, defaults().file(), 0o600); err != nil {
