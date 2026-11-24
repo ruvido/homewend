@@ -147,3 +147,86 @@ func TestTheCamerasThumbnail(t *testing.T) {
 		}
 	}
 }
+
+// withStream is a JPEG of w by h in one grey with a FlashPix thumbnail, in
+// two pieces, of 320 by 240: white, between bars of bar where it is wider
+// than the photo's shape. With no thumbnail, none.
+func withStream(t *testing.T, w, h int, bar color.Color, some bool) string {
+	t.Helper()
+	encode := func(img image.Image) []byte {
+		var b bytes.Buffer
+		if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 95}); err != nil {
+			t.Fatal(err)
+		}
+		return b.Bytes()
+	}
+	big := image.NewGray(image.Rect(0, 0, w, h))
+	draw.Draw(big, big.Bounds(), image.NewUniform(color.Gray{100}), image.Point{}, draw.Src)
+	whole := encode(big)
+	file := []byte{0xff, 0xd8}
+	if some {
+		img := image.NewRGBA(image.Rect(0, 0, 320, 240))
+		draw.Draw(img, img.Bounds(), image.NewUniform(bar), image.Point{}, draw.Src)
+		high := 320 * h / w
+		top := (240 - high + 1) / 2
+		draw.Draw(img, image.Rect(0, top, 320, top+high), image.NewUniform(color.White), image.Point{}, draw.Src)
+		stream := append(make([]byte, 47), encode(img)...)
+		for at := 0; at < len(stream); at += 900 {
+			piece := append([]byte("FPXR\x00\x00\x02\x00\x02\x00\x00\x00\x00"), stream[at:min(at+900, len(stream))]...)
+			file = append(file, 0xff, 0xe2)
+			file = binary.BigEndian.AppendUint16(file, uint16(len(piece)+2))
+			file = append(file, piece...)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "a.jpg")
+	if err := os.WriteFile(path, append(file, whole[2:]...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// A camera's thumbnail has black bars where it is not of the photo's shape:
+// they are cut, to the last line. With none, or with something else than
+// bars, the photo is read whole.
+func TestNoBarsInAThumbnail(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		w, h int
+		bar  color.Color
+		some bool
+		used bool
+	}{
+		{"3:2 between black bars", 1500, 1000, color.Black, true, true},
+		{"16:9 between black bars", 1600, 900, color.Black, true, true},
+		{"not black: a picture of another shape", 1500, 1000, color.Gray{90}, true, false},
+		{"no thumbnail", 1500, 1000, nil, false, false},
+	} {
+		dst := filepath.Join(t.TempDir(), "out.jpg")
+		if err := Make(context.Background(), withStream(t, c.w, c.h, c.bar, c.some), dst, Size); err != nil {
+			t.Fatal(c.name, err)
+		}
+		f, err := os.Open(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		img, err := jpeg.Decode(f)
+		f.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := img.Bounds()
+		least, most := 100, 100
+		if c.used {
+			least, most = 240, 255
+		}
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			g := int(color.GrayModel.Convert(img.At(b.Dx()/2, y)).(color.Gray).Y)
+			if g < least-3 || g > most+3 {
+				t.Errorf("%s: line %d is %d", c.name, y, g)
+			}
+		}
+		if shape, want := float64(b.Dx())/float64(b.Dy()), float64(c.w)/float64(c.h); shape < want*0.97 || shape > want*1.03 {
+			t.Errorf("%s: shape %.2f, want %.2f", c.name, shape, want)
+		}
+	}
+}

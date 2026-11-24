@@ -4,6 +4,7 @@
 package library
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/binary"
 	"io"
@@ -443,10 +444,69 @@ func exifHead(path string) (head []byte, tiff int, order binary.ByteOrder, ok bo
 	return head, tiff, order, ok && tiff+8 <= len(head)
 }
 
-// EmbeddedThumbnail is the small JPEG a camera writes in a photo's EXIF, or
-// nil: in IFD1, where tags 0x0201 and 0x0202 say where it begins and how
-// long it is (the EXIF standard, JPEGInterchangeFormat).
-func EmbeddedThumbnail(path string) []byte {
+// EmbeddedThumbnails are the small JPEGs a camera writes in the photo at
+// path, beside the photo itself: in the EXIF, and in a FlashPix stream.
+func EmbeddedThumbnails(path string) [][]byte {
+	var found [][]byte
+	for _, data := range [][]byte{exifThumbnail(path), flashPixThumbnail(path)} {
+		if data != nil {
+			found = append(found, data)
+		}
+	}
+	return found
+}
+
+// flashPixThumbnail is the JPEG in a FlashPix stream of a photo's APP2
+// segments (the EXIF standard, "FPXR"): after the name and a version byte,
+// 2 says a piece of a stream, then its number, its offset and the piece.
+// A Fuji's is 320 by 240, where its EXIF's is 160 by 120.
+func flashPixThumbnail(path string) []byte {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	in := bufio.NewReader(file)
+	var b [4]byte
+	if _, err := io.ReadFull(in, b[:2]); err != nil || b[0] != 0xff || b[1] != 0xd8 {
+		return nil
+	}
+	streams := map[uint16][]byte{}
+	var first []byte
+	for {
+		if _, err := io.ReadFull(in, b[:]); err != nil || b[0] != 0xff || b[1] < 0xe0 || b[1] > 0xef {
+			break // past the APP segments
+		}
+		size := int(binary.BigEndian.Uint16(b[2:])) - 2
+		if size < 0 {
+			break
+		}
+		if b[1] != 0xe2 {
+			if _, err := in.Discard(size); err != nil {
+				break
+			}
+			continue
+		}
+		data := make([]byte, size)
+		if _, err := io.ReadFull(in, data); err != nil {
+			break
+		}
+		if len(data) > 13 && string(data[:5]) == "FPXR\x00" && data[6] == 2 {
+			n := binary.BigEndian.Uint16(data[7:])
+			streams[n] = append(streams[n], data[13:]...)
+		}
+	}
+	for _, data := range streams {
+		if at := bytes.Index(data, []byte{0xff, 0xd8, 0xff}); at >= 0 && len(data)-at > len(first) {
+			first = data[at:]
+		}
+	}
+	return first
+}
+
+// exifThumbnail is the JPEG in IFD1, where tags 0x0201 and 0x0202 say where
+// it begins and how long it is (the EXIF standard, JPEGInterchangeFormat).
+func exifThumbnail(path string) []byte {
 	head, tiff, order, ok := exifHead(path)
 	if !ok {
 		return nil

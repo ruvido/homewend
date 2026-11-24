@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
@@ -132,33 +133,75 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 // embedded is the thumbnail the camera wrote in the JPEG f, when it is as
 // large as asked and of the photo's shape: a photo cropped or turned since by
 // a program that left it behind is another. It is read in 5 ms where decoding
-// 12 MP takes 350; the 453 large enough in a real library were all the photo.
+// 12 MP takes 350 and 26 MP a second; the 491 large enough in a real library
+// were all the photo.
 // shortcut: an edit that kept the shape and left the old thumbnail shows the
 // photo as it was, in the grid only; decode the photo if one is ever met.
 func embedded(f io.ReadSeeker, src string, size int) image.Image {
 	if size > Size {
 		return nil
 	}
-	data := library.EmbeddedThumbnail(src)
-	b, err := jpeg.DecodeConfig(bytes.NewReader(data))
-	// As large as asked, and no larger than a camera makes one.
-	if long := max(b.Width, b.Height); err != nil || long < size || long > 4*Size {
-		return nil
-	}
 	whole, err := jpeg.DecodeConfig(f)
 	if _, back := f.Seek(0, io.SeekStart); err != nil || back != nil {
 		return nil
 	}
-	// Within two of its own pixels: cameras round.
-	if off := b.Width*whole.Height - b.Height*whole.Width; max(off, -off) > 2*max(whole.Width, whole.Height) {
-		return nil
+	for _, data := range library.EmbeddedThumbnails(src) {
+		b, err := jpeg.DecodeConfig(bytes.NewReader(data))
+		// As large as asked, and no larger than a camera makes one.
+		if long := max(b.Width, b.Height); err != nil || long < size || long > 4*Size {
+			continue
+		}
+		img, err := jpeg.Decode(bytes.NewReader(data))
+		if err != nil {
+			continue
+		}
+		if img = ofShape(img, whole.Width, whole.Height); img != nil && max(img.Bounds().Dx(), img.Bounds().Dy()) >= size {
+			return img
+		}
 	}
-	small, err := jpeg.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil
-	}
-	return small
+	return nil
 }
+
+// ofShape is img when it has the shape of w by h, or the part of it that has
+// between two black bars, as cameras fill a 4:3 thumbnail; else nil.
+func ofShape(img image.Image, w, h int) image.Image {
+	b := img.Bounds()
+	// Within two of its own pixels: cameras round.
+	if off := b.Dx()*h - b.Dy()*w; max(off, -off) <= 2*max(w, h) {
+		return img
+	}
+	in := b
+	if height := b.Dx() * h / w; height < b.Dy() {
+		in.Min.Y += (b.Dy() - height + 1) / 2
+		in.Max.Y = in.Min.Y + height
+	} else {
+		width := b.Dy() * w / h
+		in.Min.X += (b.Dx() - width + 1) / 2
+		in.Max.X = in.Min.X + width
+	}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			// A pixel either side of the edge is of both.
+			if (image.Point{X: x, Y: y}).In(in.Inset(-1)) {
+				continue
+			}
+			if g := color.GrayModel.Convert(img.At(x, y)).(color.Gray); g.Y > black {
+				return nil
+			}
+		}
+	}
+	cut, ok := img.(interface {
+		SubImage(image.Rectangle) image.Image
+	})
+	if !ok {
+		return nil
+	}
+	return cut.SubImage(in.Inset(1))
+}
+
+// black is the brightest a black bar is, JPEG's noise included: 22 the
+// brightest of 38 measured.
+const black = 32
 
 // frame is a video's first frame, already at size, from ffmpeg.
 func frame(ctx context.Context, src string, size int) (image.Image, error) {
