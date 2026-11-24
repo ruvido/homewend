@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	sqlite3 "modernc.org/sqlite/lib"
 )
 
 // The catalog's user_version, as it grew.
@@ -25,10 +27,15 @@ const (
 	clocksSince = 1
 	// Each photo is of a library. Before, one row was everyone's.
 	librariesSince = 2
+	// Marks are kept. 3 is a catalog without them whose links were found.
+	marksSince = 4
 	// The names older programs gave a photo in a second profile's folder, and
 	// not in the catalog, were looked for (FindLinks).
-	linksSince = 3
+	linksSince = 5
 )
+
+// linksBeforeMarks is linksSince as a program from before marks writes it.
+const linksBeforeMarks = 3
 
 // beforeLibraries ends the name of the copy kept of an older catalog.
 const beforeLibraries = ".before-libraries"
@@ -95,7 +102,7 @@ DROP TABLE old_photos;
 var upgrading sync.Mutex
 
 // upgrade makes the catalog at path, or brings an older one up to date, once:
-// a copy of it as it was is kept beside it first. An opening that has
+// a copy of one from before libraries is kept beside it first. An opening that has
 // nothing to do reads one number.
 //
 // It is done under the write lock, taken at the start, and the version read
@@ -104,7 +111,7 @@ var upgrading sync.Mutex
 // macOS, waits for the first even to read (catalogDSN), and it for the second.
 func upgrade(db *sql.DB, path string) error {
 	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= marksSince {
 		return err
 	}
 	upgrading.Lock()
@@ -112,7 +119,11 @@ func upgrade(db *sql.DB, path string) error {
 	db.SetMaxOpenConns(1)
 	defer db.SetMaxOpenConns(0)
 	for try := 1; ; try++ {
-		if again, err := upgradeOnce(db, path, try >= upgradeTries); err != nil || !again {
+		again, err := upgradeOnce(db, path, try >= upgradeTries)
+		if err != nil && version >= librariesSince && slices.Contains([]int{sqlite3.SQLITE_READONLY, sqlite3.SQLITE_CANTOPEN, sqlite3.SQLITE_FULL}, sqliteCode(err)) {
+			return nil // where nothing can be written, it is shown without marks
+		}
+		if err != nil || !again {
 			return err
 		}
 	}
@@ -149,7 +160,7 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= marksSince {
 		return false, err
 	}
 	if err := tx.QueryRow(changed).Scan(&now); err != nil || now != before && !anyway {
@@ -174,12 +185,25 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	steps, since := schema, linksSince
-	if older {
+	steps, since := schema+marksSchema, linksSince
+	switch {
+	case older:
 		if err := complete(tx, version); err != nil {
 			return false, err
 		}
-		steps, since = setAside+schema+intoLibraries, librariesSince
+		steps, since = setAside+schema+intoLibraries+marksSchema, marksSince
+	case version >= librariesSince:
+		if steps = marksSchema; version < linksBeforeMarks {
+			since = marksSince
+		}
+		// A program from before them, finding links, has the version go back.
+		var there bool
+		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'catalog_id')`).Scan(&there); err != nil {
+			return false, err
+		}
+		if there {
+			steps = ""
+		}
 	}
 	if _, err := tx.Exec(steps); err != nil {
 		return false, err
@@ -400,7 +424,7 @@ func FindLinks(root, catalog string, profiles []string, profileOf func(source st
 	done := false
 	err := with(catalog, func(c *Catalog) error {
 		var version int
-		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= linksSince {
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= linksSince || version == linksBeforeMarks {
 			done = true
 			return err
 		}
@@ -477,7 +501,15 @@ func addLinks(tx *sql.Tx, links []link, profileOf func(source string) string) er
 		WHERE m.album = o.album AND p.profile = o.profile AND w.account = o.account)`); err != nil {
 		return err
 	}
-	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, linksSince))
+	var version int
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	since := linksSince
+	if version < marksSince {
+		since = linksBeforeMarks
+	}
+	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, since))
 	return err
 }
 

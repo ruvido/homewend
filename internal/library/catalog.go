@@ -225,11 +225,19 @@ func patient(do func() error) error {
 	until := time.Now().Add(upgradeWait)
 	for {
 		err := do()
-		var e *sqlite.Error
-		if err == nil || !errors.As(err, &e) || e.Code()&0xff != sqlite3.SQLITE_BUSY || time.Now().After(until) {
+		if sqliteCode(err) != sqlite3.SQLITE_BUSY || time.Now().After(until) {
 			return err
 		}
 	}
+}
+
+// sqliteCode is the primary code of SQLite's error, 0 when err is none.
+func sqliteCode(err error) int {
+	var e *sqlite.Error
+	if !errors.As(err, &e) {
+		return 0
+	}
+	return e.Code() & 0xff
 }
 
 // openCatalog opens the index at path with options, out of WAL mode if it was
@@ -330,8 +338,8 @@ func offsets(first, last int64, zone *time.Location) string {
 // older version left in WAL mode leaves it: hence mode=rw, which reads alone
 // where nothing can be written. There a catalog in WAL mode is read as it
 // lies, if its -wal holds nothing; what cannot be read whole is refused. One
-// an older version made is first brought up to date, and refused where it
-// cannot be.
+// an older version made is first brought up to date, and where it cannot be
+// refused, or read without what it lacks when it has libraries.
 func OpenCatalogReadOnly(path string) (*Catalog, error) {
 	db, err := openCatalog(path, "mode=rw&"+waiting+"&_pragma=query_only(1)")
 	if err != nil {
@@ -346,14 +354,18 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 			err = db.QueryRow(`PRAGMA user_version`).Scan(&version)
 		}
 	}
-	if err == nil && version < librariesSince {
-		db.Close()
+	if err == nil && version < marksSince {
 		c, err := OpenCatalog(path)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			c.Close()
 		}
-		c.Close()
-		return OpenCatalogReadOnly(path)
+		if version < librariesSince {
+			db.Close()
+			if err != nil {
+				return nil, err
+			}
+			return OpenCatalogReadOnly(path)
+		}
 	}
 	if err != nil {
 		db.Close()
@@ -780,16 +792,27 @@ const (
 func (c *Catalog) Mark(state State, photos []Key, on bool) ([]Key, error) {
 	done := []Key{}
 	err := c.inTx(func(tx *sql.Tx) error {
+		find, err := tx.Prepare(`SELECT id FROM library_photos WHERE hash = ? AND profile = ? AND out = 0`)
+		if err != nil {
+			return err
+		}
+		set, err := tx.Prepare(setting(state))
+		if err != nil {
+			return err
+		}
 		for _, k := range photos {
-			res, err := tx.Exec(`UPDATE library_photos SET `+string(state)+` = ? WHERE hash = ? AND profile = ? AND out = 0`, on, k.Hash, k.Profile)
+			var id int64
+			err := find.QueryRow(k.Hash, k.Profile).Scan(&id)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err == nil {
+				_, err = set.Exec(on, id)
+			}
 			if err != nil {
 				return err
 			}
-			if n, err := res.RowsAffected(); err != nil {
-				return err
-			} else if n > 0 {
-				done = append(done, k)
-			}
+			done = append(done, k)
 		}
 		return nil
 	})
@@ -1003,19 +1026,34 @@ func (c *Catalog) setPath(k Key, path, name string) error {
 
 // refile records that the photo k, of no library, is of profile's, at path.
 // One that library has already is that photo: it takes what k has that it has
-// not, its heart, archive, turn, albums and sources, is out of the Trash when
-// either is, and is where it was, or at path when its file is gone.
+// not, its archive, turn, albums and sources, its heart when it was the last set, is out of the Trash when either is, and is where it was, or at path when its file is gone.
 func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 	return c.inTx(func(tx *sql.Tx) error {
+		into := Key{k.Hash, profile}
+		hearts, err := markIn(tx, Favorite)
+		if err != nil {
+			return err
+		}
+		its, err := hearts.of(k)
+		if err != nil {
+			return err
+		}
 		var id int64
-		err := tx.QueryRow(`UPDATE OR IGNORE library_photos SET profile = ?, path = ?, name = ? WHERE hash = ? AND profile = ? RETURNING id`,
+		err = tx.QueryRow(`UPDATE OR IGNORE library_photos SET profile = ?, path = ?, name = ? WHERE hash = ? AND profile = ? RETURNING id`,
 			profile, path, filepath.Base(path), k.Hash, k.Profile).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
-			err = tx.QueryRow(`UPDATE library_photos AS t SET favorite = max(t.favorite, f.favorite), archived = max(t.archived, f.archived),
+			err = tx.QueryRow(`UPDATE library_photos AS t SET archived = max(t.archived, f.archived),
 				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END, trashed = CASE f.out WHEN 1 THEN t.trashed ELSE min(t.trashed, f.trashed) END
 				FROM library_photos AS f WHERE t.hash = ? AND t.profile = ? AND f.hash = t.hash AND f.profile = ? RETURNING id`,
 				k.Hash, profile, k.Profile).Scan(&id)
 			if err != nil {
+				return err
+			}
+			was, err := hearts.of(into)
+			if err != nil {
+				return err
+			}
+			if err := hearts.give(into, was, its, time.Now()); err != nil {
 				return err
 			}
 			queries := []string{
@@ -1037,6 +1075,13 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			}
 		} else if err != nil {
 			return err
+		} else if its.value || its.at != 0 {
+			if err := hearts.put(into, its); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM marks WHERE profile = ? AND hash = ?`, k.Profile, k.Hash); err != nil {
+				return err
+			}
 		}
 		return ownAlbums(tx, id, k.Profile)
 	})
