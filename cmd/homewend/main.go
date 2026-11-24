@@ -513,8 +513,8 @@ func takeoutCommand(args []string) int {
 	if *profileFlag != "" {
 		profile = *profileFlag
 		// Said before Google is asked anything, not after its questions.
-		if !engine.ValidProfile(profile) {
-			return newPrinter(*asJSON).fail(engine.ErrBadProfile)
+		if err := engine.CheckProfile(profile); err != nil {
+			return newPrinter(*asJSON).fail(err)
 		}
 	}
 	dir, code := libraryFor(ctx, *libraryDir, *asJSON, fmt.Sprintf(text["no library hint"], typed()))
@@ -1381,6 +1381,8 @@ func explain(err error) (code int, said string, causes, hints []string) {
 		return exitError, text["library busy"], nil, []string{fmt.Sprintf(text["library busy hint"], again)}
 	case errors.Is(err, engine.ErrBadProfile):
 		return exitError, text["bad profile"], nil, nil
+	case errors.Is(err, engine.ErrProfileCase):
+		return exitError, text["profile case"], nil, nil
 	case errors.Is(err, library.ErrNoLink):
 		return exitError, text["no link"], nil, []string{text["no link hint"]}
 	case errors.As(err, &folderGone):

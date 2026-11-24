@@ -174,7 +174,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		}
 		// Brought back, it is filed as new. The arrivals were emptied, so it
 		// is no move left halfway either.
-		arrival := Item{Capture: Capture{Source: NoDate, Origin: OriginOf("", filepath.Base(item.Path))}, Again: held.Deleted}
+		arrival := Item{Capture: Capture{Source: NoDate, Origin: OriginOf("", filepath.Base(item.Path))}, Again: held.Deleted, Arrival: true}
 		if dated {
 			arrival.Capture.When, arrival.Capture.Source = when, FromGiven
 		}

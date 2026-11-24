@@ -137,8 +137,8 @@ func UpdatePhones(change func(*Phones) error) (Phones, error) {
 
 // StartPairing makes the code a phone sends to pair, for profile.
 func StartPairing(profile string) (string, error) {
-	if !ValidProfile(profile) {
-		return "", ErrBadProfile
+	if err := CheckProfile(profile); err != nil {
+		return "", err
 	}
 	pairing.Lock()
 	defer pairing.Unlock()

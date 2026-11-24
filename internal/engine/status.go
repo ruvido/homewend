@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -163,19 +162,11 @@ func findLinks(root string, accounts []AccountInfo, s Settings) {
 }
 
 func findLinksNow(root string, accounts []AccountInfo, s Settings) error {
-	profiles, _ := ProfileNames(accounts, s)
-	phones, err := LoadPhones()
+	profiles, err := knownProfiles(accounts, s)
 	if err != nil {
 		return err
 	}
-	for _, p := range phones.Phones {
-		profiles = append(profiles, p.Profile)
-	}
-	for _, p := range phones.Unpaired {
-		profiles = append(profiles, p.Profile)
-	}
-	slices.Sort(profiles)
-	return library.FindLinks(root, catalogPath(root), slices.Compact(profiles), s.ProfileFor, func() (func(), error) {
+	return library.FindLinks(root, catalogPath(root), profiles, s.ProfileFor, func() (func(), error) {
 		return waitLibrary(context.Background(), root, nil)
 	})
 }
@@ -187,11 +178,29 @@ func yieldingTurn(root string) (unlock func(), err error) {
 	return waitLibrary(context.Background(), root, nil)
 }
 
-// settle moves a library filed before profiles into them, once: the photos
+// settled are the libraries settle was done for in this run, and the profile
+// the photos of nobody went to.
+var settled struct {
+	sync.Mutex
+	roots map[string]string
+}
+
+// settle moves a library filed before profiles into them, once a run, as
+// nothing is filed so since: the photos
 // of each source to its account's profile, those of no source to the first
-// account's.
+// account's. While another run places photos it waits for the next time.
 func settle(root string) error {
-	if root == "" || !library.Filed(root) {
+	if root == "" {
+		return nil
+	}
+	if _, err := os.Stat(catalogPath(root)); err != nil {
+		return nil
+	}
+	settled.Lock()
+	defer settled.Unlock()
+	// Done with nobody to file them under, it is done again for the first
+	// account.
+	if fallback, done := settled.roots[root]; done && fallback != "" {
 		return nil
 	}
 	accounts, err := Accounts()
@@ -209,13 +218,39 @@ func settle(root string) error {
 			break
 		}
 	}
-	if fallback == "" {
-		return nil // nobody to file them under yet
+	if _, done := settled.roots[root]; done && fallback == "" {
+		return nil
 	}
+	known, err := knownProfiles(accounts, s)
+	if err != nil {
+		return err
+	}
+	unlock, err := lockLibrary(root)
+	if errors.Is(err, ErrLibraryBusy) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	catalog, err := library.OpenCatalog(catalogPath(root))
 	if err != nil {
 		return err
 	}
 	defer catalog.Close()
-	return library.Relayout(root, catalog, s.ProfileFor, fallback, nil)
+	// A card's name is nobody's profile.
+	profileOf := func(source string) string {
+		if strings.HasPrefix(source, library.LocalSource) {
+			return ""
+		}
+		return s.ProfileFor(source)
+	}
+	if err := library.Relayout(root, catalog, known, profileOf, fallback, nil); err != nil {
+		return err
+	}
+	if settled.roots == nil {
+		settled.roots = map[string]string{}
+	}
+	settled.roots[root] = fallback
+	return nil
 }

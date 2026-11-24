@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -317,4 +318,64 @@ func mustHash(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return h
+}
+
+// A file that could not be placed leaves no record: one would read as a photo
+// deleted, and its phone's copy would never be taken again.
+func TestAPhotoNotPlacedIsNotRecorded(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("a mode takes no one's writing away")
+	}
+	card, root := cameraCard(t), t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "ron"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := OpenCatalog(filepath.Join(root, "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer catalog.Close()
+	folder, err := ReadFolder(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func() (Imported, error) {
+		return Import(t.Context(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Fits: func(int64) error { return nil }}, nil)
+	}
+	if err := os.Chmod(filepath.Join(root, "ron"), 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(filepath.Join(root, "ron"), 0o755) })
+	if _, err := run(); err == nil {
+		t.Fatal("placed where nothing can be")
+	}
+	if all, _ := catalog.photos(``); len(all) != 0 {
+		t.Errorf("recorded: %+v", all)
+	}
+	os.Chmod(filepath.Join(root, "ron"), 0o755)
+	if done, err := run(); err != nil || done.Placed != 3 || done.Deleted != 0 {
+		t.Errorf("%+v %v, want the three placed", done, err)
+	}
+}
+
+// A run killed after a photo has its name in the library and before its
+// record: the next records it there, once.
+func TestAPhotoPlacedAndNotRecordedIsRecorded(t *testing.T) {
+	src, root := t.TempDir(), t.TempDir()
+	write(t, src, "Photos from 2019/IMG_1.jpg", []byte("the photo"))
+	sidecar(t, src, "Photos from 2019/IMG_1.jpg", 1562345678)
+	home := filepath.Join(root, "2019", "07", "IMG_1.jpg")
+	if err := os.MkdirAll(filepath.Dir(home), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(src, "Photos from 2019/IMG_1.jpg"), home); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := organize(t, src, root); err != nil || got.Placed != 1 {
+		t.Fatalf("%+v %v", got, err)
+	}
+	mustExist(t, home)
+	if exists(filepath.Join(root, "2019", "07", "IMG_1-2.jpg")) {
+		t.Error("filed twice")
+	}
 }

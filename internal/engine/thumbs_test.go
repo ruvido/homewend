@@ -41,7 +41,11 @@ func TestThumbnailsAreMadeForTheLibrary(t *testing.T) {
 	f.Close()
 	os.WriteFile(filepath.Join(root, "bad.jpg"), []byte("no picture"), 0o644)
 	for _, n := range []string{"good.png", "bad.jpg"} {
-		c.Put(library.Photo{Hash: "hash-" + n, Path: n, Name: n})
+		info, err := os.Stat(filepath.Join(root, n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Put(library.Photo{Hash: "hash-" + n, Path: n, Name: n, Bytes: info.Size()})
 	}
 	c.Close()
 

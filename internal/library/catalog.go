@@ -387,9 +387,19 @@ func (c *Catalog) PathOf(k Key) (string, bool, error) {
 	return path, true, nil
 }
 
-// Paths are where the content of hash lives, one for each library that has it.
-func (c *Catalog) Paths(hash string) ([]string, error) {
-	return texts(c.db.Query(`SELECT path FROM library_photos WHERE hash = ?`, hash))
+// Copies are the photos with the content of hash, one for each library that
+// has it.
+func (c *Catalog) Copies(hash string) ([]Photo, error) {
+	return c.photos(`WHERE hash = ?`, hash)
+}
+
+// photos are the rows a WHERE keeps, those in the Trash or kept out too.
+func (c *Catalog) photos(where string, args ...any) ([]Photo, error) {
+	rows, err := c.db.Query(`SELECT `+photoColumns+` FROM library_photos `+where, args...)
+	if err != nil {
+		return nil, fmt.Errorf("reading the catalog: %w", err)
+	}
+	return scanPhotos(rows)
 }
 
 // texts are the rows of a query of one text column, none being an empty list.
@@ -616,11 +626,7 @@ func (f Filter) where(query string) (string, []any) {
 
 // Photo is the record of one photo.
 func (c *Catalog) Photo(k Key) (Photo, error) {
-	rows, err := c.db.Query(`SELECT `+photoColumns+` FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile)
-	if err != nil {
-		return Photo{}, fmt.Errorf("reading the catalog: %w", err)
-	}
-	photos, err := scanPhotos(rows)
+	photos, err := c.photos(`WHERE hash = ? AND profile = ?`, k.Hash, k.Profile)
 	if err != nil || len(photos) == 0 {
 		return Photo{}, fmt.Errorf("reading the catalog: no photo %s of %q: %v", k.Hash, k.Profile, err)
 	}
@@ -954,16 +960,40 @@ func (c *Catalog) setPath(k Key, path, name string) error {
 }
 
 // refile records that the photo k, of no library, is of profile's, at path.
-// One that library has already is that one.
-func (c *Catalog) refile(k Key, profile, path string) error {
+// One that library has already is that photo: it takes what k has that it has
+// not, its heart, archive, turn, albums and sources, and is where it was, or
+// at path when its file is gone.
+func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 	return c.inTx(func(tx *sql.Tx) error {
 		var id int64
 		err := tx.QueryRow(`UPDATE OR IGNORE library_photos SET profile = ?, path = ?, name = ? WHERE hash = ? AND profile = ? RETURNING id`,
 			profile, path, filepath.Base(path), k.Hash, k.Profile).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
-			return takeOut(tx, k, false)
-		}
-		if err != nil {
+			err = tx.QueryRow(`UPDATE library_photos AS t SET favorite = max(t.favorite, f.favorite), archived = max(t.archived, f.archived),
+				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END
+				FROM library_photos AS f WHERE t.hash = ? AND t.profile = ? AND f.hash = t.hash AND f.profile = ? RETURNING id`,
+				k.Hash, profile, k.Profile).Scan(&id)
+			if err != nil {
+				return err
+			}
+			queries := []string{
+				`INSERT OR IGNORE INTO owners SELECT account, ?1 FROM owners WHERE photo = (SELECT id FROM library_photos WHERE hash = ?2 AND profile = ?3)`,
+				`INSERT OR IGNORE INTO album_members SELECT album, ?1 FROM album_members WHERE photo = (SELECT id FROM library_photos WHERE hash = ?2 AND profile = ?3)`,
+			}
+			for _, q := range queries {
+				if _, err := tx.Exec(q, id, k.Hash, k.Profile); err != nil {
+					return err
+				}
+			}
+			if gone {
+				if _, err := tx.Exec(`UPDATE library_photos SET path = ?, name = ?, out = 0 WHERE id = ?`, path, filepath.Base(path), id); err != nil {
+					return err
+				}
+			}
+			if err := takeOut(tx, k, false); err != nil {
+				return err
+			}
+		} else if err != nil {
 			return err
 		}
 		return ownAlbums(tx, id, k.Profile)

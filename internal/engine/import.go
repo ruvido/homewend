@@ -42,8 +42,10 @@ func readFolder(dir string) (string, library.Folder, error) {
 // never written: dir, a card or the library are left as they are. ctx stops
 // it between two files.
 func PlanImport(ctx context.Context, dir string, opt library.PlanOptions, emit progress.Func) (library.ImportPlan, error) {
-	if opt.Profile != "" && !ValidProfile(opt.Profile) {
-		return library.ImportPlan{}, ErrBadProfile
+	if opt.Profile != "" {
+		if err := CheckProfile(opt.Profile); err != nil {
+			return library.ImportPlan{}, err
+		}
 	}
 	dir, folder, err := readFolder(dir)
 	if err != nil {
@@ -75,8 +77,8 @@ func PlanImport(ctx context.Context, dir string, opt library.PlanOptions, emit p
 func Import(ctx context.Context, dir, profile string, how library.ImportOptions, emit progress.Func) (library.Imported, error) {
 	// A profile is a folder of the library: a name like "../x" would put
 	// photos outside it, or into the folder being imported.
-	if !ValidProfile(profile) {
-		return library.Imported{}, ErrBadProfile
+	if err := CheckProfile(profile); err != nil {
+		return library.Imported{}, err
 	}
 	// The photos' badge: the card's name, or the folder's, as the person
 	// put it in or chose it.

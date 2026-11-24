@@ -63,13 +63,19 @@ ALTER TABLE album_owners RENAME TO old_album_owners;
 `
 
 // intoLibraries fills the new tables from those set aside: a photo is of the
-// library its path is in (profileOf). An album is an account's in each
+// library its path is in: its first folder's, but for a path that is whole
+// in the layout before profiles, which has none. What a name looks like says
+// nothing: a profile may be "1985". An album is an account's in each
 // library that holds a photo of both.
 const intoLibraries = `
 INSERT INTO library_photos (id, hash, profile, path, name, bytes, taken, source, kind, origin, out, turn, archived, trashed, favorite)
-  SELECT id, hash, CASE WHEN top IN ('', 'undated', 'messaging') OR top NOT GLOB '*[^0-9]*' THEN '' ELSE top END,
+  SELECT id, hash, CASE
+      WHEN depth = 0 OR top IN ('undated', 'messaging') AND depth = 1 OR top GLOB '[0-9][0-9][0-9][0-9]' AND depth = 1
+        OR depth = 2 AND (path GLOB '[0-9][0-9][0-9][0-9]/[0-9][0-9]/*' OR path GLOB '[0-9][0-9][0-9][0-9]/unknown-month/*' OR path GLOB 'messaging/undated/*')
+        OR depth = 3 AND (path GLOB 'messaging/[0-9][0-9][0-9][0-9]/[0-9][0-9]/*' OR path GLOB 'messaging/[0-9][0-9][0-9][0-9]/unknown-month/*')
+      THEN '' ELSE top END,
     path, name, bytes, taken, source, kind, origin, out, turn, archived, trashed, favorite
-  FROM (SELECT rowid AS id, substr(path, 1, max(instr(path, '/') - 1, 0)) AS top, * FROM old_photos);
+  FROM (SELECT rowid AS id, substr(path, 1, max(instr(path, '/') - 1, 0)) AS top, length(path) - length(replace(path, '/', '')) AS depth, * FROM old_photos);
 INSERT INTO owners SELECT o.account, p.id FROM old_owners o JOIN library_photos p ON p.hash = o.hash;
 INSERT INTO album_members SELECT m.album, p.id FROM old_members m JOIN library_photos p ON p.hash = m.hash;
 INSERT OR IGNORE INTO album_owners
@@ -96,13 +102,6 @@ func upgrade(db *sql.DB, path string) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
 		return err
 	}
-	backup, err := keepBefore(db, path)
-	if err != nil {
-		return err
-	}
-	if backup != "" {
-		defer os.Remove(backup) // left only when it was not needed
-	}
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -111,20 +110,23 @@ func upgrade(db *sql.DB, path string) error {
 	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
 		return err
 	}
-	// The copy taken before the lock is of the catalog as it still is: no
-	// one brought it up to date since, or the version would say so. One kept
-	// by an earlier run that stopped halfway is as good, and stays.
-	if backup != "" && !exists(path+beforeLibraries) {
-		if err := os.Rename(backup, path+beforeLibraries); err != nil {
-			return err
-		}
-	}
 	var older bool
-	if err := tx.QueryRow(hasPhotos).Scan(&older); err != nil {
+	if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos')`).Scan(&older); err != nil {
 		return err
 	}
-	steps, now := schema, linksSince
+	steps, now, done := schema, linksSince, false
 	if older {
+		kept, err := keepBefore(db, path)
+		if err != nil {
+			return err
+		}
+		// Not brought up to date, the catalog is as it was: no copy needed,
+		// and one more at every try.
+		defer func() {
+			if kept != "" && !done {
+				os.Remove(kept)
+			}
+		}()
 		if err := complete(tx, version); err != nil {
 			return err
 		}
@@ -136,10 +138,10 @@ func upgrade(db *sql.DB, path string) error {
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, now)); err != nil {
 		return err
 	}
-	return tx.Commit()
+	err = tx.Commit()
+	done = err == nil
+	return err
 }
-
-const hasPhotos = `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos')`
 
 // complete gives an older catalog what the last of them had: its tables and
 // columns, its sources' service, its dates' clock.
@@ -179,61 +181,70 @@ func complete(tx *sql.Tx, version int) error {
 	return err
 }
 
-// keepBefore copies an older catalog, when it holds photos and no copy is
-// kept yet, into a file of its own beside it: "" when none is needed. Each
-// opening writes its own, so two never write the same file, and a copy cut
-// short (a crash, a full disk) is never the one kept.
+// keepBefore copies an older catalog, when it holds photos, into a file of its
+// own beside it and says which, "" when none is needed. An earlier copy stays:
+// a catalog made again by an older program is not what that one holds. The
+// write lock is held meanwhile, so one at a time writes the copy, and what one
+// killed left of it is taken away; it is named last, so a copy cut short is
+// never the one kept.
 func keepBefore(db *sql.DB, path string) (string, error) {
-	if exists(path + beforeLibraries) {
-		return "", nil
+	part := path + beforeLibraries + ".part"
+	for _, left := range []string{part, part + "-journal"} {
+		if err := os.Remove(left); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
 	}
 	var any bool
-	if err := db.QueryRow(hasPhotos).Scan(&any); err != nil || !any {
-		return "", err
-	}
 	if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM photos)`).Scan(&any); err != nil || !any {
 		return "", err
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+beforeLibraries+"-*")
-	if err != nil {
+	// Read on a connection of its own, which the lock does not keep out: in
+	// the transaction SQLite copies nothing.
+	if _, err := db.Exec(`VACUUM INTO ?`, part); err != nil {
+		os.Remove(part)
 		return "", err
 	}
-	f.Close()
-	// VACUUM INTO writes into an empty file, and reads one snapshot of the
-	// catalog: a copy as it was at one moment.
-	if _, err := db.Exec(`VACUUM INTO ?`, f.Name()); err != nil {
-		os.Remove(f.Name())
-		return "", err
+	kept := path + beforeLibraries
+	for n := 2; exists(kept); n++ {
+		kept = fmt.Sprintf("%s%s-%d", path, beforeLibraries, n)
 	}
-	return f.Name(), nil
+	return kept, os.Rename(part, kept)
 }
 
 // share puts the photo k in the library of profile too, at path, with its
-// date and no state: one that library has already is left as it is. Of its
-// sources the library takes its own (mine), which k keeps only when it has
-// no other, and has the cards' and folders' as k does: nobody can tell whose
-// they were. Of its albums, those named.
-func share(tx *sql.Tx, k Key, profile, path string, albums []string, mine func(source string) bool) error {
-	res, err := tx.Exec(`INSERT OR IGNORE INTO library_photos (hash, profile, path, name, bytes, taken, source, kind, origin)
-		SELECT hash, ?, ?, ?, bytes, taken, source, kind, origin FROM library_photos WHERE hash = ? AND profile = ?`,
-		profile, path, filepath.Base(path), k.Hash, k.Profile)
+// date and no state: one that library has already stays as it is, but for
+// what follows. Of k's sources the library takes its own (mine), which k keeps
+// only when it has no other; a photo new to it has the cards' and folders' as
+// k does too: nobody can tell whose they were. Of its albums, those named.
+// With no path, only a photo it has already. in is whether it has it now.
+func share(tx *sql.Tx, k Key, profile, path string, albums []string, mine func(source string) bool) (in bool, err error) {
+	var fresh int64
+	if path != "" {
+		res, err := tx.Exec(`INSERT OR IGNORE INTO library_photos (hash, profile, path, name, bytes, taken, source, kind, origin)
+			SELECT hash, ?, ?, ?, bytes, taken, source, kind, origin FROM library_photos WHERE hash = ? AND profile = ?`,
+			profile, path, filepath.Base(path), k.Hash, k.Profile)
+		if err != nil {
+			return false, err
+		}
+		if fresh, err = res.RowsAffected(); err != nil {
+			return false, err
+		}
+	}
+	const idOf = `SELECT id FROM library_photos WHERE hash = ? AND profile = ?`
+	var id, from int64
+	err = tx.QueryRow(idOf, k.Hash, profile).Scan(&id)
+	if err == nil {
+		err = tx.QueryRow(idOf, k.Hash, k.Profile).Scan(&from)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil // taken out meanwhile
+	}
 	if err != nil {
-		return err
-	}
-	if n, err := res.RowsAffected(); err != nil || n == 0 {
-		return err
-	}
-	id, err := res.LastInsertId()
-	if err != nil {
-		return err
-	}
-	var from int64
-	if err := tx.QueryRow(`SELECT id FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&from); err != nil {
-		return err
+		return false, err
 	}
 	sources, err := texts(tx.Query(`SELECT account FROM owners WHERE photo = ?`, from))
 	if err != nil {
-		return err
+		return false, err
 	}
 	var own []string
 	others := 0
@@ -241,8 +252,11 @@ func share(tx *sql.Tx, k Key, profile, path string, albums []string, mine func(s
 		switch {
 		case strings.HasPrefix(s, LocalSource):
 			others++
+			if fresh == 0 {
+				continue
+			}
 			if _, err := tx.Exec(`INSERT INTO owners (account, photo) VALUES (?, ?)`, s, id); err != nil {
-				return err
+				return false, err
 			}
 		case mine(s):
 			own = append(own, s)
@@ -251,20 +265,20 @@ func share(tx *sql.Tx, k Key, profile, path string, albums []string, mine func(s
 		}
 	}
 	for _, s := range own {
-		how := `INSERT INTO owners (photo, account) SELECT ?, account FROM owners WHERE account = ? AND photo = ?`
+		how := `INSERT OR IGNORE INTO owners (photo, account) SELECT ?, account FROM owners WHERE account = ? AND photo = ?`
 		if others > 0 {
-			how = `UPDATE owners SET photo = ? WHERE account = ? AND photo = ?`
+			how = `UPDATE OR REPLACE owners SET photo = ? WHERE account = ? AND photo = ?`
 		}
 		if _, err := tx.Exec(how, id, s, from); err != nil {
-			return err
+			return false, err
 		}
 	}
 	for _, album := range albums {
-		if _, err := tx.Exec(`INSERT INTO album_members (album, photo) VALUES (?, ?)`, album, id); err != nil {
-			return err
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO album_members (album, photo) VALUES (?, ?)`, album, id); err != nil {
+			return false, err
 		}
 	}
-	return ownAlbums(tx, id, k.Profile)
+	return true, ownAlbums(tx, id, k.Profile)
 }
 
 // ownAlbums says in the library of the photo id, which came from that of
@@ -283,7 +297,7 @@ func ownAlbums(tx *sql.Tx, id int64, profile string) error {
 type link struct {
 	of      Key
 	profile string
-	path    string
+	path    string   // "": the profile has its record already
 	albums  []string // the profile's own
 	// left are those the photo is in only because the profile's are.
 	left []string
@@ -306,14 +320,12 @@ func FindLinks(root, catalog string, profiles []string, profileOf func(source st
 			done = true
 			return err
 		}
-		rows, err := c.db.Query(`SELECT ` + photoColumns + ` FROM library_photos`)
+		var err error
+		if photos, err = c.photos(``); err != nil {
+			return err
+		}
+		rows, err := c.db.Query(`SELECT p.hash, p.profile, m.album FROM album_members m JOIN library_photos p ON p.id = m.photo`)
 		if err != nil {
-			return err
-		}
-		if photos, err = scanPhotos(rows); err != nil {
-			return err
-		}
-		if rows, err = c.db.Query(`SELECT p.hash, p.profile, m.album FROM album_members m JOIN library_photos p ON p.id = m.photo`); err != nil {
 			return err
 		}
 		defer rows.Close()
@@ -347,23 +359,27 @@ func FindLinks(root, catalog string, profiles []string, profileOf func(source st
 		return err
 	}
 	defer unlock()
-	// One taken away or filed elsewhere meanwhile is not there any more.
-	here := links[:0]
-	for _, l := range links {
-		if exists(filepath.Join(root, filepath.FromSlash(l.path))) {
-			here = append(here, l)
+	// One taken away or filed elsewhere meanwhile is not there any more: no
+	// photo is made of it, but one the profile has keeps what is its own.
+	for i, l := range links {
+		if !exists(filepath.Join(root, filepath.FromSlash(l.path))) {
+			links[i].path = ""
 		}
 	}
 	return with(catalog, func(c *Catalog) error {
-		return c.inTx(func(tx *sql.Tx) error { return addLinks(tx, here, profileOf) })
+		return c.inTx(func(tx *sql.Tx) error { return addLinks(tx, links, profileOf) })
 	})
 }
 
 // addLinks records the links found, and that they were looked for.
 func addLinks(tx *sql.Tx, links []link, profileOf func(source string) string) error {
 	for _, l := range links {
-		if err := share(tx, l.of, l.profile, l.path, l.albums, func(s string) bool { return profileOf(s) == l.profile }); err != nil {
+		in, err := share(tx, l.of, l.profile, l.path, l.albums, func(s string) bool { return profileOf(s) == l.profile })
+		if err != nil {
 			return err
+		}
+		if !in {
+			continue
 		}
 		for _, album := range l.left {
 			if _, err := tx.Exec(`DELETE FROM album_members WHERE album = ? AND photo = (SELECT id FROM library_photos WHERE hash = ? AND profile = ?)`, album, l.of.Hash, l.of.Profile); err != nil {
@@ -394,6 +410,23 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 		bySize[p.Bytes] = append(bySize[p.Bytes], p)
 	}
 	var links []link
+	// Those a profile has already, received since the catalog was brought up
+	// to date: what is its own of the other's record is still there.
+	byHash := map[string][]Photo{}
+	for _, p := range photos {
+		byHash[p.Hash] = append(byHash[p.Hash], p)
+	}
+	for _, copies := range byHash {
+		for _, of := range copies {
+			for _, p := range copies {
+				if p.Profile != of.Profile && p.Profile != "" {
+					l := linkOf(root, of, p.Profile, p.Path, albums[of.Key()])
+					l.path = ""
+					links = append(links, l)
+				}
+			}
+		}
+	}
 	for _, profile := range profiles {
 		home := filepath.Join(root, profile)
 		err := filepath.WalkDir(home, func(path string, d fs.DirEntry, err error) error {
@@ -422,16 +455,7 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 				return nil
 			}
 			have[Key{of.Hash, profile}] = true
-			l := link{of: of.Key(), profile: profile, path: rel}
-			for _, album := range albums[of.Key()] {
-				if exists(filepath.Join(home, "albums", album, filepath.Base(path))) {
-					l.albums = append(l.albums, album)
-					if !exists(filepath.Join(root, of.Profile, "albums", album)) {
-						l.left = append(l.left, album)
-					}
-				}
-			}
-			links = append(links, l)
+			links = append(links, linkOf(root, of, profile, rel, albums[of.Key()]))
 			return nil
 		})
 		if err != nil {
@@ -439,6 +463,23 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 		}
 	}
 	return links, nil
+}
+
+// linkOf is the name path of the photo of in profile's folder, with the albums
+// of it that have their entry there: the same photo, by the file or by its
+// content, not another of that name.
+func linkOf(root string, of Photo, profile, path string, albums []string) link {
+	l := link{of: of.Key(), profile: profile, path: path}
+	file := filepath.Join(root, filepath.FromSlash(path))
+	for _, album := range albums {
+		if same(file, filepath.Join(root, profile, "albums", album, filepath.Base(file))) {
+			l.albums = append(l.albums, album)
+			if !exists(filepath.Join(root, of.Profile, "albums", album)) {
+				l.left = append(l.left, album)
+			}
+		}
+	}
+	return l
 }
 
 // whose is the photo, of those of its size, that the file at path is. A file

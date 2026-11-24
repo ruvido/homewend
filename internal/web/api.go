@@ -4,6 +4,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -203,27 +204,24 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		f, err := engine.FileOf(photoOf(r))
 		reply(w, f, err)
 	})
-	// A thumbnail never changes: it is named by the photo's content.
-	mux.HandleFunc("GET /api/thumb/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		path, err := engine.Thumbnail(r.Context(), r.PathValue("hash"))
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-		http.ServeFile(w, r, path)
-	})
-	mux.HandleFunc("GET /api/preview/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		path, err := engine.Preview(r.Context(), r.PathValue("hash"))
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
-		http.ServeFile(w, r, path)
-	})
+	for path, picture := range map[string]func(context.Context, library.Key) (string, bool, error){"thumb": engine.Thumbnail, "preview": engine.Preview} {
+		mux.HandleFunc("GET /api/"+path+"/{hash}", func(w http.ResponseWriter, r *http.Request) {
+			file, kept, err := picture(r.Context(), photoOf(r))
+			if err != nil {
+				reply(w, nil, err)
+				return
+			}
+			// The content's never changes: it is named by it. That of a file
+			// another program changed does.
+			w.Header().Set("Cache-Control", "private, no-cache")
+			if kept {
+				w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+			}
+			http.ServeFile(w, r, file)
+		})
+	}
 	mux.HandleFunc("GET /api/original/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		path, err := engine.Original(r.PathValue("hash"))
+		path, err := engine.PathOf(photoOf(r))
 		if err != nil {
 			reply(w, nil, err)
 			return
@@ -427,6 +425,8 @@ func reply(w http.ResponseWriter, v any, err error) {
 	switch {
 	case errors.Is(err, engine.ErrBadTheme), errors.Is(err, engine.ErrBadProfile):
 		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, engine.ErrProfileCase):
+		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 	// The library's disk is away: nothing the request did wrong, nothing
 	// to try again until it is back.
 	case errors.As(err, new(engine.LibraryGoneError)):

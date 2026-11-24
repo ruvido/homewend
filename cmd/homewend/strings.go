@@ -332,6 +332,7 @@ Examples:
 	"library waiting":        "Waiting for another import to finish placing photos",
 	"library busy":           "another import or download is placing photos in this library",
 	"library busy hint":      "when it is done, run: **%s**",
+	"profile case":           "there is a profile of this name already, with other capitals",
 	"bad profile":            "a profile is a name: no / or \\, not starting with a dot, no spaces around it",
 	"folder gone":            "%s was taken out before the end: what was copied is in the library",
 	"folder gone hint":       "put it back, then run: **%s**",

@@ -77,8 +77,8 @@ func ProfileNames(accounts []AccountInfo, s Settings) (names []string, first str
 
 // SetProfile puts the account id in the profile named profile.
 func SetProfile(id, profile string) error {
-	if !ValidProfile(profile) {
-		return ErrBadProfile
+	if err := checkProfile(profile, id); err != nil {
+		return err
 	}
 	// Only an account that is here: the settings keep no profile for one
 	// that is not.
@@ -117,6 +117,69 @@ var ErrBadProfile = errors.New("a profile is a name, without / or \\, not starti
 // so a plain name, never one that leads out of it or into its work folder.
 func ValidProfile(p string) bool {
 	return p != "" && p != "." && p != ".." && !strings.ContainsAny(p, "/\\") && !strings.HasPrefix(p, ".") && p == strings.TrimSpace(p)
+}
+
+// knownProfiles are the profiles there are, phones' too, paired or not any
+// more.
+func knownProfiles(accounts []AccountInfo, s Settings) ([]string, error) {
+	profiles, _ := ProfileNames(accounts, s)
+	phones, err := LoadPhones()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range phones.Phones {
+		profiles = append(profiles, p.Profile)
+	}
+	for _, p := range phones.Unpaired {
+		profiles = append(profiles, p.Profile)
+	}
+	slices.Sort(profiles)
+	return slices.Compact(profiles), nil
+}
+
+// ErrProfileCase is a new profile named as one there is but for its capitals:
+// on a disk that ignores them the two would be one folder.
+var ErrProfileCase = errors.New("there is a profile of this name already, with other capitals")
+
+// CheckProfile is whether p may be a profile: a valid name, and one there is
+// or a new one that no other's folder could be taken for.
+func CheckProfile(p string) error { return checkProfile(p, "") }
+
+// checkProfile is CheckProfile for the account of, whose profile so far is no
+// other's: only its folder, once there is one.
+func checkProfile(p, of string) error {
+	if !ValidProfile(p) {
+		return ErrBadProfile
+	}
+	accounts, err := Accounts()
+	if err != nil {
+		return err
+	}
+	s, err := LoadSettings()
+	if err != nil {
+		return err
+	}
+	accounts = slices.DeleteFunc(accounts, func(a AccountInfo) bool { return a.ID == of })
+	delete(s.Profiles, of)
+	names, err := knownProfiles(accounts, s)
+	if err != nil {
+		return err
+	}
+	if s.Library != "" {
+		entries, _ := os.ReadDir(s.Library) // away: the names known are asked alone
+		for _, e := range entries {
+			if e.IsDir() {
+				names = append(names, e.Name())
+			}
+		}
+	}
+	if slices.Contains(names, p) {
+		return nil
+	}
+	if slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, p) }) {
+		return ErrProfileCase
+	}
+	return nil
 }
 
 // Themes are the values Theme takes.

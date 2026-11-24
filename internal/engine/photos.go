@@ -4,8 +4,10 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -420,9 +422,10 @@ func GiveDates(photos []library.Key, when time.Time) (int, error) {
 // thumbSlots keeps thumbnails from taking every core while a grid scrolls.
 var thumbSlots = make(chan struct{}, max(1, runtime.NumCPU()-1))
 
-// Thumbnail returns the file of a photo's thumbnail, making it the first time.
-func Thumbnail(ctx context.Context, hash string) (string, error) {
-	return thumbnailOf(ctx, hash, func() (string, error) { return Original(hash) })
+// Thumbnail returns the file of a photo's thumbnail, making it the first time;
+// kept says it is the content's, which never changes.
+func Thumbnail(ctx context.Context, k library.Key) (file string, kept bool, err error) {
+	return cached(ctx, "thumbs", thumb.Size, k.Hash, func() (string, string, error) { return pictureOf(k) })
 }
 
 // Preview is the picture the viewer shows a photo of the library with, at
@@ -431,15 +434,49 @@ func Thumbnail(ctx context.Context, hash string) (string, error) {
 //
 // shortcut: no limit on the cache's size (about 0.5–1 MB a photo looked at),
 // prune by age when a library's previews grow past a few GB.
-func Preview(ctx context.Context, hash string) (string, error) {
-	return cached(ctx, "previews", thumb.PreviewSize, hash, func() (string, error) { return Original(hash) })
+func Preview(ctx context.Context, k library.Key) (file string, kept bool, err error) {
+	return cached(ctx, "previews", thumb.PreviewSize, k.Hash, func() (string, string, error) { return pictureOf(k) })
 }
 
-// thumbnailOf is the thumbnail of the content hash, kept by it: made the
-// first time from the file source finds, a photo of the library or one on
-// a card being looked at.
-func thumbnailOf(ctx context.Context, hash string, source func() (string, error)) (string, error) {
-	return cached(ctx, "thumbs", thumb.Size, hash, source)
+// pictureOf is the file a photo's picture is made from: its own, or else
+// another library's, that is still the photo, by its size. With none, its own
+// as it is now, and version, the name its picture is kept by: another
+// program's edit of one library's file is not the content's picture, which
+// every library is shown.
+// shortcut: an edit that leaves the size as it was is not seen; reading the
+// file to know would be reading each original once more.
+func pictureOf(k library.Key) (file, version string, err error) {
+	c, root, err := openLibrary()
+	if err != nil {
+		return "", "", err
+	}
+	if c == nil {
+		return "", "", fs.ErrNotExist
+	}
+	copies, err := c.Copies(k.Hash)
+	c.Close()
+	if err != nil {
+		return "", "", err
+	}
+	// Its own first.
+	if i := slices.IndexFunc(copies, func(p library.Photo) bool { return p.Key() == k }); i > 0 {
+		copies[0], copies[i] = copies[i], copies[0]
+	}
+	for _, p := range copies {
+		at := filepath.Join(root, filepath.FromSlash(p.Path))
+		info, err := os.Stat(at)
+		switch {
+		case err != nil:
+		case info.Size() == p.Bytes:
+			return at, "", nil
+		case p.Key() == k:
+			file, version = at, fmt.Sprintf("%s-%x-%x", k.Hash, info.Size(), info.ModTime().UnixNano())
+		}
+	}
+	if file == "" {
+		return "", "", fs.ErrNotExist
+	}
+	return file, version, nil
 }
 
 // picturesDir is where the cache keeps the pictures of kind dir.
@@ -449,51 +486,39 @@ func picturesDir(dir string) (string, error) {
 }
 
 // cached is the picture of the content hash at size, kept by it in the
-// cache's folder dir.
-func cached(ctx context.Context, dir string, size int, hash string, source func() (string, error)) (string, error) {
+// cache's folder dir; or, when source says the file it found is not that content
+// any more, of the version source names, and kept is false.
+func cached(ctx context.Context, dir string, size int, hash string, source func() (file, version string, err error)) (dst string, kept bool, err error) {
 	folder, err := picturesDir(dir)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	dst := thumb.Path(folder, hash)
-	if _, err := os.Stat(dst); err == nil {
-		return dst, nil
+	there := func(name string) bool {
+		dst = thumb.Path(folder, name)
+		_, err := os.Stat(dst)
+		return err == nil
 	}
-	src, err := source()
+	if there(hash) {
+		return dst, true, nil
+	}
+	src, version, err := source()
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+	name := cmp.Or(version, hash)
+	if kept = version == ""; there(name) {
+		return dst, kept, nil
 	}
 	select {
 	case thumbSlots <- struct{}{}:
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return "", false, ctx.Err()
 	}
 	defer func() { <-thumbSlots }()
-	if _, err := os.Stat(dst); err == nil { // made while this one waited
-		return dst, nil
+	if there(name) { // made while this one waited
+		return dst, kept, nil
 	}
-	return dst, thumb.Make(ctx, src, dst, size)
-}
-
-// Original is a file with the content of hash: in whichever library still has
-// it on the disk.
-func Original(hash string) (string, error) {
-	c, root, err := openLibrary()
-	if err != nil {
-		return "", err
-	}
-	if c == nil {
-		return "", fs.ErrNotExist
-	}
-	defer c.Close()
-	paths, err := c.Paths(hash)
-	for _, p := range paths {
-		file := filepath.Join(root, filepath.FromSlash(p))
-		if _, err := os.Stat(file); err == nil {
-			return file, nil
-		}
-	}
-	return "", errors.Join(err, fs.ErrNotExist)
+	return dst, kept, thumb.Make(ctx, src, dst, size)
 }
 
 // PathOf is where a photo is on the disk, or was.

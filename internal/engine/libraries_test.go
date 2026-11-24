@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // unread is a photo's body nobody may read: the computer has its bytes.
@@ -148,8 +151,8 @@ func TestWhatOneDoesToAPhotoIsNotDoneToTheOthers(t *testing.T) {
 	if back, err := ReceivePhoto(context.Background(), ron, hash, "IMG_1.JPG", 14, unread{}); err != nil || !back.Out {
 		t.Errorf("deleted, sent again by ron: %+v %v", back, err)
 	}
-	if path, err := Original(hash); err != nil || path != filepath.Join(root, "ann", "2020", "05", "IMG_1.JPG") {
-		t.Errorf("the original is %s %v", path, err)
+	if path, _, err := pictureOf(library.Key{Hash: hash, Profile: "ron"}); err != nil || path != filepath.Join(root, "ann", "2020", "05", "IMG_1.JPG") {
+		t.Errorf("the picture is made from %s %v", path, err)
 	}
 	if _, err := lookForMissing(root); err != nil {
 		t.Fatal(err)
@@ -322,5 +325,162 @@ func TestAnOlderProgramsSecondProfileIsFoundByTheEngine(t *testing.T) {
 	o, err := overview(root, nil, nil, "")
 	if err != nil || o.Total != 2 {
 		t.Errorf("overview %+v %v, want both", o, err)
+	}
+}
+
+// A profile named like a year, or any number, keeps its photos and its files
+// through the window's overview.
+func TestAProfileNamedLikeAYearKeepsItsPhotos(t *testing.T) {
+	for _, profile := range []string{"12345", "1985"} {
+		t.Run(profile, func(t *testing.T) {
+			dir := config(t)
+			root := t.TempDir()
+			if err := SetDefaultLibrary(root); err != nil {
+				t.Fatal(err)
+			}
+			account := filepath.Join(dir, "accounts", "google", "ron@example.com")
+			if err := os.MkdirAll(account, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			photo := profile + "/2019/07/a.jpg"
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(root, photo)), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, photo), []byte("a photo"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Join(root, ".homewend"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", catalogPath(root))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(`CREATE TABLE photos (hash TEXT PRIMARY KEY, path TEXT NOT NULL, name TEXT NOT NULL, bytes INTEGER NOT NULL, taken INTEGER, source TEXT NOT NULL, kind TEXT NOT NULL, origin TEXT NOT NULL);
+				INSERT INTO photos VALUES ('h', '` + photo + `', 'a.jpg', 7, 1562345678, 'exif', 'taken', 'camera'); PRAGMA user_version = 1`); err != nil {
+				t.Fatal(err)
+			}
+			db.Close()
+			if _, err := UpdatePhones(func(p *Phones) error { p.Phones = []Phone{{ID: "p", Profile: profile}}; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			for range 2 {
+				if o, err := LibraryOverview(Settings{}); err != nil || o.Total != 1 {
+					t.Fatalf("%+v %v", o, err)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(root, photo)); err != nil {
+				t.Errorf("its file: %v", err)
+			}
+			haveIs(t, Phone{Profile: profile}, "h", "have")
+		})
+	}
+}
+
+// A picture is made from a file that is still the photo, whoever's it is;
+// another program's edit of one library's file is seen in that one alone.
+func TestAnEditedFileIsNotTheOthersPicture(t *testing.T) {
+	config(t)
+	cache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("LocalAppData", cache)
+	root := t.TempDir()
+	if err := SetDefaultLibrary(root); err != nil {
+		t.Fatal(err)
+	}
+	draw := func(w, h int) string {
+		var b bytes.Buffer
+		if err := png.Encode(&b, image.NewGray(image.Rect(0, 0, w, h))); err != nil {
+			t.Fatal(err)
+		}
+		return b.String()
+	}
+	ron, ann := Phone{ID: "p1", Name: "Pixel", Profile: "ron"}, Phone{ID: "p2", Name: "iPhone", Profile: "ann"}
+	rons, hash := send(t, ron, "A.PNG", draw(300, 100))
+	anns, _ := send(t, ann, "A.PNG", draw(300, 100))
+	// As editors save: written beside, then named over it.
+	edited := filepath.Join(root, anns.Path)
+	if err := os.WriteFile(edited+".tmp", []byte(draw(100, 300)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(edited+".tmp", edited); err != nil {
+		t.Fatal(err)
+	}
+	tall := func(k library.Key) (bool, bool) {
+		t.Helper()
+		file, kept, err := Thumbnail(context.Background(), k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w, h := thumb.Dimensions(file)
+		return h > w, kept
+	}
+	if tall, kept := tall(library.Key{Hash: hash, Profile: "ann"}); tall || !kept {
+		t.Error("the content's thumbnail was made from the edited file")
+	}
+	if tall, _ := tall(library.Key{Hash: hash, Profile: "ron"}); tall {
+		t.Error("ron is shown ann's edit")
+	}
+	for profile, want := range map[string]string{"ron": rons.Path, "ann": anns.Path} {
+		if path, err := PathOf(library.Key{Hash: hash, Profile: profile}); err != nil || path != filepath.Join(root, want) {
+			t.Errorf("%s's own is %s %v", profile, path, err)
+		}
+	}
+	// None is the photo any more: each its own, kept by no content.
+	if err := os.WriteFile(filepath.Join(root, rons.Path), []byte(draw(200, 50)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, size := range []string{"thumbs", "previews"} {
+		folder, err := picturesDir(size)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(thumb.Path(folder, hash))
+	}
+	if tall, kept := tall(library.Key{Hash: hash, Profile: "ann"}); !tall || kept {
+		t.Error("ann is not shown her own")
+	}
+	if tall, kept := tall(library.Key{Hash: hash, Profile: "ron"}); tall || kept {
+		t.Error("ron is not shown his own")
+	}
+}
+
+// A new profile that differs from one there is by its capitals alone is
+// refused wherever one is made; those there are stay.
+func TestAProfileOfOtherCapitalsIsRefused(t *testing.T) {
+	dir := config(t)
+	root := t.TempDir()
+	if err := SetDefaultLibrary(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "accounts", "google", "ron@example.com"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "Ann"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := rememberProfile("Bob"); err != nil {
+		t.Fatal(err)
+	}
+	var im Importing
+	for _, p := range []string{"Ron", "ann", "bob"} {
+		_, pairing := StartPairing(p)
+		_, importing := Import(context.Background(), t.TempDir(), p, library.ImportOptions{}, nil)
+		for what, err := range map[string]error{"pairing": pairing, "import": importing, "the window's import": im.Plan(ImportAsk{Dir: t.TempDir(), Profile: p})} {
+			if !errors.Is(err, ErrProfileCase) {
+				t.Errorf("%s into %s: %v", what, p, err)
+			}
+		}
+	}
+	for _, p := range []string{"ron", "Ann", "Bob", "Zoe"} {
+		if err := CheckProfile(p); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	if err := SetProfile("google/ron@example.com", "bob"); !errors.Is(err, ErrProfileCase) {
+		t.Errorf("the account's: %v", err)
+	}
+	if err := SetProfile("google/ron@example.com", "Ron"); err != nil {
+		t.Errorf("its own proposed name, in capitals: %v", err)
 	}
 }

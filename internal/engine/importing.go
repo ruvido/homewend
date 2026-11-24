@@ -16,6 +16,7 @@ import (
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/progress"
+	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // Importing runs the window's import in the background, one at a time: the
@@ -103,8 +104,8 @@ var ErrNothingToRunAgain = errors.New("no import ran to run again")
 // a.Profile would bring.
 func (im *Importing) Plan(a ImportAsk) error {
 	// Said to the caller before the card is read, not after.
-	if !ValidProfile(a.Profile) {
-		return ErrBadProfile
+	if err := CheckProfile(a.Profile); err != nil {
+		return err
 	}
 	return im.start(a, "plan", func(ctx context.Context, emit progress.Func, s *ImportState, hashes library.Hashes) error {
 		plan, err := PlanImport(ctx, a.Dir, library.PlanOptions{Asked: a.Asked, Profile: a.Profile, Hashes: hashes}, emit)
@@ -136,8 +137,8 @@ func (im *Importing) Again() error {
 // The plan read before stays in the state, for the screens that show it.
 func (im *Importing) Import(a ImportAsk) error {
 	// Said to the caller, not in the state: it is the page's mistake.
-	if !ValidProfile(a.Profile) {
-		return ErrBadProfile
+	if err := CheckProfile(a.Profile); err != nil {
+		return err
 	}
 	// The dates the look read decide the groups again without a read.
 	return im.start(a, "import", func(ctx context.Context, emit progress.Func, s *ImportState, hashes library.Hashes) error {
@@ -304,7 +305,8 @@ func (im *Importing) Thumbnail(ctx context.Context, path string) (string, error)
 	if !ok {
 		return "", fs.ErrNotExist
 	}
-	return thumbnailOf(ctx, hash, func() (string, error) { return src, nil })
+	file, _, err := cached(ctx, "thumbs", thumb.Size, hash, func() (string, string, error) { return src, "", nil })
+	return file, err
 }
 
 // canLink is whether the disk lets a file of dir have a second name in the

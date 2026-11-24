@@ -436,3 +436,131 @@ func TestAChangedFileIsNotShared(t *testing.T) {
 		t.Error("sam was given the changed file")
 	}
 }
+
+// A photo the second library has a record of already, received before the
+// names on the disk were looked for or while they are, still takes what is its own of
+// the first's record: none of it is lost. An album's entry of the same name and
+// another content is not its.
+func TestAPhotoReceivedMeanwhileTakesWhatIsItsOwn(t *testing.T) {
+	for _, when := range []string{"before", "during"} {
+		t.Run(when, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, "ron/2019/07/a.jpg", []byte("a photo of two"))
+			for _, to := range []string{"sam/2019/07/a-2.jpg", "sam/albums/Greece/a-2.jpg"} {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(root, to)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Link(filepath.Join(root, "ron/2019/07/a.jpg"), filepath.Join(root, to)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			write(t, root, "sam/albums/Other/a-2.jpg", []byte("another photo!"))
+			a := mustHash(t, filepath.Join(root, "ron/2019/07/a.jpg"))
+			path := older(t, 1, fmt.Sprintf(`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES
+				('%[1]s', 'ron/2019/07/a.jpg', 'a.jpg', 14, 1562345678, 'exif', 'taken', 'camera');
+				INSERT INTO owners VALUES ('google/ron@x', '%[1]s'), ('google/sam@x', '%[1]s');
+				INSERT INTO album_members VALUES ('Greece', '%[1]s'), ('Other', '%[1]s');
+				INSERT INTO album_owners VALUES ('google/sam@x', 'Greece'), ('google/ron@x', 'Other');`, a))
+			c, err := OpenCatalog(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer c.Close()
+			receive := func() {
+				if err := c.Put(Photo{Hash: a, Profile: "sam", Path: "sam/2019/07/a-2.jpg", Name: "a-2.jpg", Bytes: 14}, "local/Pixel"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if when == "before" {
+				receive()
+			}
+			err = FindLinks(root, path, []string{"sam"}, func(s string) string {
+				return strings.TrimSuffix(strings.TrimPrefix(s, "google/"), "@x")
+			}, func() (func(), error) {
+				if when == "during" {
+					receive()
+				}
+				return func() {}, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for profile, want := range map[string][2][]string{"ron": {{"Other"}, {"google/ron@x"}}, "sam": {{"Greece"}, {"google/sam@x", "local/Pixel"}}} {
+				albums, sources, err := c.About(Key{a, profile})
+				if err != nil || !reflect.DeepEqual(albums, want[0]) || !reflect.DeepEqual(sources, want[1]) {
+					t.Errorf("%s's albums %v sources %v %v, want %v", profile, albums, sources, err, want)
+				}
+			}
+			if list, _ := c.AlbumsByOwner(nil); len(list) != 2 || list[0] != (AlbumCount{"google/sam@x", "Greece", 1}) {
+				t.Errorf("albums %v", list)
+			}
+		})
+	}
+}
+
+// A profile's folder is its own whatever its name looks like; the layout
+// before profiles is known by its whole path.
+func TestAProfileNamedLikeAYear(t *testing.T) {
+	want := map[string]string{"12345/2019/07/a.jpg": "12345", "1985/2019/07/a.jpg": "1985", "1985/undated/a.jpg": "1985", "1985/messaging/2019/07/a.jpg": "1985", "undated/2019/07/a.jpg": "undated",
+		"1985/07/a.jpg": "", "1985/unknown-month/a.jpg": "", "undated/a.jpg": "", "messaging/2019/07/a.jpg": "", "messaging/undated/a.jpg": "", "a.jpg": "", "ron/undated/a.jpg": "ron"}
+	var rows strings.Builder
+	for p := range want {
+		fmt.Fprintf(&rows, `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('%[1]s', '%[1]s', 'a.jpg', 1, 1, '', '', '');`, p)
+	}
+	c, err := OpenCatalog(older(t, 1, rows.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	all, err := c.photos(``)
+	if err != nil || len(all) != len(want) {
+		t.Fatal(len(all), err)
+	}
+	for _, p := range all {
+		if p.Profile != want[p.Path] {
+			t.Errorf("%s is of %q, want %q", p.Path, p.Profile, want[p.Path])
+		}
+		if want[p.Path] == "" && p.Path != "a.jpg" && !datePath.MatchString(p.Path) {
+			t.Errorf("%s: the two ways to know the layout differ", p.Path)
+		}
+	}
+}
+
+// What a killed upgrade left of its copy goes at the next opening; a catalog
+// an older program made again, after going back to it, has a copy of its own.
+func TestTheCopyOfAnOlderCatalog(t *testing.T) {
+	const photo = `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('%s', 'ron/2019/07/a.jpg', 'a.jpg', 1, 1, '', '', '')`
+	path := older(t, 1, fmt.Sprintf(photo, "first"))
+	for _, left := range []string{".part", ".part-journal"} {
+		if err := os.WriteFile(path+beforeLibraries+left, []byte("half"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, hash := range []string{"first", "second"} {
+		c, err := OpenCatalog(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Close()
+		if hash == "first" {
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			olderAt(t, path, 1, olderSchema+fmt.Sprintf(photo, "second"))
+		}
+	}
+	for name, want := range map[string]string{path + beforeLibraries: "first", path + beforeLibraries + "-2": "second"} {
+		db, err := sql.Open("sqlite", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got string
+		if err := db.QueryRow(`SELECT hash FROM photos`).Scan(&got); err != nil || got != want {
+			t.Errorf("%s holds %q %v, want %q", filepath.Base(name), got, err, want)
+		}
+		db.Close()
+	}
+	if left, _ := filepath.Glob(path + beforeLibraries + ".part*"); len(left) != 0 {
+		t.Errorf("left: %v", left)
+	}
+}

@@ -5,7 +5,6 @@ package engine
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -121,8 +120,7 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 			}
 			again = time.Now().Add(thumbsEvery)
 		}
-		file := filepath.Join(root, filepath.FromSlash(p.Path))
-		if _, err := thumbnailOf(ctx, p.Hash, func() (string, error) { return file, nil }); err != nil {
+		if _, _, err := Thumbnail(ctx, p.Key()); err != nil {
 			// The disk taken out: none of the rest is there to be tried.
 			if libraryAway(root, s.Filled) {
 				return listing, false

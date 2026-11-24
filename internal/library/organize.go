@@ -110,6 +110,9 @@ type Item struct {
 	// Again: deleted from its library and asked back. It is filed as new, not
 	// taken for a move left halfway.
 	Again bool
+	// Arrival: a copy made for this pass. Lost, its source is offered again;
+	// any other item is the only one.
+	Arrival bool
 }
 
 // Organize moves items into a date layout under the profile's folder, and
@@ -136,9 +139,8 @@ type Item struct {
 //
 // **Files are moved, never modified.** Items must be on the same filesystem as
 // root, so a move is a rename: instant, and no second copy on the disk. A
-// duplicate is left where it was. Each photo is recorded in the catalog before
-// it is moved, so a run that stops halfway finishes the move the next time
-// instead of losing track of the file.
+// duplicate is left where it was. A run that stops halfway is finished by the
+// next: placeAndRecord.
 func Organize(items []Item, root string, catalog *Catalog, opt Options, emit progress.Func) (Organized, error) {
 	result := Organized{BySource: map[DateSource]int{}, ByOrigin: map[Origin]int{}}
 
@@ -164,7 +166,14 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			}
 		case known && !item.Again:
 			// Recorded by a run that stopped before the move.
-			if _, err := place(item, hash, home, root, catalog); err != nil {
+			if err := readyHome(item, home, root); err != nil {
+				return result, err
+			}
+			from, err := Shared(catalog, root, hash, item.Path)
+			if err == nil && (from == "" || os.Link(from, home) != nil) {
+				err = move(item.Path, home)
+			}
+			if err != nil {
 				return result, err
 			}
 		default:
@@ -196,10 +205,7 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			if capture.Source == NoDate {
 				record.Taken = time.Time{}
 			}
-			if err := catalog.Put(record, opt.Account); err != nil {
-				return result, err
-			}
-			moved, err := place(item, hash, home, root, catalog)
+			moved, err := placeAndRecord(item, record, home, root, catalog, opt.Account)
 			if err != nil {
 				return result, err
 			}
@@ -232,27 +238,7 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 // destination is where the date of the photo k, at src, says it belongs, with
 // a suffix when another photo already holds that name.
 func destination(src string, k Key, root string, capture Capture, opt Options, catalog *Catalog) (string, error) {
-	base := profileRoot(root, opt)
-	if opt.SeparateMessaging && capture.Origin.FromMessaging() {
-		base = filepath.Join(base, "messaging")
-	}
-
-	// Google's instants are read in the user's own timezone, not UTC — see
-	// Options.Location and Capture.Local.
-	local := capture.Local(opt.location())
-
-	var dir string
-	switch capture.Source {
-	case FromSidecar, FromEXIF, FromVideo, FromGiven, FromName, FromNameDay:
-		dir = filepath.Join(base, local.Format("2006"), local.Format("01"))
-	case FromFolder:
-		// The year is Google's and the month is not known. Saying so in the
-		// path is more honest than picking January and looking precise. No
-		// timezone conversion here: a folder name has no clock to convert.
-		dir = filepath.Join(base, capture.When.Format("2006"), "unknown-month")
-	default:
-		dir = filepath.Join(base, "undated")
-	}
+	dir := folderOf(root, capture, opt)
 
 	// Same name, different photo: keep both. Silently overwriting here is how a
 	// library quietly loses pictures. A name is taken when a file holds it, or
@@ -266,53 +252,98 @@ func destination(src string, k Key, root string, capture Capture, opt Options, c
 		// Already this photo, from a run before: a second name of the same
 		// file, or — on a disk with no hard links — a copy of it. It is its
 		// place, not a reason for another name.
-		if same(target, src) {
-			return target, nil
-		}
 		promised, err := catalog.PathTaken(relativeTo(root, target), k)
 		if err != nil {
 			return "", err
 		}
-		if !promised && !exists(target) {
+		if !promised && (!exists(target) || same(target, src)) {
 			return target, nil
 		}
 	}
 }
 
-// place gives a photo its home, and its sidecar the same path under the
-// library's metadata folder: a second name of it, as a photo of a later part
-// may share it, out of sight but beside nothing else:
-//
-//	<root>/2019/07/IMG_1234.jpg
-//	<root>/.homewend/metadata/2019/07/IMG_1234.jpg.json
-//
-// A photo another library has is a second name for that one's file, and the
-// item is left where it was; on a disk with no hard links, and for any other,
-// the item itself is moved. It says whether it was.
-func place(item Item, hash, home, root string, catalog *Catalog) (moved bool, err error) {
-	// The sidecar first: a run stopped between the two finds the photo still
-	// to place, and not a photo in without it.
-	if item.Sidecar != "" {
-		kept := filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")
-		if err := keepSidecar(item.Sidecar, kept); err != nil {
-			return false, err
-		}
+// folderOf is the folder a photo's date says it belongs in.
+func folderOf(root string, capture Capture, opt Options) string {
+	base := profileRoot(root, opt)
+	if opt.SeparateMessaging && capture.Origin.FromMessaging() {
+		base = filepath.Join(base, "messaging")
 	}
-	if err := os.MkdirAll(filepath.Dir(home), 0o755); err != nil {
+
+	// Google's instants are read in the user's own timezone, not UTC — see
+	// Options.Location and Capture.Local.
+	local := capture.Local(opt.location())
+
+	switch capture.Source {
+	case FromSidecar, FromEXIF, FromVideo, FromGiven, FromName, FromNameDay:
+		return filepath.Join(base, local.Format("2006"), local.Format("01"))
+	case FromFolder:
+		// The year is Google's and the month is not known. Saying so in the
+		// path is more honest than picking January and looking precise. No
+		// timezone conversion here: a folder name has no clock to convert.
+		return filepath.Join(base, capture.When.Format("2006"), "unknown-month")
+	default:
+		return filepath.Join(base, "undated")
+	}
+}
+
+// placeAndRecord gives a new photo its home and its record, and says whether
+// the item itself was moved. Its name there comes first, then the record,
+// then the item goes: a run killed in between leaves the item to be placed
+// again, where destination knows it for the same photo, and never a record
+// with no file, which reads as a photo deleted. On a disk with no hard links an
+// arrival is moved and then recorded, as its source brings it again; any other
+// item, the only one, is recorded and then moved: the next run finds it where
+// it was and finishes the move.
+func placeAndRecord(item Item, record Photo, home, root string, catalog *Catalog, account string) (moved bool, err error) {
+	put := func() error { return catalog.Put(record, account) }
+	if err := readyHome(item, home, root); err != nil {
 		return false, err
 	}
-	// Already this photo, from a run before.
-	if exists(home) {
-		return false, nil
+	if exists(home) { // this photo, from a run before: destination's own
+		return false, put()
 	}
-	from, err := Shared(catalog, root, hash, item.Path)
+	from, err := Shared(catalog, root, record.Hash, item.Path)
 	if err != nil {
 		return false, err
 	}
 	if from != "" && os.Link(from, home) == nil {
-		return false, nil
+		return false, put()
 	}
-	return true, move(item.Path, home)
+	if os.Link(item.Path, home) == nil {
+		if err := put(); err != nil {
+			return false, err
+		}
+		return true, os.Remove(item.Path)
+	}
+	if !item.Arrival {
+		if err := put(); err != nil {
+			return false, err
+		}
+		return true, move(item.Path, home)
+	}
+	if err := move(item.Path, home); err != nil {
+		return false, err
+	}
+	return true, put()
+}
+
+// readyHome makes the folder of a photo's home, and gives its sidecar the
+// same path under the library's metadata folder: a second name of it, as a
+// photo of a later part may share it, out of sight but beside nothing else:
+//
+//	<root>/2019/07/IMG_1234.jpg
+//	<root>/.homewend/metadata/2019/07/IMG_1234.jpg.json
+//
+// The sidecar first: a run stopped between the two finds the photo still to
+// place, and not a photo in without it.
+func readyHome(item Item, home, root string) error {
+	if item.Sidecar != "" {
+		kept := filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")
+		if err := keepSidecar(item.Sidecar, kept); err != nil {
+			return err
+		}
+	}
+	return os.MkdirAll(filepath.Dir(home), 0o755)
 }
 
 // Shared is a file of the library at root that holds the content of hash, in
@@ -320,9 +351,9 @@ func place(item Item, hash, home, root string, catalog *Catalog) (moved bool, er
 // bytes whatever became of them. like, when not "", is a file of that content:
 // a second name of it needs no reading.
 func Shared(catalog *Catalog, root, hash, like string) (string, error) {
-	paths, err := catalog.Paths(hash)
-	for _, p := range paths {
-		file := filepath.Join(root, filepath.FromSlash(p))
+	copies, err := catalog.Copies(hash)
+	for _, p := range copies {
+		file := filepath.Join(root, filepath.FromSlash(p.Path))
 		if like != "" && linked(like, file) {
 			return file, nil
 		}
