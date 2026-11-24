@@ -103,6 +103,7 @@ export const text = {
 	askProfileField: 'Name',
 	continue: 'Continue',
 	accountGone: 'This account is no longer on this computer. Add it again.',
+	profileCase: 'There is a profile of this name already, with other capitals.',
 	badProfile: 'A name of a folder: no / or \\, and not starting with a dot.',
 	change: 'Change…',
 	chooseFolder: 'Choose a folder',

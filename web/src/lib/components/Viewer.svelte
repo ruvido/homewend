@@ -8,7 +8,7 @@
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { pane, swap } from '#lib/motion.js';
-	import { getAbout, getFile, pathOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile } from '#lib/api.js';
+	import { getAbout, getFile, pathOf, pictureOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
@@ -67,7 +67,7 @@
 		if (index === null) return;
 		for (const d of [-1, 1]) {
 			const q = photos[index + d];
-			if (q && !q.missing && !q.video) new Image().src = `/api/preview/${q.hash}`;
+			if (q && !q.missing && !q.video) new Image().src = pictureOf(q, 'preview');
 		}
 	});
 
@@ -99,7 +99,7 @@
 	let asked = $state<{ id: string; fx: number; fy: number } | null>(null);
 	// w × h the picture as shown, turned; iw × ih the picture itself.
 	let zoomed = $state<{ id: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
-	const zoomSrc = $derived(p ? `/api/${image ? 'original' : 'preview'}/${p.hash}` : '');
+	const zoomSrc = $derived(p ? pictureOf(p, image ? 'original' : 'preview') : '');
 	$effect(() => {
 		// Another photo: fitted again.
 		if (id !== zoomed?.id) zoomed = null;
@@ -262,14 +262,14 @@
 					{#key p.id}
 						{#if p.missing}
 							<!-- Its file is gone: what is left is its thumbnail, faded. -->
-							<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
+							<img class="gone" src={pictureOf(p)} alt={p.name} />
 							<div class="said">
 								<span class="badge"><Icon name="file-earmark-x" size={16} />{text.notOnDisk}</span>
 								<span>{text.missingInViewer(wasAt)}</span>
 							</div>
 						{:else if video}
 							<!-- svelte-ignore a11y_media_has_caption -->
-							<video src="/api/original/{p.hash}" controls autoplay></video>
+							<video src={pictureOf(p, 'original')} controls autoplay></video>
 						{:else if zoomed}
 							<div class="pan" bind:this={pan} onpointerdown={down} onpointermove={moveDrag} onpointerup={up} role="presentation">
 								<div class="turned" style:width="{zoomed.w}px" style:height="{zoomed.h}px">
@@ -286,13 +286,13 @@
 						{:else}
 							<!-- The thumbnail at once; the preview, from the cache, over it only
 							     once whole: a big file is never seen drawing itself. -->
-							<img src="/api/thumb/{p.hash}" alt={p.name} style={fit} />
+							<img src={pictureOf(p)} alt={p.name} style={fit} />
 							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 							<img
 								style={fit}
 								class="full"
 								class:ready={ready === p.id}
-								src="/api/preview/{p.hash}"
+								src={pictureOf(p, 'preview')}
 								alt=""
 								bind:this={fitted}
 								onload={() => (ready = p!.id)}

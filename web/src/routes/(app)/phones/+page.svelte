@@ -14,7 +14,7 @@
 	import Dialog from '#lib/components/Dialog.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import { app } from '#lib/app.svelte.js';
-	import { getPhones, startPairing, stopPairing, unpair, type Phone } from '#lib/api.js';
+	import { ApiError, getPhones, startPairing, stopPairing, unpair, type Phone } from '#lib/api.js';
 	import { clock, day } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
 
@@ -78,7 +78,7 @@
 		if (!adding || !p || naming) return;
 		startPairing(p).then(
 			(r) => adding && profile === p && (code = r.qr),
-			(e) => (failed = String(e))
+			(e) => (failed = e instanceof ApiError && e.status === 422 ? text.profileCase : String(e))
 		);
 	});
 	function cancel() {

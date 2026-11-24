@@ -45,7 +45,7 @@
 			goto(chooseUrl(id), { replaceState: true });
 		} catch (e) {
 			// No account to name: it signed out, or its folder went.
-			failed = e instanceof ApiError && e.status === 404 ? text.accountGone : text.badProfile;
+			failed = e instanceof ApiError && e.status === 404 ? text.accountGone : e instanceof ApiError && e.status === 422 ? text.profileCase : text.badProfile;
 		}
 	}
 </script>

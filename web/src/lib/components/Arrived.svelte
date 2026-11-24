@@ -8,7 +8,7 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
-	import { turned, type GridPhoto } from '#lib/api.js';
+	import { pictureOf, turned, type GridPhoto } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 
 	let { label, photos }: { label: string; photos: GridPhoto[] } = $props();
@@ -61,10 +61,10 @@
 	<div class="tiles">
 		{#each tiles as t, i (i)}
 			<div class="tile">
-				{#if t.was}<img src="/api/thumb/{t.was.hash}" alt="" style:transform={turned(t.was)} />{/if}
+				{#if t.was}<img src={pictureOf(t.was)} alt="" style:transform={turned(t.was)} />{/if}
 				{#if t.now}
 					{#key t.now.id}
-						<img src="/api/thumb/{t.now.hash}" alt={t.now.name} style:transform={turned(t.now)} class:in={loaded.has(t.now.id)} onload={() => shown(t.now!.id)} />
+						<img src={pictureOf(t.now)} alt={t.now.name} style:transform={turned(t.now)} class:in={loaded.has(t.now.id)} onload={() => shown(t.now!.id)} />
 					{/key}
 				{/if}
 				{#if !t.now || (!t.was && !loaded.has(t.now.id))}<span class="spin"><Icon name="arrow-repeat" size={16} /></span>{/if}

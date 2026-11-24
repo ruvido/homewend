@@ -27,7 +27,7 @@
 	import Avatar from './Avatar.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import { tick, untrack, type Snippet } from 'svelte';
-	import { pathOf, turned, type GridPhoto } from '#lib/api.js';
+	import { pathOf, pictureOf, turned, type GridPhoto } from '#lib/api.js';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { Opener } from '#lib/menu.svelte.js';
 	import { swap } from '#lib/motion.js';
@@ -267,7 +267,7 @@
 							draggable={!!window.shell}
 						>
 							<img
-								src="/api/thumb/{p.hash}"
+								src={pictureOf(p)}
 								alt={p.name}
 								style:transform={turned(p)}
 								use:shown

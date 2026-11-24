@@ -84,6 +84,9 @@ export interface PhotoKey {
 const keyOf = ({ hash, profile }: PhotoKey): PhotoKey => ({ hash, profile });
 const of = (p: PhotoKey) => `${p.hash}?${q({ profile: p.profile })}`;
 
+/** Its picture, small, at the size of a screen, or its own file. */
+export const pictureOf = (p: PhotoKey, what: 'thumb' | 'preview' | 'original' = 'thumb') => `/api/${what}/${of(p)}`;
+
 export interface GridPhoto extends PhotoKey {
 	/** Its library and its content in one: what a list and a selection know it by. */
 	id: string;
