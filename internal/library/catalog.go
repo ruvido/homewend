@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"modernc.org/sqlite"
@@ -103,7 +104,17 @@ const (
 // of thousands of thumbnails and filter them without loading the lot, and
 // because the driver is already here for reading Chrome's cookies. No cgo, so
 // the app still cross-compiles to the three desktops from one machine.
-type Catalog struct{ db *sql.DB }
+type Catalog struct {
+	db *sql.DB
+	// held is Holds's query, prepared once: a phone asks about hundreds.
+	held func() (*sql.Stmt, error)
+}
+
+func newCatalog(db *sql.DB) *Catalog {
+	return &Catalog{db: db, held: sync.OnceValues(func() (*sql.Stmt, error) {
+		return db.Prepare(`SELECT profile, path, trashed, archived FROM library_photos WHERE hash = ?`)
+	})}
+}
 
 const schema = `
 -- One row for each photo of each library: the same content in two libraries
@@ -272,7 +283,7 @@ func OpenCatalog(path string) (*Catalog, error) {
 		db.Close()
 		return nil, fmt.Errorf("preparing the catalog: %w", err)
 	}
-	return &Catalog{db: db}, nil
+	return newCatalog(db), nil
 }
 
 // offsets is an SQL expression of taken, an instant in Unix seconds between
@@ -348,7 +359,7 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 		db.Close()
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
-	return &Catalog{db: db}, nil
+	return newCatalog(db), nil
 }
 
 func (c *Catalog) Close() error { return c.db.Close() }

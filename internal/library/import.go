@@ -268,7 +268,11 @@ func (h Held) Out() bool { return h.Deleted || h.Trashed }
 // disk that answers late is not a deletion. The look and the copy judge a
 // photo here, alike.
 func Holds(catalog *Catalog, root string, k Key) (Held, error) {
-	rows, err := catalog.db.Query(`SELECT profile, path, trashed, archived FROM library_photos WHERE hash = ?`, k.Hash)
+	held, err := catalog.held()
+	if err != nil {
+		return Held{}, fmt.Errorf("reading the catalog: %w", err)
+	}
+	rows, err := held.Query(k.Hash)
 	if err != nil {
 		return Held{}, fmt.Errorf("reading the catalog: %w", err)
 	}
@@ -287,7 +291,7 @@ func Holds(catalog *Catalog, root string, k Key) (Held, error) {
 		return Held{}, fmt.Errorf("reading the catalog: %w", err)
 	}
 	rows.Close() // the disk is asked with no row open
-	var held Held
+	var mine Held
 	elsewhere := false
 	for i, h := range all {
 		_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
@@ -296,12 +300,12 @@ func Holds(catalog *Catalog, root string, k Key) (Held, error) {
 		switch {
 		case profiles[i] != k.Profile && k.Profile != "":
 			elsewhere = elsewhere || !missing
-		case !held.Known || held.Out():
-			held = h
+		case !mine.Known || mine.Out():
+			mine = h
 		}
 	}
-	held.Elsewhere = elsewhere && (!held.Known || held.Deleted)
-	return held, nil
+	mine.Elsewhere = elsewhere && (!mine.Known || mine.Deleted)
+	return mine, nil
 }
 
 // bringIn copies or links one file into the arrivals, under name, and places
