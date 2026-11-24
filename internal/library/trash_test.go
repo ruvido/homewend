@@ -1120,3 +1120,83 @@ func TestAnOldPhotoInTransitKeepsItsFile(t *testing.T) {
 		l.file("ann/2019/07/a.jpg", true)
 	}
 }
+
+// The look at the whole library finishes the journal before it picks what to
+// move: a photo restored on its way in is home after one look.
+func TestALookFinishesTheJournalFirst(t *testing.T) {
+	l := newTrashing(t)
+	a := l.add("ron/a.jpg", "a photo")
+	if err := keepMoves(l.root, []transit{{a, "ron/a.jpg", ".trash/ron/a.jpg"}}); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(under(l.root, ".trash/ron"), 0o755)
+	os.Rename(under(l.root, "ron/a.jpg"), under(l.root, ".trash/ron/a.jpg"))
+	l.tidy()
+	l.at(a, "ron/a.jpg")
+}
+
+// What a journal says is recorded only when the file is the photo's, and no
+// other photo's; an entry of a photo forgotten or filed elsewhere is dropped.
+func TestAJournalIsNotBelieved(t *testing.T) {
+	l := newTrashing(t)
+	a, b, d, e := l.add("ron/a.jpg", "a photo"), l.add("ron/b.jpg", "another"), l.add("ron/d.jpg", "a third"), l.add("ron/e.jpg", "a fourth")
+	l.mark(true, a)
+	write(t, l.root, ".trash/ron/a.jpg", []byte("not it."))
+	os.Remove(under(l.root, "ron/a.jpg"))
+	if err := l.c.TakeOut([]Key{e}, false); err != nil {
+		t.Fatal(err)
+	}
+	err := keepMoves(l.root, []transit{{a, "ron/a.jpg", ".trash/ron/a.jpg"}, {b, "ron/gone.jpg", "ron/d.jpg"}, {e, "ron/e.jpg", ".trash/ron/e.jpg"}, {b, "ron/b.jpg", "ron/d.jpg"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(under(l.root, "ron/b.jpg"))
+	l.finish()
+	p, _ := l.c.Photo(a)
+	if moves, err := movesOf(l.root); err != nil || len(moves) != 1 || moves[0].Key != a || p.Path != "ron/a.jpg" {
+		t.Errorf("%+v %v, a at %s; want a's alone, not recorded", moves, err, p.Path)
+	}
+	l.at(d, "ron/d.jpg")
+	if p, _ := l.c.Photo(b); p.Path != "ron/b.jpg" {
+		t.Errorf("b recorded at another's %s", p.Path)
+	}
+	l.file("ron/e.jpg", true)
+	l.empty([]Key{a}, a)
+	// Its name is taken for the next.
+	f := l.add("ron/a.jpg", "a fifth")
+	os.Remove(under(l.root, ".trash/ron/a.jpg"))
+	l.mark(true, f)
+	if err := keepMoves(l.root, []transit{{a, "ann/away/a.jpg", ".trash/ron/a.jpg"}}); err != nil {
+		t.Fatal(err)
+	}
+	l.exec(`UPDATE library_photos SET path = 'ann/away/a.jpg' WHERE hash = ?`, a.Hash)
+	l.tidy()
+	l.at(f, ".trash/.2/ron/a.jpg")
+}
+
+// A journal that does not read is set aside and the turn goes on; the look at
+// the whole library finds what it held.
+func TestAJournalThatDoesNotRead(t *testing.T) {
+	for _, bytes := range []string{"", "{}", `[{"hash":"ab`} {
+		l := newTrashing(t)
+		a, b, d := l.add("ron/a.jpg", "a photo"), l.add("ron/b.jpg", "another"), l.add("ron/d.jpg", "a third")
+		l.trash(b)
+		l.mark(true, a, d)
+		l.mark(false, b, d)
+		// a on its way in, d too and restored, b on its way out.
+		os.MkdirAll(under(l.root, "ron"), 0o755)
+		for from, to := range map[string]string{"ron/a.jpg": ".trash/ron/a.jpg", "ron/d.jpg": ".trash/ron/d.jpg", ".trash/ron/b.jpg": "ron/b.jpg"} {
+			if err := os.Rename(under(l.root, from), under(l.root, to)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		write(t, l.root, WorkDir+"/trash-moves.json", []byte(bytes))
+		l.finish()
+		l.file(WorkDir+"/trash-moves.json", false)
+		l.file(WorkDir+"/trash-moves.json.unread", true)
+		l.tidy()
+		l.at(a, ".trash/ron/a.jpg")
+		l.at(b, "ron/b.jpg")
+		l.at(d, "ron/d.jpg")
+	}
+}

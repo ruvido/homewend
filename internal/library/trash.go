@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -127,11 +128,14 @@ func movesOf(root string) (moves []transit, err error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
-	if err == nil {
-		err = json.Unmarshal(data, &moves)
+	if err == nil && json.Unmarshal(data, &moves) != nil {
+		return nil, errJournal
 	}
 	return moves, err
 }
+
+// errJournal is a journal that does not read.
+var errJournal = errors.New("the Trash's journal does not read")
 
 // keepMoves writes the journal, on the disk before anything moves.
 func keepMoves(root string, moves []transit) error {
@@ -180,26 +184,54 @@ func FinishMoves(root, catalog string, write Write) error {
 	}
 	return with(catalog, func(c *Catalog) error {
 		moves, err := movesOf(root)
+		if errors.Is(err, errJournal) {
+			// What it held is found by the look at the whole library (lost).
+			log.Printf("%v: set aside", err)
+			return os.Rename(journal(root), journal(root)+".unread")
+		}
 		if err != nil {
 			return err
 		}
-		return finishMoves(root, c, moves, write)
+		return finishMoves(root, c, moves, nil, write)
 	})
 }
 
 // Write does a write to c that changes no list.
 type Write func(c *Catalog, do func() error) error
 
-func finishMoves(root string, c *Catalog, moves []transit, write Write) error {
+// seen are the files of those just moved, others' bytes are read.
+func finishMoves(root string, c *Catalog, moves []transit, seen map[Key]fs.FileInfo, write Write) error {
 	var kept, made []transit
 	renamed := false
 	for _, m := range moves {
+		at, in, err := c.PathOf(m.Key)
+		if err != nil {
+			return err
+		}
+		if !in || at != m.From && at != m.To {
+			continue // forgotten, or filed elsewhere since
+		}
 		from, errFrom := regular(root, m.From)
 		to, errTo := regular(root, m.To)
 		switch {
 		case errFrom != nil || errTo != nil:
 			kept = append(kept, m)
 		case to != nil && (from == nil || os.SameFile(from, to)):
+			other, err := c.PathTaken(m.To, m.Key)
+			if err != nil {
+				return err
+			}
+			if other {
+				continue
+			}
+			if was := seen[m.Key]; was == nil || !os.SameFile(was, to) {
+				if hash, err := hashOf(under(root, m.To)); err != nil || hash != m.Hash {
+					if from == nil {
+						kept = append(kept, m) // not known for the photo: for a person to see
+					}
+					continue
+				}
+			}
 			moveBesides(root, m.From, m.To)
 			if from != nil && os.Remove(under(root, m.From)) != nil {
 				kept = append(kept, m)
@@ -238,7 +270,7 @@ func finishMoves(root string, c *Catalog, moves []transit, write Write) error {
 			return err
 		}
 	}
-	if len(kept) == len(moves) {
+	if len(kept) == len(moves) && len(moves) > 0 || len(kept) == 0 && !exists(journal(root)) {
 		return nil
 	}
 	return keepMoves(root, kept)
@@ -251,6 +283,45 @@ func finishMoves(root string, c *Catalog, moves []transit, write Write) error {
 func TidyTrash(root, catalog string, keys []Key, turn Turn, write Write) (gone []string, err error) {
 	var todo []Key
 	var claimed []Photo
+	var failed []error
+	// What moved is where it is recorded before any is picked.
+	if exists(journal(root)) {
+		unlock, err := turn()
+		if err != nil {
+			return nil, err
+		}
+		failed = append(failed, FinishMoves(root, catalog, write))
+		unlock()
+	}
+	some := false
+	if keys == nil {
+		err = with(catalog, func(c *Catalog) error {
+			moves, err := lost(root, c)
+			some = len(moves) > 0
+			return err
+		})
+		if err != nil {
+			return nil, errors.Join(append(failed, err)...)
+		}
+	}
+	if some {
+		unlock, err := turn()
+		if err != nil {
+			return nil, err
+		}
+		failed = append(failed, with(catalog, func(c *Catalog) error {
+			moves, err := lost(root, c) // again, in its turn
+			if err != nil {
+				return err
+			}
+			kept, err := movesOf(root)
+			if err != nil {
+				return err
+			}
+			return finishMoves(root, c, append(kept, moves...), nil, write)
+		}))
+		unlock()
+	}
 	err = with(catalog, func(c *Catalog) error {
 		pick := func(condition string) ([]Photo, error) {
 			if keys == nil {
@@ -273,16 +344,6 @@ func TidyTrash(root, catalog string, keys []Key, turn Turn, write Write) (gone [
 	if err != nil {
 		return nil, err
 	}
-	var failed []error
-	// A disk that cannot lock tells no run that was killed as its turn is taken.
-	if keys == nil && exists(journal(root)) {
-		unlock, err := turn()
-		if err != nil {
-			return nil, err
-		}
-		failed = append(failed, FinishMoves(root, catalog, write))
-		unlock()
-	}
 	for few := range slices.Chunk(todo, fewAtATime) {
 		unlock, err := turn()
 		if err != nil {
@@ -293,6 +354,75 @@ func TidyTrash(root, catalog string, keys []Key, turn Turn, write Write) (gone [
 	}
 	_, gone, err = erase(root, catalog, claimed, erasing, turn)
 	return gone, errors.Join(append(failed, err)...)
+}
+
+// lost are the moves nothing tells of any more, a journal that did not read:
+// of a photo whose file is not where it is recorded, and is, its content read,
+// in the Trash's folder at no photo's path, or at its home.
+func lost(root string, c *Catalog) (moves []transit, err error) {
+	is := func(p Photo, rel string) bool {
+		info, err := regular(root, rel)
+		if err != nil || info == nil || info.Size() != p.Bytes {
+			return false
+		}
+		hash, err := hashOf(under(root, rel))
+		return err == nil && hash == p.Hash
+	}
+	files, err := inFolder(root)
+	if err != nil {
+		return nil, err
+	}
+	recorded, err := c.photos(`WHERE ` + inItsFolder)
+	if err != nil {
+		return nil, err
+	}
+	at := map[string]bool{}
+	for _, p := range recorded {
+		at[p.Path] = true
+		for n := 1; n <= homeNames && !exists(under(root, p.Path)); n++ {
+			home := homeOf(p.Path)
+			if n > 1 {
+				home = relativeTo(root, withSuffix(under(root, home), n))
+			}
+			if is(p, home) {
+				moves = append(moves, transit{p.Key(), p.Path, home})
+				break
+			}
+		}
+	}
+	for _, rel := range files {
+		if at[rel] {
+			continue
+		}
+		photos, err := c.photos(`WHERE path = ?`, homeOf(rel))
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range photos {
+			if !exists(under(root, p.Path)) && is(p, rel) {
+				moves = append(moves, transit{p.Key(), p.Path, rel})
+				break
+			}
+		}
+	}
+	return moves, nil
+}
+
+// homeNames is how many names a photo's home is looked for under.
+const homeNames = 20
+
+// inFolder are the files in the Trash's folder.
+func inFolder(root string) (files []string, err error) {
+	if direct(root, trashPath("x", 1)) != nil {
+		return nil, nil
+	}
+	err = filepath.WalkDir(filepath.Join(root, TrashDir), func(file string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			files = append(files, relativeTo(root, file))
+		}
+		return nil
+	})
+	return files, err
 }
 
 // settle moves the files of photos to where they belong, in the library's turn.
@@ -313,8 +443,7 @@ func settle(root string, c *Catalog, photos []Key, write Write) error {
 	if err != nil {
 		return err
 	}
-	going := map[Key]bool{}
-	taken := map[string]bool{}
+	going, taken, seen := map[Key]bool{}, map[string]bool{}, map[Key]fs.FileInfo{}
 	for _, m := range moves {
 		going[m.Key], taken[m.To] = true, true
 	}
@@ -331,6 +460,7 @@ func settle(root string, c *Catalog, photos []Key, write Write) error {
 			return err
 		}
 		if to != "" {
+			seen[p.Key()] = info
 			moves, taken[to] = append(moves, transit{p.Key(), p.Path, to}), true
 		}
 	}
@@ -346,7 +476,7 @@ func settle(root string, c *Catalog, photos []Key, write Write) error {
 			failed = append(failed, fmt.Errorf("%s: %w", m.From, err))
 		}
 	}
-	return errors.Join(append(failed, finishMoves(root, c, moves, write))...)
+	return errors.Join(append(failed, finishMoves(root, c, moves, seen, write))...)
 }
 
 // free is the first free name p's file can go to, "" when a link is on the way.
@@ -495,16 +625,7 @@ func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write) (lef
 // strays are the photos deleted for good that have a file in the Trash's
 // folder again: an older program takes one that comes in for a move left halfway.
 func strays(root string, c *Catalog) ([]Photo, error) {
-	if direct(root, trashPath("x", 1)) != nil {
-		return nil, nil
-	}
-	files := []string{}
-	err := filepath.WalkDir(filepath.Join(root, TrashDir), func(file string, d fs.DirEntry, err error) error {
-		if err == nil && d.Type().IsRegular() {
-			files = append(files, relativeTo(root, file))
-		}
-		return nil
-	})
+	files, err := inFolder(root)
 	if err != nil || len(files) == 0 {
 		return nil, err
 	}
