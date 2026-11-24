@@ -531,6 +531,25 @@ func exifThumbnail(path string) []byte {
 	return head[at : at+size]
 }
 
+// CameraOf is the camera that took the photo at path, "FUJIFILM X-T3": the
+// make and the model its EXIF names, the make once; "" when it does not say.
+func CameraOf(path string) string {
+	head, tiff, order, ok := exifHead(path)
+	if !ok {
+		return ""
+	}
+	ifd0 := int(order.Uint32(head[tiff+4 : tiff+8]))
+	read := func(tag uint16) string {
+		s, _ := readTag(head, tiff, ifd0, tag, order)
+		return strings.TrimSpace(strings.TrimRight(s, "\x00"))
+	}
+	maker, model := read(0x010f), read(0x0110)
+	if len(model) >= len(maker) && strings.EqualFold(model[:len(maker)], maker) {
+		return model
+	}
+	return strings.TrimSpace(maker + " " + model)
+}
+
 // Orientation is the EXIF orientation of a JPEG or TIFF, 1 to 8: how the
 // pixels must be turned to be seen upright. 1, as is, when there is none.
 func Orientation(path string) int {

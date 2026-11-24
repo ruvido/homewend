@@ -196,6 +196,16 @@ func TestAPhotoInTheTrash(t *testing.T) {
 	if h, err := Holds(c, root, "a"); err != nil || !h.Known || h.Deleted || !h.Trashed {
 		t.Errorf("held %+v %v, want it in the Trash", h, err)
 	}
+	// A heart is kept through the Trash, and by a second record of the photo.
+	if done, err := c.Mark(Favorite, []string{"a"}, "", true); err != nil || len(done) != 1 {
+		t.Fatalf("favorite %v %v", done, err)
+	}
+	if err := c.Put(Photo{Hash: "a", Path: "ron/a", Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := c.Photo("a"); err != nil || !p.Favorite {
+		t.Errorf("%+v %v, want its heart", p, err)
+	}
 	if gone, _ := Missing(filepath.Join(root, "catalog.db"), root); len(gone) != 1 || gone[0].Hash != "b" {
 		t.Errorf("missing %v, want b only", gone)
 	}

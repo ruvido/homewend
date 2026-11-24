@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -125,8 +126,8 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 			On     bool          `json:"on"`
 			Hashes []string      `json:"hashes"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Hashes) == 0 || body.State != library.Archived && body.State != library.Trashed {
-			http.Error(w, "photos and archived or trashed are needed", http.StatusBadRequest)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Hashes) == 0 || !slices.Contains([]library.State{library.Archived, library.Trashed, library.Favorite}, body.State) {
+			http.Error(w, "photos and archived, trashed or favorite are needed", http.StatusBadRequest)
 			return
 		}
 		done, err := engine.Mark("", body.State, body.Hashes, body.On)

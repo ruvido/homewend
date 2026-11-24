@@ -34,6 +34,8 @@ type GridPhoto struct {
 	Turn int `json:"turn,omitempty"`
 	// Archived: in the Archive, shown in an album.
 	Archived bool `json:"archived,omitempty"`
+	// Favorite: given a heart.
+	Favorite bool `json:"favorite,omitempty"`
 	// Origin: the app it came through, or a screenshot; empty when it came
 	// from a camera or nothing says.
 	Origin library.Origin `json:"origin,omitempty"`
@@ -156,7 +158,7 @@ func Photos(s Settings, year, album string, noDate bool, view string, limit int)
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived}
+		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
@@ -566,12 +568,16 @@ type PhotoAbout struct {
 	Dated library.DateSource `json:"dated"`
 	Bytes int64              `json:"bytes"`
 	Path  string             `json:"path"` // in the library
+	// Its pixels, and the camera it says took it; 0 and "" when not known.
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
+	Camera string `json:"camera"`
 }
 
 // About is what the viewer says of a photo: its albums, where it came from,
 // its date's source, its size and its place.
 func About(hash string) (PhotoAbout, error) {
-	c, _, err := openLibrary()
+	c, root, err := openLibrary()
 	if err != nil || c == nil {
 		return PhotoAbout{Albums: []string{}, Accounts: []string{}, Local: []string{}}, err
 	}
@@ -590,6 +596,12 @@ func About(hash string) (PhotoAbout, error) {
 		return about, err
 	}
 	p, err := c.Photo(hash)
+	if err != nil {
+		return about, err
+	}
 	about.Dated, about.Bytes, about.Path = p.Source, p.Bytes, p.Path
-	return about, err
+	file := filepath.Join(root, filepath.FromSlash(p.Path))
+	about.Width, about.Height = thumb.Dimensions(file)
+	about.Camera = library.CameraOf(file)
+	return about, nil
 }

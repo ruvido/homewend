@@ -22,6 +22,7 @@
 		failed = '',
 		onact,
 		onturned,
+		onfavorite,
 		ontakenout,
 		ondated
 	}: {
@@ -38,10 +39,14 @@
 		onact?: (a: MarkAct, hash: string) => void;
 		/** Turned: how many quarter turns it has now. */
 		onturned?: (hash: string, turn: number) => void;
+		/** Given a heart, or not any more. */
+		onfavorite?: (hash: string, on: boolean) => void;
 		ontakenout?: () => void;
 		ondated?: (hash: string) => void;
 	} = $props();
 	let takingOut = $state(false);
+	// The photo just given a heart: its bounce, not at every favorite passed.
+	let beat = $state('');
 	// K3: this one photo given a date, as the library's selection is (K2).
 	let dating = $state(false);
 
@@ -207,6 +212,7 @@
 {#if p}
 	<div class="viewer" data-theme="dark" in:swap out:swap={{ leaving: true }}>
 		<header>
+			<button class="pill icon" aria-label={text.backToLibrary} title={text.backToLibrary} onclick={() => (index = null)}><Icon name="arrow-left" size={16} /></button>
 			<div class="meta">
 				<b>{taken}</b>
 				<span>{p.name}{beside}</span>
@@ -223,6 +229,11 @@
 				{#each actsOf([p]) as a (a.label)}
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), onact?.(a, p.hash))}><Icon name={a.icon} size={14} />{a.label}</button>
 				{/each}
+			{/if}
+			{#if editable && !p.missing}
+				<button class="pill icon heart" class:beat={beat === p.hash && p.favorite} aria-label={text.favorite} title={text.favorite} aria-pressed={!!p.favorite} onclick={(e) => (e.currentTarget.blur(), (beat = p.hash), onfavorite?.(p.hash, !p.favorite))}>
+					<Icon name={p.favorite ? 'heart-fill' : 'heart'} size={16} />
+				</button>
 			{/if}
 			<button class="pill icon" aria-label={text.info} title={text.info} aria-pressed={info} onclick={(e) => (e.currentTarget.blur(), (info = !info))}><Icon name="info-circle" size={16} /></button>
 		</header>
@@ -297,7 +308,8 @@
 								</dd>
 							</div>
 							{#if about}
-								<div><dt>{text.infoSize}</dt><dd>{bytes(about.bytes)}</dd></div>
+								<div><dt>{text.infoSize}</dt><dd>{about.width ? text.infoPixels(about.width, about.height) + ' · ' : ''}{bytes(about.bytes)}</dd></div>
+								{#if !video}<div><dt>{text.infoCamera}</dt><dd>{about.camera || '—'}{#if !about.camera}<small>{text.infoNoCamera}</small>{/if}</dd></div>{/if}
 								{#if from.length}<div><dt>{text.infoFrom}</dt><dd>{from.join(', ')}</dd></div>{/if}
 								<div><dt>{text.infoFile}</dt><dd>{p.name}<small>{about.path.slice(0, about.path.lastIndexOf('/') + 1)}</small></dd></div>
 							{/if}
@@ -495,6 +507,20 @@
 	}
 	.pill[aria-pressed='true'] {
 		background: #ffffff29;
+	}
+	/* A heart given bounces. */
+	.heart.beat :global(svg) {
+		animation: beat var(--motion-base) var(--ease-out);
+	}
+	@keyframes beat {
+		50% {
+			scale: 1.3;
+		}
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.heart.beat :global(svg) {
+			animation: none;
+		}
 	}
 	.body {
 		flex: 1;

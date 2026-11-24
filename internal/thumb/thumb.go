@@ -101,6 +101,29 @@ func Make(ctx context.Context, src, dst string, size int) (err error) {
 	return err
 }
 
+// Dimensions are the pixels of the photo at path as it is shown, turned as
+// its EXIF says; 0 for what no decoder here reads, a video included.
+func Dimensions(path string) (w, h int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0
+	}
+	defer f.Close()
+	var c image.Config
+	if ext := strings.ToLower(filepath.Ext(path)); ext == ".heic" || ext == ".heif" {
+		c, err = heic.DecodeConfig(f)
+	} else {
+		c, _, err = image.DecodeConfig(f)
+	}
+	if err != nil {
+		return 0, 0
+	}
+	if library.Orientation(path) >= 5 {
+		return c.Height, c.Width
+	}
+	return c.Width, c.Height
+}
+
 // Kept are the hashes whose picture Path keeps in cacheDir: read from its
 // folders, not asked one by one.
 func Kept(cacheDir string) map[string]bool {

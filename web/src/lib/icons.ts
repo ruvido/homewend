@@ -63,6 +63,8 @@ import search from 'bootstrap-icons/icons/search.svg?raw';
 import signal from 'bootstrap-icons/icons/signal.svg?raw';
 import telegram from 'bootstrap-icons/icons/telegram.svg?raw';
 import whatsapp from 'bootstrap-icons/icons/whatsapp.svg?raw';
+import heart from 'bootstrap-icons/icons/heart.svg?raw';
+import heartFill from 'bootstrap-icons/icons/heart-fill.svg?raw';
 import xLg from 'bootstrap-icons/icons/x-lg.svg?raw';
 
 const raw = {
@@ -126,6 +128,8 @@ const raw = {
 	'signal': signal,
 	'telegram': telegram,
 	'whatsapp': whatsapp,
+	'heart': heart,
+	'heart-fill': heartFill,
 	'x-lg': xLg,
 };
 

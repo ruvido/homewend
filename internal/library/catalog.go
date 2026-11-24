@@ -74,10 +74,11 @@ type Photo struct {
 	// here, the file is never changed.
 	Turn     int
 	Archived bool
+	Favorite bool
 }
 
 // photoColumns are what scanPhotos reads, in its order.
-const photoColumns = `hash, path, name, bytes, taken, source, kind, origin, turn, archived`
+const photoColumns = `hash, path, name, bytes, taken, source, kind, origin, turn, archived, favorite`
 
 // Catalog is the index the interface reads: what there is, where it is, and
 // what can be said about it.
@@ -226,9 +227,9 @@ func OpenCatalog(path string) (*Catalog, error) {
 	}
 	// A photo turned by the person, in quarter turns; one archived: out of
 	// the grid and the years, still in its albums, still backed up; one in
-	// the Trash: out of every list and every import until restored. Added
-	// the same way.
-	for _, column := range []string{"turn", string(Archived), string(Trashed)} {
+	// the Trash: out of every list and every import until restored; one given
+	// a heart. Added the same way.
+	for _, column := range []string{"turn", string(Archived), string(Trashed), string(Favorite)} {
 		if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			db.Close()
 			return nil, fmt.Errorf("preparing the catalog: %w", err)
@@ -703,7 +704,7 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 		var taken sql.NullInt64
 		var source, kind, origin string
 		if err := rows.Scan(&photo.Hash, &photo.Path, &photo.Name, &photo.Bytes,
-			&taken, &source, &kind, &origin, &photo.Turn, &photo.Archived); err != nil {
+			&taken, &source, &kind, &origin, &photo.Turn, &photo.Archived, &photo.Favorite); err != nil {
 			return nil, err
 		}
 		if taken.Valid {
@@ -806,6 +807,7 @@ type State string
 const (
 	Archived State = "archived"
 	Trashed  State = "trashed"
+	Favorite State = "favorite"
 )
 
 // Mark sets state on the photos of hashes filed in profile's folder, or

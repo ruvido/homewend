@@ -88,6 +88,8 @@ export interface GridPhoto {
 	turn?: number;
 	/** In the Archive, shown in an album. */
 	archived?: boolean;
+	/** Given a heart. */
+	favorite?: boolean;
 	/** The app it came through (app: one with no badge of its own), or a screenshot. */
 	origin?: 'whatsapp' | 'telegram' | 'signal' | 'instagram' | 'app' | 'screenshot';
 }
@@ -104,10 +106,10 @@ export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; 
 
 /** What a photo's owner sets on it, from the selection's bar or the viewer:
  *  archived or in the Trash (on), or back. ask: Delete asks first (Q2). */
-export type MarkState = 'archived' | 'trashed';
+export type MarkState = 'archived' | 'trashed' | 'favorite';
 export type MarkAct = { icon: IconName; label: string; state: MarkState; on: boolean; ask?: boolean };
 
-/** Photos archived or put in the Trash (on), or brought back. */
+/** Photos archived, put in the Trash or given a heart (on), or brought back. */
 export const mark = (hashes: string[], state: MarkState, on: boolean) =>
 	call<{ marked: number }>('POST', '/api/mark', { hashes, state, on });
 
@@ -216,6 +218,10 @@ export interface PhotoAbout {
 	bytes: number;
 	/** In the library. */
 	path: string;
+	/** Its pixels, and the camera it says took it; 0 and '' when not known. */
+	width: number;
+	height: number;
+	camera: string;
 }
 export const getAbout = (hash: string) =>
 	call<PhotoAbout>('GET', `/api/about/${hash}`);

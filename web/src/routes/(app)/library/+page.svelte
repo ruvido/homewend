@@ -104,6 +104,18 @@
 		}
 	}
 	const turned = (turns: Map<string, number>) => (list = list.map((p) => (turns.has(p.hash) ? { ...p, turn: turns.get(p.hash) } : p)));
+	// A heart shows at once, and is taken back if it could not be kept.
+	async function favorite(hash: string, on: boolean) {
+		const show = (favorite: boolean) => (list = list.map((p) => (p.hash === hash ? { ...p, favorite } : p)));
+		markFailed = '';
+		show(on);
+		try {
+			await mark([hash], 'favorite', on);
+		} catch {
+			show(!on);
+			markFailed = text.markFailed;
+		}
+	}
 	// Archive and Delete (Q1, Q6), Unarchive for photos all archived (Q4,
 	// and in an album); in the Trash, Restore (Q5). The photos not on the
 	// disk have none. Rotate and Change date… are not offered in the
@@ -331,7 +343,7 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, hash) => act(a, [hash])} onturned={(hash, turn) => turned(new Map([[hash, turn]]))} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
+	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, hash) => act(a, [hash])} onturned={(hash, turn) => turned(new Map([[hash, turn]]))} onfavorite={favorite} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
 	{#if asking}
 		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
 		<Dialog title={text.trashAsk(asking.hashes.length)}>

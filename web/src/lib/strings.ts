@@ -414,7 +414,12 @@ export const text = {
 	info: 'Info',
 	infoTaken: 'Taken',
 	infoSize: 'Size',
+	infoPixels: (w: number, h: number) => `${w.toLocaleString('en')} × ${h.toLocaleString('en')}`,
+	infoCamera: 'Camera',
+	infoNoCamera: 'The file does not say',
 	infoFrom: 'From',
+	favorite: 'Favorite',
+	backToLibrary: 'Back to the library',
 	infoFile: 'File',
 	estimatedTag: 'Estimated',
 	// The library's search: a photo's badges and its dates.
