@@ -2,6 +2,20 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- The photos, by month, newest first. Only the rows on screen exist: the
      grid has to scroll through hundreds of thousands of tiles. -->
+<script module lang="ts">
+	// The pictures drawn lately, kept as the browser decoded them: a tile that
+	// comes back to the screen has its own at once, not empty and faded in.
+	// shortcut: the last 3,000, some 30 MB of files; more if a screen ever
+	// holds that many.
+	const KEPT = 3000;
+	const kept = new Map<string, HTMLImageElement>();
+	function keep(hash: string, img: HTMLImageElement) {
+		kept.delete(hash);
+		kept.set(hash, img);
+		if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
+	}
+</script>
+
 <script lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
 	import { tick, untrack, type Snippet } from 'svelte';
@@ -39,7 +53,7 @@
 	const MIN_TILE = 104;
 	const GAP = 8;
 	const MONTH = 40; // a month's heading, with the space above it
-	const OVERSCAN = 600; // pixels drawn beyond the screen, both ways
+	const OVERSCAN = 800; // pixels drawn beyond the screen, both ways
 
 	let width = $state(0);
 	let height = $state(0);
@@ -198,9 +212,14 @@
 					src="/api/thumb/{p.hash}"
 					alt={p.name}
 					style:transform={turned(p)}
-					loading="lazy"
-					decoding="async"
-					onload={(e) => (e.currentTarget as HTMLElement).classList.add('in')}
+					class:in={kept.has(p.hash)}
+					class:known={kept.has(p.hash)}
+					decoding={kept.has(p.hash) ? 'sync' : 'async'}
+					onload={(e) => {
+						const img = e.currentTarget as HTMLImageElement;
+						img.classList.add('in');
+						keep(p.hash, img);
+					}}
 				/>
 				{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
 				{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
@@ -259,6 +278,10 @@
 	}
 	img:global(.in) {
 		opacity: 1;
+	}
+	/* Seen before: no fading in again. */
+	img.known {
+		transition: scale var(--motion-fast) var(--ease-out);
 	}
 	/* A photo that has just arrived in the library fades in slowly. */
 	.arrived img {
