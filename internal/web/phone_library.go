@@ -118,8 +118,7 @@ func (f *cutShort) Read(b []byte) (int, error) {
 // nothing for a while, or is gone, or Homewend quits.
 type toPhone struct {
 	http.ResponseWriter
-	ctx   context.Context
-	until time.Time
+	ctx context.Context
 }
 
 // Unwrap is for http.ResponseController.
@@ -130,12 +129,8 @@ func (w *toPhone) Write(b []byte) (n int, err error) {
 		if err := w.ctx.Err(); err != nil {
 			return n, err
 		}
-		// Not at every piece: on HTTP/2 each is a message to its loop.
-		if now := time.Now(); w.until.Sub(now) < stalled*3/4 {
-			w.until = now.Add(stalled)
-			// One that takes no deadline is a test's.
-			_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(w.until)
-		}
+		// One that takes no deadline is a test's.
+		_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(stalled))
 		piece := b[n:min(n+64<<10, len(b))]
 		m, err := w.ResponseWriter.Write(piece)
 		if n += m; err != nil || n == len(b) {

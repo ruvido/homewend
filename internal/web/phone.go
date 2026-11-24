@@ -80,14 +80,9 @@ func listenPhones() (*phoneListener, error) {
 		}
 	}
 	l := &phoneListener{port: port, pin: pin,
-		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13,
-			NextProtos: []string{"h2", "http/1.1"}})}
+		ln: tls.NewListener(ln, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS13})}
 	// No ReadTimeout: a video takes minutes. An idle connection is closed.
-	// A phone gone from the network without a word is found out by its bytes
-	// not being taken. An upload is not held to HTTP/2's 1 MB on the way, a
-	// VPN's tenth of a second from here.
-	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute,
-		HTTP2: &http.HTTP2Config{WriteByteTimeout: stalled, MaxReceiveBufferPerConnection: 4 << 20, MaxReceiveBufferPerStream: 4 << 20}}
+	l.srv = &http.Server{Handler: phoneRoutes(l), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: time.Minute}
 	// shortcut: the addresses advertised are those at start; a new address
 	// is advertised after the app starts again, meanwhile /v1/hello tells it.
 	var ips []net.IP
