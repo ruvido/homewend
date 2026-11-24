@@ -165,6 +165,9 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 		return img, nil
 	}
 	if library.IsHEIC(src) {
+		if img := smallHEIC(src, size); img != nil {
+			return img, nil
+		}
 		return heic.Decode(f)
 	}
 	img, _, err := image.Decode(f)
@@ -194,9 +197,7 @@ func embedded(f io.ReadSeeker, src string, size int) image.Image {
 	}
 	exif, flashPix := library.EmbeddedThumbnails(src)
 	if img := cameras(exif, size); img != nil {
-		// Within two of its own pixels: cameras round.
-		b := img.Bounds()
-		if off := b.Dx()*whole.Height - b.Dy()*whole.Width; max(off, -off) <= 2*max(whole.Width, whole.Height) {
+		if sameShape(img, whole.Width, whole.Height) {
 			return img
 		}
 	}
@@ -208,6 +209,29 @@ func embedded(f io.ReadSeeker, src string, size int) image.Image {
 		}
 	}
 	return nil
+}
+
+// smallHEIC is a HEIC's own thumbnail, as embedded is a JPEG's.
+func smallHEIC(src string, size int) image.Image {
+	if size > Size {
+		return nil
+	}
+	img := heicThumbnail(src)
+	if img == nil || max(img.Bounds().Dx(), img.Bounds().Dy()) < size {
+		return nil
+	}
+	if w, h := Dimensions(src); w == 0 || !sameShape(img, w, h) {
+		return nil
+	}
+	return img
+}
+
+// sameShape says whether img has the shape of w by h, within two of its own
+// pixels: cameras round.
+func sameShape(img image.Image, w, h int) bool {
+	b := img.Bounds()
+	off := b.Dx()*h - b.Dy()*w
+	return max(off, -off) <= 2*max(w, h)
 }
 
 // cameras is the thumbnail data decoded: as large as asked, and no larger
