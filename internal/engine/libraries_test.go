@@ -44,8 +44,8 @@ func send(t *testing.T, phone Phone, name, body string) (Received, string) {
 
 func haveIs(t *testing.T, phone Phone, hash, want string) {
 	t.Helper()
-	have, out, archived, err := Have(phone, []string{hash})
-	got := strings.Repeat("have ", len(have)) + strings.Repeat("out ", len(out)) + strings.Repeat("archived", len(archived))
+	held, err := Have(phone, []string{hash})
+	got := strings.Repeat("have ", len(held.Have)) + strings.Repeat("out ", len(held.Out)) + strings.Repeat("archived", len(held.Archived))
 	if got = strings.TrimSpace(got); err != nil || got != want {
 		t.Errorf("%s's phone is told %q, %v; want %q", phone.Profile, got, err, want)
 	}

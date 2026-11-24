@@ -33,6 +33,9 @@ const (
 	maxAsk  = 128 << 10
 )
 
+// features are the calls a phone may find, or not on an older computer.
+var features = []string{"marks"}
+
 // phoneListener is the second listener, on the local network, for the
 // phones' calls only: nothing of /api/ is reachable from it. Over TLS with
 // the computer's own certificate, which the phone pins by its key.
@@ -181,13 +184,13 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			return
 		}
 		host, _ := os.Hostname()
-		phoneReply(w, map[string]string{"phone": phone.ID, "token": token, "computer": host, "owner": phone.Profile}, nil)
+		phoneReply(w, map[string]any{"phone": phone.ID, "token": token, "computer": host, "owner": phone.Profile, "features": features}, nil)
 	})
 	// The phone asks, when it opens, whether it is still paired, with whom,
 	// and where the computer is now: an address changed meanwhile heals.
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		host, _ := os.Hostname()
-		hello := map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts()}
+		hello := map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts(), "features": features}
 		// The library unanswered (its disk away, a catalog not read): hello
 		// still says the phone is paired and where the computer is.
 		if lib, err := engine.LibraryOf(phone); err == nil && lib.Known {
@@ -206,8 +209,32 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		if !ok {
 			return
 		}
-		have, out, archived, err := engine.Have(phone, hashes)
-		phoneReply(w, map[string][]string{"have": have, "out": out, "archived": archived}, err)
+		held, err := engine.Have(phone, hashes)
+		phoneReply(w, held, err)
+	}))
+	mux.Handle("POST /v1/marks", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAsk))
+		if errors.As(err, new(*http.MaxBytesError)) {
+			phoneError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("at most %d bytes", maxAsk))
+			return
+		}
+		var q library.MarkQuestion
+		if err != nil || json.Unmarshal(body, &q) != nil {
+			phoneReply(w, nil, library.ErrNotMarks)
+			return
+		}
+		answer, err := engine.Marks(phone, q)
+		phoneReply(w, answer, err)
+	}))
+	// Held until there is something to hear, or for a while.
+	mux.Handle("GET /v1/marks", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+		after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		if err != nil || after < 0 {
+			phoneReply(w, nil, library.ErrNotMarks)
+			return
+		}
+		changed, err := engine.WaitForMarks(r.Context(), phone, r.URL.Query().Get("shelf"), after)
+		phoneReply(w, map[string]bool{"changed": changed}, err)
 	}))
 	// What the phone's owner sets on its photos: the call, the state, on or
 	// off, and the reply's key.
@@ -292,7 +319,9 @@ func phoneReply(w http.ResponseWriter, v any, err error) {
 		phoneError(w, http.StatusInsufficientStorage, err.Error())
 	case errors.Is(err, engine.ErrLibraryBusy):
 		phoneError(w, http.StatusConflict, err.Error())
-	case errors.Is(err, engine.ErrNoLibrary), errors.As(err, new(engine.LibraryGoneError)):
+	case errors.Is(err, library.ErrNotMarks):
+		phoneError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, engine.ErrNoLibrary), errors.Is(err, library.ErrNoMarks), errors.As(err, new(engine.LibraryGoneError)):
 		phoneError(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		log.Printf("phone: %v", err)

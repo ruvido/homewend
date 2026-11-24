@@ -452,6 +452,9 @@ func Mark(state library.State, photos []library.Key, on bool) ([]library.Key, er
 	}
 	defer c.Close()
 	done, err := c.Mark(state, photos, on)
+	if state == library.Favorite {
+		tellPhones()
+	}
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {
 		offMissing(done)

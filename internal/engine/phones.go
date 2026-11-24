@@ -203,6 +203,7 @@ func PhoneOf(token string) (Phone, error) {
 // Unpair forgets a phone, unpaired by "phone" or "computer": its token lets
 // it in no more, and its history stays.
 func Unpair(id, by string) error {
+	defer stopWaiting(id)
 	_, err := UpdatePhones(func(p *Phones) error {
 		i := slices.IndexFunc(p.Phones, func(ph Phone) bool { return ph.ID == id })
 		if i < 0 {
@@ -278,35 +279,49 @@ func makeCert(certFile, keyFile string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(certFile, keyFile)
 }
 
+// Held is what a phone is told of the photos it asks about.
+type Held struct {
+	Have     []string `json:"have"`
+	Out      []string `json:"out"`
+	Archived []string `json:"archived"`
+	// Its library's marks; none with no library, or one that keeps none.
+	*library.Shelf
+}
+
 // Have splits the hashes phone asks about, by its own library: in it with
 // their file in place, or deleted from it and kept out of every import;
 // archived are those of have that are archived. A photo another library has
 // is in neither list: whether this one is to have it too is said by sending
 // it, with its name, and it is then not read (ReceivePhoto). A question brings
 // nothing in: the phone asks about photos it means to delete as well.
-func Have(phone Phone, hashes []string) (have, out, archived []string, err error) {
-	have, out, archived = []string{}, []string{}, []string{}
+func Have(phone Phone, hashes []string) (Held, error) {
+	out := Held{Have: []string{}, Out: []string{}, Archived: []string{}}
 	root, catalog, err := lookAtLibrary()
 	if err != nil || catalog == nil {
-		return have, out, archived, err
+		return out, err
 	}
 	defer catalog.Close()
 	for _, h := range hashes {
 		held, err := library.Holds(catalog, root, library.Key{Hash: h, Profile: phone.Profile})
 		if err != nil {
-			return have, out, archived, err
+			return out, err
 		}
 		switch {
 		case held.Out():
-			out = append(out, h)
+			out.Out = append(out.Out, h)
 		case held.Known:
-			have = append(have, h)
+			out.Have = append(out.Have, h)
 			if held.Archived {
-				archived = append(archived, h)
+				out.Archived = append(out.Archived, h)
 			}
 		}
 	}
-	return have, out, archived, nil
+	shelf, err := catalog.Shelf(phone.Profile)
+	if errors.Is(err, library.ErrNoMarks) {
+		return out, nil
+	}
+	out.Shelf = &shelf
+	return out, err
 }
 
 // MarkOf is Mark on phone's photos of these hashes: no other library's.

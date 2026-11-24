@@ -92,8 +92,8 @@ func TestAPhotoFromAPhone(t *testing.T) {
 	if !got.New || !strings.HasPrefix(got.Path, "ron/") {
 		t.Fatalf("got %+v, want new in ron's folder", got)
 	}
-	if have, out, _, err := Have(phone, []string{hash, strings.Repeat("0", 64)}); err != nil || len(have) != 1 || len(out) != 0 {
-		t.Errorf("have %v out %v err %v, want it had", have, out, err)
+	if held, err := Have(phone, []string{hash, strings.Repeat("0", 64)}); err != nil || len(held.Have) != 1 || len(held.Out) != 0 {
+		t.Errorf("%+v %v, want it had", held, err)
 	}
 	again, err := ReceivePhoto(ctx, phone, hash, "IMG_1.JPG", int64(len(photo)), bytes.NewReader(photo))
 	if err != nil || again.New || again.Path != got.Path {
@@ -106,8 +106,8 @@ func TestAPhotoFromAPhone(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, filepath.FromSlash(got.Path))); err != nil {
 		t.Fatal(err)
 	}
-	if _, out, _, _ := Have(phone, []string{hash}); len(out) != 1 {
-		t.Errorf("out %v, want it said deleted", out)
+	if held, _ := Have(phone, []string{hash}); len(held.Out) != 1 {
+		t.Errorf("out %v, want it said deleted", held.Out)
 	}
 	if back, err := ReceivePhoto(ctx, phone, hash, "IMG_1.JPG", int64(len(photo)), bytes.NewReader(photo)); err != nil || !back.Out {
 		t.Errorf("deleted, sent again: %+v %v, want out", back, err)
