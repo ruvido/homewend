@@ -5,14 +5,21 @@
 <script module lang="ts">
 	// The pictures drawn lately, kept as the browser decoded them: a tile that
 	// comes back to the screen has its own at once, not empty and faded in.
-	// shortcut: the last 3,000, some 30 MB of files; more if a screen ever
-	// holds that many.
-	const KEPT = 3000;
+	// shortcut: the last 1,000, ten screens; some 10 MB of files, and what of
+	// them the browser keeps decoded. Raised if going back further ever shows.
+	const KEPT = 1000;
 	const kept = new Map<string, HTMLImageElement>();
-	function keep(hash: string, img: HTMLImageElement) {
+	function keep(hash: string, src: string) {
+		// One of its own: the tile's would hold the whole tile with it.
+		const img = kept.get(hash) ?? Object.assign(new Image(), { src });
 		kept.delete(hash);
 		kept.set(hash, img);
 		if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
+	}
+	// Said once, as the tile comes: one loading now fades in to the end.
+	function shown(img: HTMLImageElement, hash: string) {
+		if (kept.has(hash)) img.classList.add('in', 'known');
+		else img.decoding = 'async';
 	}
 </script>
 
@@ -22,6 +29,7 @@
 	import { pathOf, turned, type GridPhoto } from '#lib/api.js';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { Opener } from '#lib/menu.svelte.js';
+	import { swap } from '#lib/motion.js';
 	import { text } from '#lib/strings.js';
 
 	let {
@@ -53,11 +61,15 @@
 	const MIN_TILE = 104;
 	const GAP = 8;
 	const MONTH = 40; // a month's heading, with the space above it
-	const OVERSCAN = 800; // pixels drawn beyond the screen, both ways
+	// Pixels drawn beyond the screen: a flick covers more than a screen in a
+	// frame, and where it is going no tile may be missing.
+	const AHEAD = 2400;
+	const BEHIND = 600;
 
 	let width = $state(0);
 	let height = $state(0);
 	let scrollTop = $state(0);
+	let down = $state(true);
 	let headerHeight = $state(0);
 
 	// A photo's menu, at the end of its tile: its folder, its path.
@@ -70,11 +82,16 @@
 		pathOf(hash).then(({ path }) => window.shell?.dragFile(path), () => {});
 	}
 
+	// The tile under the pointer.
+	let over = $state('');
 	const selecting = $derived(!!selected && selected.size > 0);
 	// A click opens the photo; on its circle, or while picking, or with
 	// Shift, it picks it instead.
-	function click(e: MouseEvent, p: GridPhoto) {
-		const i = photos.indexOf(p);
+	const hashAt = (e: Event) => (e.target as Element).closest<HTMLElement>('.tile')?.dataset.hash ?? '';
+	function click(e: MouseEvent) {
+		const hash = hashAt(e);
+		if (!hash) return;
+		const i = photos.findIndex((p) => p.hash === hash);
 		if (onselect && (selecting || e.shiftKey || (e.target as Element).closest('.pick'))) onselect(i, e.shiftKey);
 		else onopen?.(i);
 	}
@@ -113,28 +130,23 @@
 		return { rows, total: top };
 	});
 
-	// The rows on screen: found by halving, not by walking the list.
-	const visible = $derived.by(() => {
-		const rows = layout.rows;
-		const from = scrollTop - headerHeight - OVERSCAN;
-		const to = scrollTop - headerHeight + height + OVERSCAN;
+	// The rows on screen: found by halving, not by walking the list. What is
+	// drawn follows the first and the last of them, so a scroll within a row
+	// draws nothing, and one past it only the rows that come and go.
+	function rowAt(y: number): number {
 		let lo = 0;
-		let hi = rows.length;
+		let hi = layout.rows.length;
 		while (lo < hi) {
 			const mid = (lo + hi) >> 1;
-			if (rows[mid].top + MONTH + tile < from) lo = mid + 1;
+			if (layout.rows[mid].top + MONTH + tile < y) lo = mid + 1;
 			else hi = mid;
 		}
-		const out: Row[] = [];
-		for (let r = lo; r < rows.length && rows[r].top < to; r++) out.push(rows[r]);
-		return out;
-	});
-	// The tiles on screen, one list keyed by photo: a photo that moves to
-	// another row keeps its tile and its picture, it is not drawn again.
-	const tiles = $derived(
-		visible.flatMap((r) => (r.kind === 'photos' ? r.items.map((p, c) => ({ p, x: c * (tile + GAP), y: r.top })) : []))
-	);
-
+		return lo;
+	}
+	const at = $derived(scrollTop - headerHeight);
+	const first = $derived(rowAt(at - (down ? BEHIND : AHEAD)));
+	const last = $derived(rowAt(at + height + (down ? AHEAD : BEHIND)));
+	const visible = $derived(layout.rows.slice(first, last + 1));
 	// The photos come again with some new (a phone's backup): the new ones
 	// fade in slowly, and the photo at the top of the screen stays where it
 	// is, nothing moving under the finger. At the very top the new ones show.
@@ -184,10 +196,32 @@
 	class="scroller"
 	bind:this={scroller}
 	bind:clientHeight={height}
-	onscroll={(e) => (scrollTop = (e.currentTarget as HTMLElement).scrollTop)}
+	onscroll={(e) => {
+		const to = e.currentTarget.scrollTop;
+		if (to !== scrollTop) down = to > scrollTop;
+		scrollTop = to;
+	}}
 >
 	<div class="head" bind:clientHeight={headerHeight}>{@render header?.()}</div>
-	<div class="grid" class:selecting bind:clientWidth={width} style:height="{layout.total}px">
+	<!-- One listener for them all: a tile is as little as it can be. -->
+	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+	<div
+		class="grid"
+		bind:clientWidth={width}
+		style:height="{layout.total}px"
+		style:--cols={cols}
+		style:--tile="{tile}px"
+		onpointerover={(e) => (over = hashAt(e))}
+		onpointerleave={() => (over = '')}
+		onclick={click}
+		oncontextmenu={(e) => hashAt(e) && context(e, hashAt(e))}
+		ondragstart={(e) => hashAt(e) && drag(e, hashAt(e))}
+		onloadcapture={(e) => {
+			const img = e.target as HTMLImageElement;
+			img.classList.add('in');
+			keep(hashAt(e), img.src);
+		}}
+	>
 		{#each visible as row (row.top)}
 			{#if row.kind === 'month'}
 				<h3 style:transform="translateY({row.top}px)">
@@ -195,46 +229,45 @@
 				</h3>
 			{/if}
 		{/each}
-		{#each tiles as { p, x, y } (p.hash)}
-			<button
-				class="tile"
-				class:on={selected?.has(p.hash)}
-				class:arrived={arrived.has(p.hash)}
-				style:width="{tile}px"
-				style:height="{tile}px"
-				style:transform="translate({x}px, {y}px)"
-				onclick={(e) => click(e, p)}
-				oncontextmenu={(e) => context(e, p.hash)}
-				draggable={!!window.shell}
-				ondragstart={(e) => drag(e, p.hash)}
-			>
-				<img
-					src="/api/thumb/{p.hash}"
-					alt={p.name}
-					style:transform={turned(p)}
-					class:in={kept.has(p.hash)}
-					class:known={kept.has(p.hash)}
-					decoding={kept.has(p.hash) ? 'sync' : 'async'}
-					onload={(e) => {
-						const img = e.currentTarget as HTMLImageElement;
-						img.classList.add('in');
-						keep(p.hash, img);
-					}}
-				/>
-				{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
-				{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
-				{#if onselect}
-					<span class="pick">{#if selected?.has(p.hash)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
-				{/if}
-			</button>
+		<!-- A row comes and goes whole: its tiles need no place of their own. -->
+		{#each visible as row (row.top)}
+			{#if row.kind === 'photos'}
+				<div class="row" style:transform="translateY({row.top}px)">
+					{#each row.items as p (p.hash)}
+						<button
+							class="tile"
+							class:on={selected?.has(p.hash)}
+							class:arrived={arrived.has(p.hash)}
+							data-hash={p.hash}
+							draggable={!!window.shell}
+						>
+							<img
+								src="/api/thumb/{p.hash}"
+								alt={p.name}
+								style:transform={turned(p)}
+								use:shown={p.hash}
+							/>
+							{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
+							{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
+							<!-- Only where it can be seen: a tile is as little as it can be. -->
+							{#if onselect && (selecting || over === p.hash)}
+								<span class="pick" in:swap>{#if selected?.has(p.hash)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
+							{/if}
+						</button>
+					{/each}
+				</div>
+			{/if}
 		{/each}
 	</div>
 </div>
 {#if opener.menu}<ContextMenu items={folderItems(opener.menu.path, true)} anchor={opener.menu.anchor} onclose={opener.close} />{/if}
 
 <style>
+	/* Its own ground: one the compositor scrolls by itself. */
 	.scroller {
 		height: 100%;
+		background: var(--bg);
+		will-change: scroll-position;
 		overflow-y: auto;
 		padding: 0 var(--space-40) var(--space-40);
 	}
@@ -242,10 +275,17 @@
 		position: relative;
 	}
 	h3,
-	.tile {
+	.row {
 		position: absolute;
 		top: 0;
 		left: 0;
+	}
+	.row {
+		display: grid;
+		grid-template-columns: repeat(var(--cols), var(--tile));
+		grid-auto-rows: var(--tile);
+		gap: var(--space-8);
+		contain: layout style;
 	}
 	h3 {
 		height: var(--space-40);
@@ -262,6 +302,8 @@
 		color: var(--faint);
 	}
 	.tile {
+		position: relative;
+		contain: strict;
 		border-radius: var(--radius-6);
 		overflow: hidden;
 		background: var(--line);
@@ -280,11 +322,11 @@
 		opacity: 1;
 	}
 	/* Seen before: no fading in again. */
-	img.known {
+	img:global(.known) {
 		transition: scale var(--motion-fast) var(--ease-out);
 	}
 	/* A photo that has just arrived in the library fades in slowly. */
-	.arrived img {
+	.arrived img:not(:global(.known)) {
 		transition-duration: var(--motion-ambient), var(--motion-fast);
 	}
 	.video {
@@ -303,12 +345,6 @@
 		display: grid;
 		color: var(--on-photo);
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
-		opacity: 0;
-		transition: opacity var(--motion-fast) var(--ease-out);
-	}
-	.tile:hover .pick,
-	.selecting .pick {
-		opacity: 1;
 	}
 	.tile.on {
 		background: var(--accent-soft);

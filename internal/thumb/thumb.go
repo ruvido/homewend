@@ -113,20 +113,22 @@ func embedded(f io.ReadSeeker, src string, size int) image.Image {
 	if size > Size {
 		return nil
 	}
-	small, err := jpeg.Decode(bytes.NewReader(library.EmbeddedThumbnail(src)))
-	if err != nil {
+	data := library.EmbeddedThumbnail(src)
+	b, err := jpeg.DecodeConfig(bytes.NewReader(data))
+	// As large as asked, and no larger than a camera makes one.
+	if long := max(b.Width, b.Height); err != nil || long < size || long > 4*Size {
 		return nil
 	}
 	whole, err := jpeg.DecodeConfig(f)
 	if _, back := f.Seek(0, io.SeekStart); err != nil || back != nil {
 		return nil
 	}
-	b := small.Bounds()
-	if max(b.Dx(), b.Dy()) < size {
+	// Within two of its own pixels: cameras round.
+	if off := b.Width*whole.Height - b.Height*whole.Width; max(off, -off) > 2*max(whole.Width, whole.Height) {
 		return nil
 	}
-	// Within two of its own pixels: cameras round.
-	if off := b.Dx()*whole.Height - b.Dy()*whole.Width; max(off, -off) > 2*max(whole.Width, whole.Height) {
+	small, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil {
 		return nil
 	}
 	return small
