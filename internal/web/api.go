@@ -134,6 +134,18 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		done, err := engine.Mark(body.State, body.Photos, body.On)
 		reply(w, map[string]int{"marked": len(done)}, err)
 	})
+	// The photos the Trash showed, deleted for good; the reply is those left.
+	mux.HandleFunc("POST /api/trash/empty", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Photos []library.Key `json:"photos"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Photos) == 0 {
+			http.Error(w, "photos are needed", http.StatusBadRequest)
+			return
+		}
+		left, err := engine.EmptyTrash(body.Photos)
+		reply(w, map[string][]library.Key{"left": left}, err)
+	})
 	// Dates given to photos picked in the library; when is a clock written as UTC.
 	mux.HandleFunc("POST /api/dates", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {

@@ -232,3 +232,38 @@ func TestALibraryAwayIsGone(t *testing.T) {
 		t.Errorf("status %d, want %d", w.Code, http.StatusGone)
 	}
 }
+
+// Empty deletes the photos named in the request, and answers those left.
+func TestEmptyThroughTheAPI(t *testing.T) {
+	for _, dir := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "HOME", "AppData", "LocalAppData"} {
+		t.Setenv(dir, t.TempDir())
+	}
+	root := t.TempDir()
+	if err := engine.SetDefaultLibrary(root); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestServer(t)
+	post := func(body string) (int, string) {
+		r := httptest.NewRequest(http.MethodPost, "/api/trash/empty", strings.NewReader(body))
+		r.Host = s.host
+		r.AddCookie(&http.Cookie{Name: cookieName, Value: s.token})
+		w := httptest.NewRecorder()
+		s.handler().ServeHTTP(w, r)
+		return w.Code, strings.TrimSpace(w.Body.String())
+	}
+	for _, body := range []string{"", "{}", `{"photos":[]}`, "[1]"} {
+		if code, _ := post(body); code != http.StatusBadRequest {
+			t.Errorf("%q: %d, want 400", body, code)
+		}
+	}
+	const photo = `{"photos":[{"hash":"a","profile":"ron"}]}`
+	if code, out := post(photo); code != http.StatusOK || out != `{"left":[]}` {
+		t.Errorf("a library with nothing in it: %d %s", code, out)
+	}
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := post(photo); code != http.StatusGone {
+		t.Errorf("its disk away: %d, want 410", code)
+	}
+}

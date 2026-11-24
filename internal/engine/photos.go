@@ -463,8 +463,8 @@ func Mark(state library.State, photos []library.Key, on bool) ([]library.Key, er
 
 // markIn is Mark in the catalog c, which it closes.
 func markIn(c *library.Catalog, state library.State, photos []library.Key, on bool) ([]library.Key, error) {
-	defer c.Close()
 	if state == library.Favorite {
+		defer c.Close()
 		var done []library.Key
 		err := heartsSet(c, func() (err error) {
 			done, err = c.Mark(state, photos, on)
@@ -474,6 +474,7 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 		return done, err
 	}
 	done, err := c.Mark(state, photos, on)
+	c.Close()
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {
 		offMissing(done)
@@ -482,6 +483,9 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 		missing.Lock()
 		missing.at = time.Time{}
 		missing.Unlock()
+	}
+	if root, err := ChosenLibrary(); err == nil && state == library.Trashed && len(done) > 0 {
+		tidyTrash(root)
 	}
 	return done, err
 }

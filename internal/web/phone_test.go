@@ -12,8 +12,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ruvido/homewend/internal/engine"
+	"github.com/ruvido/homewend/internal/library"
 )
 
 // A phone pairs with the code, then asks and sends as docs/phone.md says,
@@ -84,12 +86,27 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, out := call("POST", "/v1/trash", token, `{"hashes":["`+hash+`"]}`); code != http.StatusOK || len(out["trashed"].([]any)) != 1 {
 		t.Errorf("trash: %d %v", code, out)
 	}
+	// Its file follows beside the answer, there and back.
+	fileAt := func(trashed bool) {
+		t.Helper()
+		for range 400 {
+			path, err := engine.PathOf(library.Key{Hash: hash, Profile: "ron"})
+			if _, gone := os.Stat(path); err == nil && gone == nil && strings.Contains(path, library.TrashDir) == trashed {
+				time.Sleep(100 * time.Millisecond) // the run ends
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Errorf("its file in the Trash: %v, want %v", !trashed, trashed)
+	}
+	fileAt(true)
 	if _, have := call("POST", "/v1/have", token, `{"hashes":["`+hash+`"]}`); len(have["out"].([]any)) != 1 {
 		t.Errorf("have after trash: %v, want it out", have)
 	}
 	if code, out := call("POST", "/v1/untrash", token, `{"hashes":["`+hash+`"]}`); code != http.StatusOK || len(out["untrashed"].([]any)) != 1 {
 		t.Errorf("untrash: %d %v", code, out)
 	}
+	fileAt(false)
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}

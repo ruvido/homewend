@@ -92,6 +92,7 @@ func LibraryOverview(s Settings) (Overview, error) {
 		return Overview{}, err
 	}
 	findLinks(root, accounts, s)
+	tidyTrashOnce(root)
 	o, err := overview(root, accounts, s.Hidden, s.Filled)
 	if err != nil {
 		return o, err
