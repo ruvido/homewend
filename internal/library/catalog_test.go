@@ -471,6 +471,11 @@ func TestWritersAndAReaderWaitForEachOther(t *testing.T) {
 	}
 }
 
+// importPause is how long an import lets go of the catalog between two files:
+// nine in ten pauses of one were longer, with photos of 100 KB (Linux, SSD,
+// 24/11). One that writes without a pause leaves others to chance.
+const importPause = 8 * time.Millisecond
+
 // A second process on the same library, as a command in a terminal while the
 // window imports: both write, and open the catalog again and again as pages
 // do. No row is lost and the catalog is whole.
@@ -490,7 +495,7 @@ func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
 			if _, err := c.Mark(Archived, []Key{{hash, ""}}, true); err != nil {
 				return err
 			}
-			time.Sleep(2 * time.Millisecond) // as between an import's files
+			time.Sleep(importPause)
 		}
 		return nil
 	}

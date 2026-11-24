@@ -738,7 +738,7 @@ func TestAnUpgradeDoesNotWaitForAnImport(t *testing.T) {
 				return // upgraded under it: it fails clearly
 			}
 			wrote++
-			time.Sleep(5 * time.Millisecond) // the file's copying, less than any was seen to take
+			time.Sleep(importPause)
 		}
 	}()
 	opened := make(chan error, 1)
