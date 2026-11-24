@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"os"
@@ -252,7 +253,7 @@ func TestAnImportInAnotherProcessIntoTheOtherLibrary(t *testing.T) {
 	}
 	const photos = 40
 	for i := range photos {
-		if err := os.WriteFile(filepath.Join(card, "DCIM", string(rune('A'+i))+".JPG"), bytes.Repeat([]byte{byte(i)}, 1000), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(card, "DCIM", fmt.Sprint("DSC", i, ".JPG")), bytes.Repeat([]byte{byte(i)}, 1000), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
