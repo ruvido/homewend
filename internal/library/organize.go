@@ -163,6 +163,17 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			return result, err
 		}
 		home := filepath.Join(root, filepath.FromSlash(relative))
+		if known && !item.Again && !exists(home) {
+			// Deleted for good: not a move left halfway.
+			gone, err := catalog.erased(key)
+			if err != nil {
+				return result, err
+			}
+			if gone {
+				result.Skipped++
+				continue
+			}
+		}
 		switch {
 		case known && !item.Again && exists(home):
 			result.Skipped++

@@ -584,12 +584,12 @@ func linksIn(root string, profiles []string, photos []Photo, albums map[Key][]st
 // read once.
 type entries map[string]map[int64][]string
 
-// has is whether the album's folder dir has an entry that is the photo at
-// file, under whatever name: the same file or the same content.
-func (e entries) has(dir, file string) bool {
+// of are the entries of the album's folder dir that are the photo at file,
+// under whatever name: the same file or the same content.
+func (e entries) of(dir, file string) []string {
 	info, err := os.Stat(file)
 	if err != nil {
-		return false
+		return nil
 	}
 	if e[dir] == nil {
 		e[dir] = map[int64][]string{}
@@ -600,7 +600,13 @@ func (e entries) has(dir, file string) bool {
 			}
 		}
 	}
-	return slices.ContainsFunc(e[dir][info.Size()], func(entry string) bool { return same(file, entry) })
+	var of []string
+	for _, entry := range e[dir][info.Size()] {
+		if same(file, entry) {
+			of = append(of, entry)
+		}
+	}
+	return of
 }
 
 // linkOf is the name path of the photo of in profile's folder, with the albums
@@ -610,7 +616,7 @@ func linkOf(root string, of Photo, profile, path string, albums []string, in ent
 	l := link{of: of.Key(), profile: profile, path: path}
 	file := filepath.Join(root, filepath.FromSlash(path))
 	for _, album := range albums {
-		if in.has(filepath.Join(root, profile, "albums", album), file) {
+		if len(in.of(filepath.Join(root, profile, "albums", album), file)) > 0 {
 			l.albums = append(l.albums, album)
 			if !exists(filepath.Join(root, of.Profile, "albums", album)) {
 				l.left = append(l.left, album)

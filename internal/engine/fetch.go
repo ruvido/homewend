@@ -136,7 +136,7 @@ func (f Fetch) Run(ctx context.Context, g download.Getter, emit progress.Func) (
 		}
 	}
 	home := filepath.Join(f.Library, profile)
-	years, err := newYears(home, manifest)
+	years, err := newYears(f.Library, profile, manifest)
 	if err != nil {
 		return Result{}, err
 	}
@@ -237,7 +237,7 @@ func (f Fetch) Run(ctx context.Context, g download.Getter, emit progress.Func) (
 		return Result{}, err
 	}
 
-	verification, err := library.Verify(home, manifest)
+	verification, err := verifyIn(f.Library, profile, manifest)
 	if err != nil {
 		return Result{}, err
 	}
@@ -270,8 +270,8 @@ type years struct {
 // newYears reads the years off the manifest and what is already in the
 // library off the disk: a run that carries on starts from where the last one
 // stopped, not from nothing.
-func newYears(libraryRoot string, manifest library.Manifest) (*years, error) {
-	found, err := library.Verify(libraryRoot, manifest)
+func newYears(libraryRoot, profile string, manifest library.Manifest) (*years, error) {
+	found, err := verifyIn(libraryRoot, profile, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +379,7 @@ func Verify(libraryRoot, id string) (library.Verification, error) {
 	if st.Manifest == "" {
 		return library.Verification{}, fmt.Errorf("export %s has not been fetched into %s", job, libraryRoot)
 	}
-	return verify(filepath.Join(libraryRoot, st.Profile), filepath.Join(work, st.Manifest))
+	return verify(libraryRoot, st.Profile, filepath.Join(work, st.Manifest))
 }
 
 // downloaded finds the export in the library whose id starts with id: each
@@ -411,12 +411,30 @@ func downloaded(libraryRoot, id string) (string, error) {
 	return "", fmt.Errorf("%s matches %d exports in %s: give more of it", id, len(found), libraryRoot)
 }
 
-func verify(libraryRoot, manifestPath string) (library.Verification, error) {
+func verify(libraryRoot, profile, manifestPath string) (library.Verification, error) {
 	manifest, err := library.ParseManifestZip(manifestPath)
 	if err != nil {
 		return library.Verification{}, err
 	}
-	return library.Verify(libraryRoot, manifest)
+	return verifyIn(libraryRoot, profile, manifest)
+}
+
+// verifyIn counts profile's folder against manifest; what was deleted from the
+// library came.
+func verifyIn(libraryRoot, profile string, manifest library.Manifest) (library.Verification, error) {
+	catalog, err := openAt(libraryRoot, library.OpenCatalogReadOnly)
+	if err != nil {
+		return library.Verification{}, err
+	}
+	var deleted []string
+	if catalog != nil {
+		deleted, err = catalog.TrashedNames(profile)
+		catalog.Close()
+		if err != nil {
+			return library.Verification{}, err
+		}
+	}
+	return library.Verify(filepath.Join(libraryRoot, profile), manifest, deleted)
 }
 
 // state is what survives between runs of one export.

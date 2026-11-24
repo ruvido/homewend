@@ -251,7 +251,8 @@ func kindOf(path string) string {
 
 // Held is what a library knows of a photo: where it holds it, below the
 // library's folder; Known, listed in the catalog; Deleted, listed and gone
-// from the disk; Trashed, in the Trash, its file still there. Elsewhere, not
+// from the disk, or deleted for good from the Trash; Trashed, in the Trash,
+// its file still there. Elsewhere, not
 // in this library and in another, its file there.
 type Held struct {
 	Path                              string
@@ -282,7 +283,7 @@ func Holds(catalog *Catalog, root string, k Key) (Held, error) {
 	for rows.Next() {
 		h := Held{Known: true}
 		var profile string
-		if err := rows.Scan(&profile, &h.Path, &h.Trashed, &h.Archived); err != nil {
+		if err := rows.Scan(&profile, &h.Path, &h.Trashed, &h.Archived, &h.Deleted); err != nil {
 			return Held{}, err
 		}
 		all, profiles = append(all, h), append(profiles, profile)
@@ -296,7 +297,7 @@ func Holds(catalog *Catalog, root string, k Key) (Held, error) {
 	for i, h := range all {
 		_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
 		missing := errors.Is(gone, fs.ErrNotExist)
-		h.Deleted = !h.Trashed && missing
+		h.Deleted = h.Deleted || !h.Trashed && missing
 		switch {
 		case profiles[i] != k.Profile && k.Profile != "":
 			elsewhere = elsewhere || !missing

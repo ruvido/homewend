@@ -35,18 +35,24 @@ type YearCount struct {
 // Complete reports whether every file the manifest declared is on disk.
 func (v Verification) Complete() bool { return len(v.Missing) == 0 }
 
-// Verify walks dir and compares what is there against the manifest.
+// Verify walks dir and compares what is there against the manifest. deleted
+// are the names of photos that were there and are in the Trash or deleted from it.
 //
 // The comparison is by filename, not by count. Two numbers that agree can still
 // hide a swap — one file lost and another duplicated — and the whole promise
 // rests on this check, so it is made the way that cannot agree by accident.
-func Verify(dir string, manifest Manifest) (Verification, error) {
+func Verify(dir string, manifest Manifest, deleted []string) (Verification, error) {
 	onDisk, err := mediaOnDisk(dir)
 	if err != nil {
 		return Verification{}, err
 	}
 
 	declared := manifest.Names()
+	for _, name := range deleted {
+		if declared[name] {
+			onDisk[name] = true
+		}
+	}
 	result := Verification{Declared: len(declared)}
 
 	for name := range declared {
@@ -115,7 +121,7 @@ func mediaOnDisk(dir string) (map[string]bool, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == WorkDir {
+			if entry.Name() == WorkDir || entry.Name() == TrashDir {
 				return filepath.SkipDir // our own working files, not the library
 			}
 			if path == filepath.Join(dir, Unassigned) {

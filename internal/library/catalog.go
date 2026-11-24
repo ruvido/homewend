@@ -113,7 +113,7 @@ type Catalog struct {
 
 func newCatalog(db *sql.DB, path string) *Catalog {
 	return &Catalog{db: db, path: path, held: sync.OnceValues(func() (*sql.Stmt, error) {
-		return db.Prepare(`SELECT profile, path, trashed, archived FROM library_photos WHERE hash = ?`)
+		return db.Prepare(`SELECT profile, path, trashed AND out = 0, archived, trashed AND out > 0 FROM library_photos WHERE hash = ?`)
 	})}
 }
 
@@ -126,7 +126,8 @@ CREATE TABLE library_photos (
   id      INTEGER PRIMARY KEY,
   taken   INTEGER,          -- unix seconds, NULL when nothing is known
   -- Taken out of the library and kept out of the imports: out of every list,
-  -- still known, so that an import leaves it out as deleted.
+  -- still known, so that an import leaves it out as deleted. With trashed, it
+  -- was deleted for good by emptying the Trash (trash.go).
   out     INTEGER NOT NULL DEFAULT 0,
   -- In the Trash: out of every list and every import until restored; archived:
   -- out of the grid and the years, still in its albums, still backed up;
@@ -399,7 +400,7 @@ func (c *Catalog) Put(photo Photo, sources ...string) error {
 			 ON CONFLICT(hash, profile) DO UPDATE SET
 			   path=excluded.path, name=excluded.name, bytes=excluded.bytes,
 			   taken=excluded.taken, source=excluded.source, kind=excluded.kind,
-			   origin=excluded.origin, out=0
+			   origin=excluded.origin, trashed=CASE WHEN out > 0 THEN 0 ELSE trashed END, out=0
 			 RETURNING id`,
 			photo.Hash, photo.Profile, photo.Path, photo.Name, photo.Bytes, taken,
 			string(photo.Source), string(photo.Kind), string(photo.Origin)).Scan(&id)
@@ -439,6 +440,18 @@ func (c *Catalog) PathOf(k Key) (string, bool, error) {
 		return "", false, fmt.Errorf("reading the catalog: %w", err)
 	}
 	return path, true, nil
+}
+
+// erased is whether the photo k was deleted for good from its library.
+func (c *Catalog) erased(k Key) (is bool, err error) {
+	err = c.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM library_photos WHERE hash = ? AND profile = ? AND out > 0 AND trashed = 1)`, k.Hash, k.Profile).Scan(&is)
+	return is, err
+}
+
+// TrashedNames are the names of profile's photos in the Trash or deleted from
+// it: they were in the library.
+func (c *Catalog) TrashedNames(profile string) ([]string, error) {
+	return texts(c.db.Query(`SELECT name FROM library_photos WHERE trashed = 1 AND profile = ?`, profile))
 }
 
 // Copies are the photos with the content of hash, one for each library that
