@@ -111,16 +111,23 @@ func upgrade(db *sql.DB, path string) error {
 	defer upgrading.Unlock()
 	db.SetMaxOpenConns(1)
 	defer db.SetMaxOpenConns(0)
-	for {
-		if again, err := upgradeOnce(db, path); err != nil || !again {
+	for try := 1; ; try++ {
+		if again, err := upgradeOnce(db, path, try >= upgradeTries); err != nil || !again {
 			return err
 		}
 	}
 }
 
+// upgradeTries is how many copies are made before the last is taken as it is:
+// an older program importing meanwhile writes between every copy and the
+// lock, and the window would wait for its import to end. The copy is only to
+// go back; the upgrade itself is one transaction and misses nothing.
+const upgradeTries = 3
+
 // upgradeOnce is upgrade, or again when the catalog changed between its copy
-// and the lock: a copy cannot be made inside a transaction.
-func upgradeOnce(db *sql.DB, path string) (again bool, err error) {
+// and the lock: a copy cannot be made inside a transaction. With anyway, the
+// copy is taken even so.
+func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 	// What other connections committed moves it; what this one does not.
 	const changed = `PRAGMA data_version`
 	var before, now, version int
@@ -145,7 +152,7 @@ func upgradeOnce(db *sql.DB, path string) (again bool, err error) {
 	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= librariesSince {
 		return false, err
 	}
-	if err := tx.QueryRow(changed).Scan(&now); err != nil || now != before {
+	if err := tx.QueryRow(changed).Scan(&now); err != nil || now != before && !anyway {
 		return err == nil, err
 	}
 	kept, err := keepBefore(path, part)

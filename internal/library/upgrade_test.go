@@ -712,3 +712,83 @@ func TestAnAlbumEntryOfAnotherName(t *testing.T) {
 		t.Errorf("ron's albums %v", albums)
 	}
 }
+
+// An older program that never stops writing, an import, does not keep the
+// window from opening.
+func TestAnUpgradeDoesNotWaitForAnImport(t *testing.T) {
+	path := older(t, 1, `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('a', 'ron/2019/07/a.jpg', 'a.jpg', 1, 1, '', '', '')`)
+	other, err := sql.Open("sqlite", catalogDSN(path, waiting))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	other.SetMaxOpenConns(1)
+	stop, stopped := make(chan struct{}), make(chan struct{})
+	wrote := 0
+	go func() {
+		defer close(stopped)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := other.Exec(`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES (?, ?, 'b.jpg', 1, 1, '', '', '')`, fmt.Sprint("w", wrote), fmt.Sprint("ron/2019/07/w", wrote)); err != nil {
+				return // upgraded under it: it fails clearly
+			}
+			wrote++
+		}
+	}()
+	opened := make(chan error, 1)
+	go func() {
+		c, err := OpenCatalog(path)
+		if err == nil {
+			c.Close()
+		}
+		opened <- err
+	}()
+	select {
+	case err := <-opened:
+		if err != nil {
+			t.Error(err)
+		}
+	case <-time.After(60 * time.Second):
+		t.Error("never opened")
+	}
+	close(stop)
+	<-stopped
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if n, err := c.Count(Filter{}); err != nil || n != wrote+1 {
+		t.Errorf("%d photos, %v, want %d", n, err, wrote+1)
+	}
+}
+
+// A photo kept out is not live: its copy in the Trash stays there.
+func TestAPhotoKeptOutBringsNothingBack(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for _, k := range []struct{ profile, path string }{{"", "2019/07/a.jpg"}, {"ron", "ron/2019/07/a.jpg"}} {
+		if err := c.Put(Photo{Hash: "a", Profile: k.profile, Path: k.path, Name: "a.jpg"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for q, p := range map[string]string{`UPDATE library_photos SET out = 1 WHERE profile = ?`: "", `UPDATE library_photos SET trashed = 1 WHERE profile = ?`: "ron"} {
+		if _, err := c.db.Exec(q, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := c.refile(Key{Hash: "a"}, "ron", "ron/2019/07/a.jpg", false); err != nil {
+		t.Fatal(err)
+	}
+	var trashed bool
+	if err := c.db.QueryRow(`SELECT trashed FROM library_photos WHERE profile = 'ron'`).Scan(&trashed); err != nil || !trashed {
+		t.Errorf("trashed %v %v, want it kept in the Trash", trashed, err)
+	}
+}

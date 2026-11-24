@@ -1012,7 +1012,7 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			profile, path, filepath.Base(path), k.Hash, k.Profile).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
 			err = tx.QueryRow(`UPDATE library_photos AS t SET favorite = max(t.favorite, f.favorite), archived = max(t.archived, f.archived),
-				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END, trashed = min(t.trashed, f.trashed)
+				turn = CASE t.turn WHEN 0 THEN f.turn ELSE t.turn END, trashed = CASE f.out WHEN 1 THEN t.trashed ELSE min(t.trashed, f.trashed) END
 				FROM library_photos AS f WHERE t.hash = ? AND t.profile = ? AND f.hash = t.hash AND f.profile = ? RETURNING id`,
 				k.Hash, profile, k.Profile).Scan(&id)
 			if err != nil {
