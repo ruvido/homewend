@@ -8,12 +8,12 @@ export class Opener<T> {
 	menu = $state<(T & { anchor: HTMLElement }) | null>(null);
 	#opening: HTMLElement | null = null;
 
-	/** Opens the menu for the element right-clicked, once load answers: unless
+	/** Opens the menu for the element right-clicked (on), once load answers: unless
 	 *  another right-click came since, a click or a key dismissed it, or the
 	 *  element left the page (a row scrolled away). */
-	async open(e: MouseEvent, load: () => Promise<T>) {
+	async open(e: MouseEvent, load: () => Promise<T>, on = e.currentTarget as HTMLElement) {
 		e.preventDefault();
-		const anchor = (this.#opening = e.currentTarget as HTMLElement);
+		const anchor = (this.#opening = on);
 		const dismiss = () => {
 			if (this.#opening === anchor) this.#opening = null;
 		};

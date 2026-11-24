@@ -5,13 +5,12 @@ package engine
 
 import (
 	"context"
-	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // Thumbs is how many photos of the library have been given a thumbnail, or
@@ -43,8 +42,13 @@ func KeepThumbnails(ctx context.Context) {
 	for {
 		// Set before the look: what changes during it is looked at again.
 		if now, err := LibraryChanges(); err == nil && now != seen {
-			seen = now
-			makeThumbnails(ctx, failed)
+			if makeThumbnails(ctx, now, failed) {
+				seen = now
+			} else {
+				thumbs.Lock()
+				thumbs.Thumbs = Thumbs{} // no library to speak of
+				thumbs.Unlock()
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -54,31 +58,37 @@ func KeepThumbnails(ctx context.Context) {
 	}
 }
 
-func makeThumbnails(ctx context.Context, failed map[string]bool) {
+// makeThumbnails makes them for the library as it is at changes. It stops,
+// for the caller to begin again, when the library is no longer that one:
+// another chosen, a photo newer than those it has left. It says whether it
+// looked at the library at all.
+func makeThumbnails(ctx context.Context, changes string, failed map[string]bool) bool {
+	began := time.Now()
 	root, err := DefaultLibrary()
 	if err != nil || root == "" {
-		return
+		return false
 	}
 	s, err := LoadSettings()
 	if err != nil || libraryAway(root, s.Filled) {
-		return
+		return false
 	}
 	c, _, err := openLibrary()
 	if err != nil || c == nil {
-		return
+		return false
 	}
 	photos, err := c.Page(library.Filter{})
 	c.Close()
 	if err != nil {
-		return
+		return false
 	}
-	made, err := thumbsKept()
+	folder, err := picturesDir("thumbs")
 	if err != nil {
-		return
+		return false
 	}
+	kept := thumb.Kept(folder)
 	var todo []library.Photo
 	for _, p := range photos {
-		if !made[p.Hash] && !failed[p.Hash] {
+		if !kept[p.Hash] && !failed[p.Hash] {
 			todo = append(todo, p)
 		}
 	}
@@ -87,6 +97,9 @@ func makeThumbnails(ctx context.Context, failed map[string]bool) {
 		thumbs.Thumbs = Thumbs{Done: done, Of: len(photos)}
 		thumbs.Unlock()
 	}
+	// While an import changes the library without pause, listing it again
+	// takes no more than a twentieth of the time.
+	again := time.Now().Add(max(2*time.Second, 20*time.Since(began)))
 	for i, p := range todo {
 		set(len(photos) - len(todo) + i)
 		// Those on the screen first: it works while no one else does.
@@ -94,7 +107,13 @@ func makeThumbnails(ctx context.Context, failed map[string]bool) {
 			time.Sleep(50 * time.Millisecond)
 		}
 		if ctx.Err() != nil {
-			return
+			return true
+		}
+		if time.Now().After(again) {
+			if now, err := LibraryChanges(); err == nil && now != changes {
+				return true
+			}
+			again = time.Now().Add(time.Second)
 		}
 		file := filepath.Join(root, filepath.FromSlash(p.Path))
 		if _, err := thumbnailOf(ctx, p.Hash, func() (string, error) { return file, nil }); err != nil {
@@ -106,28 +125,5 @@ func makeThumbnails(ctx context.Context, failed map[string]bool) {
 		}
 	}
 	set(len(photos))
-}
-
-// thumbsKept are the photos that have a thumbnail, by hash: read from the
-// folders, not asked one by one.
-func thumbsKept() (map[string]bool, error) {
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Join(cache, "homewend", "thumbs")
-	folders, err := os.ReadDir(dir)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-	kept := map[string]bool{}
-	for _, f := range folders {
-		files, _ := os.ReadDir(filepath.Join(dir, f.Name()))
-		for _, file := range files {
-			if hash, ok := strings.CutSuffix(file.Name(), ".jpg"); ok {
-				kept[hash] = true
-			}
-		}
-	}
-	return kept, nil
+	return true
 }

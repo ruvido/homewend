@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // Every photo of the library is given its thumbnail; one that cannot be is
@@ -45,14 +46,17 @@ func TestThumbnailsAreMadeForTheLibrary(t *testing.T) {
 
 	failed := map[string]bool{}
 	for range 2 {
-		makeThumbnails(context.Background(), failed)
+		makeThumbnails(context.Background(), "", failed)
 		if got := ThumbsMade(); got != (Thumbs{Done: 2, Of: 2}) {
 			t.Errorf("%+v, want all done", got)
 		}
 	}
-	kept, err := thumbsKept()
-	if err != nil || len(kept) != 1 || !kept["hash-good.png"] {
-		t.Errorf("kept %v, %v; want the good one", kept, err)
+	folder, err := picturesDir("thumbs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept := thumb.Kept(folder); len(kept) != 1 || !kept["hash-good.png"] {
+		t.Errorf("kept %v; want the good one", kept)
 	}
 	if len(failed) != 1 || !failed["hash-bad.jpg"] {
 		t.Errorf("failed %v; want the bad one", failed)

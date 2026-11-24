@@ -73,11 +73,37 @@ func Make(ctx context.Context, src, dst string, size int) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	tmp := dst + ".tmp"
-	if err := os.WriteFile(tmp, buf.Bytes(), 0o644); err != nil {
+	// Two may make the same one, the window and its background work: each
+	// writes its own file.
+	f, err := os.CreateTemp(filepath.Dir(dst), "*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, dst)
+	_, err = f.Write(buf.Bytes())
+	err = errors.Join(err, f.Close())
+	if err == nil {
+		err = os.Rename(f.Name(), dst)
+	}
+	if err != nil {
+		os.Remove(f.Name())
+	}
+	return err
+}
+
+// Kept are the hashes whose picture Path keeps in cacheDir: read from its
+// folders, not asked one by one.
+func Kept(cacheDir string) map[string]bool {
+	kept := map[string]bool{}
+	folders, _ := os.ReadDir(cacheDir)
+	for _, f := range folders {
+		files, _ := os.ReadDir(filepath.Join(cacheDir, f.Name()))
+		for _, file := range files {
+			if hash, ok := strings.CutSuffix(file.Name(), ".jpg"); ok {
+				kept[hash] = true
+			}
+		}
+	}
+	return kept
 }
 
 func decode(ctx context.Context, src string, size int) (image.Image, error) {

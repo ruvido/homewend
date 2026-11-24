@@ -74,7 +74,10 @@
 
 	// A photo's menu, at the end of its tile: its folder, its path.
 	const opener = new Opener<{ path: string }>();
-	const context = (e: MouseEvent, hash: string) => opener.open(e, () => pathOf(hash));
+	function context(e: MouseEvent) {
+		const on = (e.target as Element).closest<HTMLElement>('.tile');
+		if (on) opener.open(e, () => pathOf(on.dataset.hash!), on);
+	}
 	// Dragged out of the window, a photo is its file, handed to the system's
 	// drag as the file manager hands one: the original goes where it is dropped.
 	function drag(e: DragEvent, hash: string) {
@@ -198,7 +201,7 @@
 	bind:clientHeight={height}
 	onscroll={(e) => {
 		const to = e.currentTarget.scrollTop;
-		if (to !== scrollTop) down = to > scrollTop;
+		if (to !== scrollTop) down = to > scrollTop || to === 0;
 		scrollTop = to;
 	}}
 >
@@ -212,9 +215,12 @@
 		style:--cols={cols}
 		style:--tile="{tile}px"
 		onpointerover={(e) => (over = hashAt(e))}
-		onpointerleave={() => (over = '')}
+		onpointerleave={(e) => {
+			// A finger leaves before its click: the circle stays to be hit.
+			if (e.pointerType !== 'touch') over = '';
+		}}
 		onclick={click}
-		oncontextmenu={(e) => hashAt(e) && context(e, hashAt(e))}
+		oncontextmenu={context}
 		ondragstart={(e) => hashAt(e) && drag(e, hashAt(e))}
 		onloadcapture={(e) => {
 			const img = e.target as HTMLImageElement;

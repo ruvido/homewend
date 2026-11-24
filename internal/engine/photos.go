@@ -439,14 +439,20 @@ func thumbnailOf(ctx context.Context, hash string, source func() (string, error)
 	return cached(ctx, "thumbs", thumb.Size, hash, source)
 }
 
+// picturesDir is where the cache keeps the pictures of kind dir.
+func picturesDir(dir string) (string, error) {
+	cache, err := os.UserCacheDir()
+	return filepath.Join(cache, "homewend", dir), err
+}
+
 // cached is the picture of the content hash at size, kept by it in the
 // cache's folder dir.
 func cached(ctx context.Context, dir string, size int, hash string, source func() (string, error)) (string, error) {
-	cache, err := os.UserCacheDir()
+	folder, err := picturesDir(dir)
 	if err != nil {
 		return "", err
 	}
-	dst := thumb.Path(filepath.Join(cache, "homewend", dir), hash)
+	dst := thumb.Path(folder, hash)
 	if _, err := os.Stat(dst); err == nil {
 		return dst, nil
 	}
