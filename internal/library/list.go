@@ -57,11 +57,11 @@ type listed struct {
 	Turn     int      `json:"turn"`
 	Archived bool     `json:"archived"`
 	Albums   []string `json:"albums"`
-	// As the catalog has them; the albums by name.
+	// As the catalog has them.
 	id, taken    int64
 	dated        bool
 	turnArchived int // turn × 2, and 1 archived
-	albums       []string
+	albums       []album
 }
 
 // undatedMonth is the month of the photos whose date nobody knows, and
@@ -81,11 +81,11 @@ func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 		return l, nil, err
 	}
 	l.Shelf = s.ID
-	of, err := c.albumsOf(`SELECT album, group_concat(photo) FROM album_members GROUP BY album`)
+	of, err := c.albumsOf(s.ID, `SELECT album, group_concat(photo) FROM album_members GROUP BY album`)
 	if err != nil {
 		return l, nil, err
 	}
-	months, albums, hashes := map[int]*monthSum{}, map[string]*albumSum{}, map[Hash]struct{}{}
+	months, albums, hashes := map[int]*monthSum{}, map[album]*albumSum{}, map[Hash]struct{}{}
 	// Its month, 0 with no date, and its sum: the photo before is often of it.
 	month, sum := -1, (*monthSum)(nil)
 	err = c.eachListed(profile, "", nil, func(p listed) {
@@ -107,11 +107,11 @@ func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 		if n, err := hex.Decode(h[:], []byte(p.Hash)); n == len(h) && err == nil {
 			hashes[h] = struct{}{}
 		}
-		for _, name := range p.albums {
-			a := albums[name]
+		for _, its := range p.albums {
+			a := albums[its]
 			if a == nil {
 				a = &albumSum{cover: p}
-				albums[name] = a
+				albums[its] = a
 			}
 			a.n++
 			if p.newer(a.cover) < 0 {
@@ -130,9 +130,10 @@ func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 	if none := months[0]; none != nil {
 		l.Months = append(l.Months, none.month())
 	}
-	for _, name := range slices.Sorted(maps.Keys(albums)) {
-		l.Albums = append(l.Albums, ListedAlbum{albumID(s.ID, name), name, albums[name].n, albums[name].cover.Hash})
+	for its, a := range albums {
+		l.Albums = append(l.Albums, ListedAlbum{its.id, its.name, a.n, a.cover.Hash})
 	}
+	slices.SortFunc(l.Albums, func(a, b ListedAlbum) int { return cmp.Compare(a.Name, b.Name) })
 	return l, hashes, nil
 }
 
@@ -159,8 +160,8 @@ func (m *monthSum) add(p listed) {
 	for _, n := range []int64{p.taken, int64(p.turnArchived), p.Bytes, int64(len(p.albums)), int64(len(p.Type))} {
 		b = binary.BigEndian.AppendUint64(b, uint64(n))
 	}
-	for _, name := range p.albums {
-		b = append(append(b, name...), 0)
+	for _, its := range p.albums {
+		b = append(b, its.id...)
 	}
 	m.line = append(b, p.Name...)
 	sum := md5.Sum(m.line)
@@ -190,7 +191,7 @@ func (c *Catalog) Month(profile, month string) (tag string, photos []byte, err e
 	if err != nil {
 		return "", nil, err
 	}
-	of, err := c.albumsOf(`SELECT album, group_concat(photo) FROM album_members
+	of, err := c.albumsOf(s.ID, `SELECT album, group_concat(photo) FROM album_members
 		WHERE photo IN (SELECT id FROM library_photos WHERE profile = ? AND `+where+`) GROUP BY album`, args...)
 	if err != nil {
 		return "", nil, err
@@ -199,8 +200,8 @@ func (c *Catalog) Month(profile, month string) (tag string, photos []byte, err e
 	sum := monthSum{name: month}
 	err = c.eachListed(profile, " AND "+where, args[1:], func(p listed) {
 		p.albums, p.Albums = of[p.id], []string{}
-		for _, name := range p.albums {
-			p.Albums = append(p.Albums, albumID(s.ID, name))
+		for _, its := range p.albums {
+			p.Albums = append(p.Albums, its.id)
 		}
 		p.Turn, p.Archived = p.turnArchived/2, p.turnArchived%2 == 1
 		if p.dated {
@@ -237,30 +238,31 @@ func tagOf(answer []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// albumID names an album of the shelf.
-func albumID(shelf, name string) string { return tagOf([]byte(shelf + "/" + name)) }
+// album is an album of a shelf: its id is a phone's, of the two.
+type album struct{ id, name string }
 
 // albumsOf are the albums of each photo by its id, by name, from a query of
 // each album and its photos' ids with a comma between: a row an album, where
 // a row a photo takes as long as the photos.
-func (c *Catalog) albumsOf(query string, args ...any) (map[int64][]string, error) {
+func (c *Catalog) albumsOf(shelf, query string, args ...any) (map[int64][]album, error) {
 	rows, err := c.db.Query(query+` ORDER BY album`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("reading the catalog: %w", err)
 	}
 	defer rows.Close()
-	of := map[int64][]string{}
+	of := map[int64][]album{}
 	for rows.Next() {
-		var album, photos string
-		if err := rows.Scan(&album, &photos); err != nil {
+		var name, photos string
+		if err := rows.Scan(&name, &photos); err != nil {
 			return nil, err
 		}
+		its := album{tagOf([]byte(shelf + "/" + name)), name}
 		for one := range strings.SplitSeq(photos, ",") {
 			id, err := strconv.ParseInt(one, 10, 64)
 			if err != nil {
 				return nil, err
 			}
-			of[id] = append(of[id], album)
+			of[id] = append(of[id], its)
 		}
 	}
 	return of, rows.Err()
