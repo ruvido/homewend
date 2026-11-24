@@ -950,8 +950,6 @@ func Missing(catalog, root string) ([]Gone, error) {
 	var gone, back []known
 	for _, k := range all {
 		switch _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(k.path))); {
-		// Restored from a Trash whose move was cut short: at its home.
-		case errors.Is(err, fs.ErrNotExist) && inTrash(k.path) && exists(under(root, homeOf(k.path))):
 		case errors.Is(err, fs.ErrNotExist) && !k.out:
 			gone = append(gone, k)
 		case err == nil && k.out:
@@ -964,12 +962,12 @@ func Missing(catalog, root string) ([]Gone, error) {
 	var missing []Gone
 	err = with(catalog, func(c *Catalog) error {
 		for _, k := range gone {
-			// Given a date meanwhile, its file is at another path.
+			// Given a date meanwhile, or moved, its file is at another path.
 			path, in, err := c.PathOf(k.Key)
 			if err != nil {
 				return err
 			}
-			if in && path == k.path {
+			if in && path == k.path && !exists(under(root, At(root, path))) {
 				missing = append(missing, k.Gone)
 			}
 		}

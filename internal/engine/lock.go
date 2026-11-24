@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -42,7 +43,14 @@ func lockLibrary(root string) (unlock func(), err error) {
 		file.Close()
 		return func() {}, nil
 	}
-	return func() { unlockFile(file); file.Close() }, nil
+	unlock = func() { unlockFile(file); file.Close() }
+	// Nobody else is moving: what a killed run left is finished first.
+	err = library.FinishMoves(root, catalogPath(root), unlisted)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		unlock()
+		return nil, err
+	}
+	return unlock, nil
 }
 
 // lockPoll is how often a run waiting for the library's turn asks for it.

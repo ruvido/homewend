@@ -297,6 +297,17 @@ func Holds(catalog *Catalog, root string, k Key) (Held, error) {
 	for i, h := range all {
 		_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
 		missing := errors.Is(gone, fs.ErrNotExist)
+		if missing {
+			// Moved as it was looked at, it is recorded elsewhere, or being moved.
+			now, in, err := catalog.PathOf(Key{k.Hash, profiles[i]})
+			if err != nil {
+				return Held{}, err
+			}
+			if in {
+				h.Path = now
+			}
+			missing = !exists(under(root, At(root, h.Path)))
+		}
 		h.Deleted = h.Deleted || !h.Trashed && missing
 		switch {
 		case profiles[i] != k.Profile && k.Profile != "":

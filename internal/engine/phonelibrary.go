@@ -77,6 +77,17 @@ func listOfProfile(profile string) *atomic.Pointer[phoneList] {
 // heartsSet is set, a write to c of hearts alone: what was listed before it is
 // still so after it, when nothing else was written meanwhile.
 func heartsSet(c *library.Catalog, set func() error) error {
+	return writing(c, set, func(_, _ library.Written) {})
+}
+
+// unlisted is set, a write to c the window's lists do not show either.
+func unlisted(c *library.Catalog, set func() error) error {
+	return writing(c, set, sameChanges)
+}
+
+// writing is set, a write to c after which what a phone was listed is still
+// so; alone is told when nothing else was written meanwhile.
+func writing(c *library.Catalog, set func() error, alone func(before, after library.Written)) error {
 	before, err := c.Written()
 	if err != nil {
 		return set()
@@ -85,6 +96,7 @@ func heartsSet(c *library.Catalog, set func() error) error {
 		return err
 	}
 	if after, err := c.Written(); err == nil && after.Next(before) {
+		alone(before, after)
 		lists.Range(func(_, of any) bool {
 			kept := of.(*atomic.Pointer[phoneList])
 			if l := kept.Load(); l != nil && l.state == before {
@@ -337,7 +349,7 @@ func PhoneInfoOf(ctx context.Context, phone Phone, hash string) (PhoneInfo, erro
 		return PhoneInfo{}, err
 	}
 	defer end()
-	f, _, err := openInside(root, p.Path)
+	f, _, err := openInside(root, library.At(root, p.Path))
 	if err != nil {
 		return PhoneInfo{}, err
 	}
@@ -380,7 +392,7 @@ func PhoneOriginal(ctx context.Context, phone Phone, hash string) (Original, err
 	var f *os.File
 	var info fs.FileInfo
 	if err == nil {
-		f, info, err = openInside(root, p.Path)
+		f, info, err = openInside(root, library.At(root, p.Path))
 	}
 	if err != nil {
 		end()

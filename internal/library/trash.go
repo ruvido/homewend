@@ -20,9 +20,11 @@ import (
 // under the path it had; on a name taken, under a folder ".2" there, ".3"… So
 // where a file came from is always read from its path (homeOf).
 //
-// A file on its way in is recorded there before it moves, one on its way out
-// after: killed in between, a photo is recorded in the folder and its file is
-// there or at its home, and is found by that alone (found).
+// The catalog's path is where the file is. A file moves after the catalog said
+// its photo is in the Trash, or restored, a few in one turn of the library: the
+// moves are written in a journal, made, and recorded, the journal then gone. Who
+// takes the turn and finds one finishes it (FinishMoves), so it is only between
+// the two that a file is not where it is recorded, and there At says where.
 const TrashDir = ".trash"
 
 // What out is of a photo with trashed set, and the SQL of it.
@@ -34,6 +36,7 @@ const (
 	deletedForGood = `(out > 0 AND trashed = 1)`
 	beingErased    = `(out = 2 AND trashed = 1)`
 	inItsFolder    = `(path >= '` + TrashDir + `/' AND path < '` + TrashDir + `0')`
+	notInItsFolder = `(` + inTheTrash + ` AND NOT ` + inItsFolder + `)`
 	restoredThere  = `(out = 0 AND trashed = 0 AND ` + inItsFolder + `)`
 )
 
@@ -103,196 +106,149 @@ func regular(root, rel string) (fs.FileInfo, error) {
 // Turn takes the library's turn to move files, and gives it back.
 type Turn func() (func(), error)
 
-// fewAtATime is how many photos are moved in one turn, and fewer erased: a
+// fewAtATime is how many photos are moved in one turn, and fewErased erased: a
 // phone's photo or a date given waits for one.
 const (
-	fewAtATime = 200
+	fewAtATime = 100
 	fewErased  = 50
 )
 
-// moving is a photo's file on its way into the Trash's folder, as it was seen.
-type moving struct {
-	Photo
-	to   string
-	file fs.FileInfo
+// transit is a photo's file on its way, in or out, as the journal has it.
+type transit struct {
+	Key
+	From, To string
 }
 
-// PutInTrash is Mark of Trashed, with the files' places in the same write:
-// moving them is MoveIn's, beside. In the library's turn.
-func PutInTrash(root string, c *Catalog, photos []Key) (done []Key, moves []moving, err error) {
-	rows, err := c.photosOf(photos, `out = 0`)
-	if err != nil {
-		return []Key{}, nil, err
+func journal(root string) string { return filepath.Join(root, WorkDir, "trash-moves.json") }
+
+// movesOf are the journal's: none when there is none.
+func movesOf(root string) (moves []transit, err error) {
+	data, err := os.ReadFile(journal(root))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	if moves, err = planIn(root, c, rows); err != nil {
-		return []Key{}, nil, err
+	if err == nil {
+		err = json.Unmarshal(data, &moves)
 	}
-	err = c.inTx(func(tx *sql.Tx) error {
-		if done, err = setState(tx, Trashed, photos, true); err != nil {
-			return err
-		}
-		return recordIn(tx, moves)
-	})
-	return done, moves, err
+	return moves, err
 }
 
-// planIn is where the files of rows, not in the Trash's folder, go in it. Left
-// where it is: one gone, one that is not the photo's by its size, one another
-// photo is recorded at, be it in other capitals, one reached through a link.
-func planIn(root string, c *Catalog, rows []Photo) ([]moving, error) {
-	var moves []moving
-	dirs, seen := map[string]error{}, map[string]int{}
-	var want []string
-	all := make([]string, len(rows))
-	for i, p := range rows {
-		all[i] = p.Path
+// keepMoves writes the journal, on the disk before anything moves.
+func keepMoves(root string, moves []transit) error {
+	file := journal(root)
+	if len(moves) == 0 {
+		return os.Remove(file)
 	}
-	list, err := json.Marshal(all)
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range rows {
-		if inTrash(p.Path) {
-			continue
-		}
-		dir := path.Dir(p.Path)
-		err, known := dirs[dir]
-		if !known {
-			if err = direct(root, p.Path); err == nil {
-				err = direct(root, trashPath(p.Path, 1))
-			}
-			dirs[dir] = err
-			if err == nil {
-				paths, err := texts(c.db.Query(`SELECT path FROM library_photos WHERE path >= ? AND path < ? AND lower(path) IN (SELECT lower(value) FROM json_each(?))`, dir+"/", dir+"0", string(list)))
-				if err != nil {
-					return nil, err
-				}
-				for _, other := range paths {
-					seen[strings.ToLower(other)]++
-				}
-			}
-		}
-		if err != nil || p.Path != path.Clean(p.Path) || seen[strings.ToLower(p.Path)] > 1 {
-			continue
-		}
-		info, err := os.Lstat(under(root, p.Path))
-		if err != nil || !info.Mode().IsRegular() || info.Size() != p.Bytes {
-			continue
-		}
-		moves = append(moves, moving{p, "", info})
-		want = append(want, trashPath(p.Path, 1))
-	}
-	taken, err := c.countAt(want)
-	if err != nil {
-		return nil, err
-	}
-	for i := range moves {
-		for n := 1; ; n++ {
-			to := trashPath(moves[i].Path, n)
-			if n > 1 {
-				other, err := c.PathTaken(to, moves[i].Key())
-				if err != nil {
-					return nil, err
-				}
-				if other {
-					continue
-				}
-			}
-			if taken[to] == 0 && !exists(under(root, to)) {
-				moves[i].to = to
-				taken[to]++
-				break
-			}
-		}
-	}
-	return moves, nil
-}
-
-func recordIn(tx *sql.Tx, moves []moving) error {
-	set, err := tx.Prepare(`UPDATE library_photos SET path = ? WHERE hash = ? AND profile = ? AND path = ? AND ` + inTheTrash)
+	data, err := json.Marshal(moves)
 	if err != nil {
 		return err
 	}
-	for _, m := range moves {
-		if _, err := set.Exec(m.to, m.Hash, m.Profile, m.Path); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// MoveIn moves the files PutInTrash recorded. One that cannot move is recorded
-// where it is again. Those not moved, for what follows to find, are said.
-func MoveIn(root string, c *Catalog, moves []moving, turn Turn) (left []Key, err error) {
-	for few := range slices.Chunk(moves, fewAtATime) {
-		unlock, busy := turn()
-		if busy != nil {
-			err = errors.Join(err, busy)
-			for _, m := range few {
-				left = append(left, m.Key())
-			}
-			continue
-		}
-		err = errors.Join(err, moveIn(root, c, few))
-		unlock()
-	}
-	return left, err
-}
-
-func moveIn(root string, c *Catalog, moves []moving) error {
-	keys := make([]Key, len(moves))
-	for i, m := range moves {
-		keys[i] = m.Key()
-	}
-	rows, err := c.photosOf(keys, inTheTrash)
+	f, err := os.Create(file + ".tmp")
 	if err != nil {
 		return err
 	}
-	at := map[Key]string{}
-	for _, p := range rows {
-		at[p.Key()] = p.Path
+	_, err = f.Write(data)
+	if err = errors.Join(err, f.Sync(), f.Close()); err != nil {
+		return err
 	}
-	var failed []error
-	var stay []moving
+	return os.Rename(file+".tmp", file)
+}
+
+// At is where the file recorded at rel is: there, or, while it is being moved,
+// where it has gone.
+func At(root, rel string) string {
+	if exists(under(root, rel)) {
+		return rel
+	}
+	moves, _ := movesOf(root)
 	for _, m := range moves {
-		if at[m.Key()] != m.to {
-			continue // restored, or not recorded
+		if m.From == rel && exists(under(root, m.To)) {
+			return m.To
 		}
-		info, err := regular(root, m.Path)
-		if err == nil && info == nil {
-			continue // moved by another run
-		}
-		if err == nil {
-			if !os.SameFile(info, m.file) {
-				err = errNotIts
-			} else {
-				err = moveName(root, m.Path, m.to)
-			}
-		}
+	}
+	return rel
+}
+
+// FinishMoves finishes the moves of a journal, the ones just made or a killed
+// run's: what moved is recorded, with what goes with it, and what did not is as
+// it was. One found at neither place, its folder away, is kept for later.
+// write makes the record, the catalog's lists the same before and after. In the
+// library's turn.
+func FinishMoves(root, catalog string, write Write) error {
+	if !exists(journal(root)) {
+		return nil
+	}
+	return with(catalog, func(c *Catalog) error {
+		moves, err := movesOf(root)
 		if err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", m.Path, err))
-			stay = append(stay, m)
+			return err
+		}
+		return finishMoves(root, c, moves, write)
+	})
+}
+
+// Write does a write to c that changes no list.
+type Write func(c *Catalog, do func() error) error
+
+func finishMoves(root string, c *Catalog, moves []transit, write Write) error {
+	var kept, made []transit
+	renamed := false
+	for _, m := range moves {
+		from, errFrom := regular(root, m.From)
+		to, errTo := regular(root, m.To)
+		switch {
+		case errFrom != nil || errTo != nil:
+			kept = append(kept, m)
+		case to != nil && (from == nil || os.SameFile(from, to)):
+			moveBesides(root, m.From, m.To)
+			if from != nil && os.Remove(under(root, m.From)) != nil {
+				kept = append(kept, m)
+				continue
+			}
+			made = append(made, m)
+			renamed = renamed || !inTrash(m.To) && path.Base(m.To) != path.Base(m.From)
+		case from != nil:
+			if to == nil {
+				moveBesides(root, m.To, m.From)
+			}
+		case !proved(root, m.From) || !proved(root, m.To):
+			kept = append(kept, m)
 		}
 	}
-	if len(stay) > 0 {
-		failed = append(failed, c.inTx(func(tx *sql.Tx) error {
-			for _, m := range stay {
-				if _, err := tx.Exec(`UPDATE library_photos SET path = ? WHERE hash = ? AND profile = ? AND path = ?`, m.Path, m.Hash, m.Profile, m.to); err != nil {
+	record := func() error {
+		return c.inTx(func(tx *sql.Tx) error {
+			// Out of the Trash it has the name it is found under.
+			set, err := tx.Prepare(`UPDATE library_photos SET path = ?1, name = iif(?2, name, ?3) WHERE hash = ?4 AND profile = ?5 AND path = ?6`)
+			if err != nil {
+				return err
+			}
+			for _, m := range made {
+				if _, err := set.Exec(m.To, inTrash(m.To), path.Base(m.To), m.Hash, m.Profile, m.From); err != nil {
 					return err
 				}
 			}
 			return nil
-		}))
+		})
 	}
-	return errors.Join(failed...)
+	if len(made) > 0 {
+		if renamed {
+			write = func(_ *Catalog, do func() error) error { return do() }
+		}
+		if err := write(c, record); err != nil {
+			return err
+		}
+	}
+	if len(kept) == len(moves) {
+		return nil
+	}
+	return keepMoves(root, kept)
 }
 
 // TidyTrash moves the files of the photos in the Trash into its folder, and
-// those of the photos restored back to their place, finds those of a run that
-// was killed, and finishes its Empty: of keys, or of all with none, which
-// reads every row. One that cannot move stays, recorded where it is. It says
-// the contents no library has any more.
-func TidyTrash(root, catalog string, keys []Key, turn Turn) (gone []string, err error) {
+// those of the photos restored back to their place, and finishes an Empty that
+// was killed: of keys, or of all with none, which reads every row. One that
+// cannot move stays where it is. It says the contents no library has any more.
+func TidyTrash(root, catalog string, keys []Key, turn Turn, write Write) (gone []string, err error) {
 	var todo []Key
 	var claimed []Photo
 	err = with(catalog, func(c *Catalog) error {
@@ -302,21 +258,14 @@ func TidyTrash(root, catalog string, keys []Key, turn Turn) (gone []string, err 
 			}
 			return c.photosOf(keys, condition)
 		}
-		in, err := pick(inTheTrash)
-		if err != nil {
-			return err
-		}
-		for _, p := range in {
-			if !inTrash(p.Path) || !exists(under(root, p.Path)) || leftAt(root, homeOf(p.Path)) {
+		for _, condition := range []string{notInItsFolder, restoredThere} {
+			photos, err := pick(condition)
+			if err != nil {
+				return err
+			}
+			for _, p := range photos {
 				todo = append(todo, p.Key())
 			}
-		}
-		back, err := pick(restoredThere)
-		if err != nil {
-			return err
-		}
-		for _, p := range back {
-			todo = append(todo, p.Key())
 		}
 		claimed, err = pick(beingErased)
 		return err
@@ -325,206 +274,129 @@ func TidyTrash(root, catalog string, keys []Key, turn Turn) (gone []string, err 
 		return nil, err
 	}
 	var failed []error
+	// A disk that cannot lock tells no run that was killed as its turn is taken.
+	if keys == nil && exists(journal(root)) {
+		unlock, err := turn()
+		if err != nil {
+			return nil, err
+		}
+		failed = append(failed, FinishMoves(root, catalog, write))
+		unlock()
+	}
 	for few := range slices.Chunk(todo, fewAtATime) {
 		unlock, err := turn()
 		if err != nil {
 			return nil, errors.Join(append(failed, err)...)
 		}
-		failed = append(failed, with(catalog, func(c *Catalog) error { return settle(root, c, few) }))
+		failed = append(failed, with(catalog, func(c *Catalog) error { return settle(root, c, few, write) }))
 		unlock()
 	}
 	_, gone, err = erase(root, catalog, claimed, erasing, turn)
 	return gone, errors.Join(append(failed, err)...)
 }
 
-// settle brings the files of photos to where they belong, whatever a run
-// killed left, in the library's turn.
-func settle(root string, c *Catalog, photos []Key) error {
-	in, err := c.photosOf(photos, inTheTrash)
+// settle moves the files of photos to where they belong, in the library's turn.
+func settle(root string, c *Catalog, photos []Key, write Write) error {
+	in, err := c.photosOf(photos, notInItsFolder)
 	if err != nil {
 		return err
 	}
-	back, err := c.photosOf(photos, restoredThere)
+	out, err := c.photosOf(photos, restoredThere)
 	if err != nil {
 		return err
 	}
-	moves, err := planIn(root, c, in)
+	shared, err := c.sharedPaths(in)
 	if err != nil {
+		return err
+	}
+	moves, err := movesOf(root) // those kept, their folder away
+	if err != nil {
+		return err
+	}
+	going := map[Key]bool{}
+	taken := map[string]bool{}
+	for _, m := range moves {
+		going[m.Key], taken[m.To] = true, true
+	}
+	kept := len(moves)
+	for _, p := range slices.Concat(in, out) {
+		// Another file in its place by its size, or another photo's too: it
+		// is not this one's to move.
+		info, err := regular(root, p.Path)
+		if err != nil || info == nil || going[p.Key()] || shared[p.Path] || !inTrash(p.Path) && info.Size() != p.Bytes {
+			continue
+		}
+		to, err := free(root, c, p, taken)
+		if err != nil {
+			return err
+		}
+		if to != "" {
+			moves, taken[to] = append(moves, transit{p.Key(), p.Path, to}), true
+		}
+	}
+	if len(moves) == kept {
+		return nil
+	}
+	if err := keepMoves(root, moves); err != nil {
 		return err
 	}
 	var failed []error
-	if len(moves) > 0 {
-		if err := c.inTx(func(tx *sql.Tx) error { return recordIn(tx, moves) }); err != nil {
-			return err
-		}
-		failed = append(failed, moveIn(root, c, moves))
-	}
-	for _, p := range in {
-		if !inTrash(p.Path) {
-			continue
-		}
-		at, err := found(root, c, p)
-		if err == nil && at != "" && at != p.Path {
-			err = moveName(root, at, p.Path)
-		}
-		if err == nil && at != "" {
-			err = gather(root, c, p, p.Path)
-		}
-		if err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", p.Path, err))
+	for _, m := range moves[kept:] {
+		if err := rename(under(root, m.From), under(root, m.To)); err != nil {
+			failed = append(failed, fmt.Errorf("%s: %w", m.From, err))
 		}
 	}
-	for i, p := range back {
-		at, err := found(root, c, p)
-		if err == nil && at == p.Path {
-			at, err = bringBack(root, c, p)
-		}
-		if err == nil && at != "" {
-			err = gather(root, c, p, at)
-		}
-		if err != nil {
-			failed = append(failed, fmt.Errorf("%s: %w", p.Path, err))
-		}
-		back[i].Path, back[i].Name = at, p.Path // "" when it was not brought back
-	}
-	if len(back) == 0 {
-		return errors.Join(failed...)
-	}
-	err = c.inTx(func(tx *sql.Tx) error {
-		set, err := tx.Prepare(`UPDATE library_photos SET path = ?, name = ? WHERE hash = ? AND profile = ? AND path = ?`)
-		if err != nil {
-			return err
-		}
-		for _, p := range back {
-			if p.Path == "" {
-				continue
-			}
-			if _, err := set.Exec(p.Path, path.Base(p.Path), p.Hash, p.Profile, p.Name); err != nil {
-				return err
+	return errors.Join(append(failed, finishMoves(root, c, moves, write))...)
+}
+
+// free is the first free name p's file can go to, "" when a link is on the way.
+func free(root string, c *Catalog, p Photo, taken map[string]bool) (string, error) {
+	for n := 1; ; n++ {
+		to := trashPath(p.Path, n)
+		if inTrash(p.Path) {
+			if to = homeOf(p.Path); n > 1 {
+				to = relativeTo(root, withSuffix(under(root, to), n))
 			}
 		}
-		return nil
-	})
-	for _, p := range back {
-		if err != nil && p.Path != "" {
-			failed = append(failed, moveName(root, p.Path, p.Name))
+		if direct(root, to) != nil {
+			return "", nil
 		}
-	}
-	return errors.Join(append(failed, err)...)
-}
-
-// leftAt is whether a run killed may have left something at home.
-func leftAt(root, home string) bool {
-	return exists(under(root, home)) || slices.ContainsFunc(besides(home), func(b string) bool { return exists(under(root, b)) })
-}
-
-// gather takes to at, where p's file is, what a run killed left of it at its
-// other names: a second name of the file, and what goes with it where no
-// other file is.
-func gather(root string, c *Catalog, p Photo, at string) error {
-	file, err := regular(root, at)
-	if err != nil || file == nil {
-		return err
-	}
-	names := []string{p.Path}
-	for n := 1; n <= homeNames; n++ {
-		name := homeName(root, homeOf(p.Path), n)
-		if !leftAt(root, name) {
-			break // the first free name was taken, so none is beyond it
-		}
-		names = append(names, name)
-	}
-	for _, name := range names {
-		info, err := regular(root, name)
-		if name == at || err != nil || info != nil && !os.SameFile(info, file) || info == nil && !leftAt(root, name) {
-			continue
-		}
-		if taken, err := c.PathTaken(name, p.Key()); err != nil || taken {
-			continue
-		}
-		moveBesides(root, name, at)
-		if info != nil {
-			if err := os.Remove(under(root, name)); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// homeNames is how many names a photo's home is looked for under.
-const homeNames = 20
-
-// homeName is the nth name of a photo that comes back to home.
-func homeName(root, home string, n int) string {
-	if n == 1 {
-		return home
-	}
-	return relativeTo(root, withSuffix(under(root, home), n))
-}
-
-// found is where the file of p, recorded in the Trash's folder, is: there, or
-// at its home, its content read, when a run was killed. "" when nowhere.
-func found(root string, c *Catalog, p Photo) (string, error) {
-	info, err := regular(root, p.Path)
-	if err != nil || info != nil {
-		return p.Path, err
-	}
-	home := p
-	for n := 1; n <= homeNames; n++ {
-		home.Path = homeName(root, homeOf(p.Path), n)
-		info, err := regular(root, home.Path)
-		if err != nil && !errors.Is(err, errNotPlain) {
-			return "", err
-		}
-		if err != nil || info == nil || info.Size() != p.Bytes {
-			continue
-		}
-		taken, err := c.PathTaken(home.Path, p.Key())
+		other, err := c.PathTaken(to, p.Key())
 		if err != nil {
 			return "", err
 		}
-		if taken {
-			continue
-		}
-		if hash, err := hashOf(under(root, home.Path)); err != nil {
-			return "", err
-		} else if hash == p.Hash {
-			return home.Path, nil
+		if !other && !taken[to] && !exists(under(root, to)) {
+			return to, nil
 		}
 	}
-	return "", nil
 }
 
-// bringBack moves the file of p home, or beside it when its name is taken. The
-// second name of a run killed is its own place.
-func bringBack(root string, c *Catalog, p Photo) (string, error) {
-	home := homeOf(p.Path)
-	if err := direct(root, home); err != nil {
-		return "", err
+// sharedPaths are those of photos another photo is recorded at, be it in other
+// capitals: its folder's are read once, not every path there is.
+func (c *Catalog) sharedPaths(photos []Photo) (map[string]bool, error) {
+	byDir := map[string][]string{}
+	for _, p := range photos {
+		byDir[path.Dir(p.Path)] = append(byDir[path.Dir(p.Path)], p.Path)
 	}
-	info, err := regular(root, p.Path)
-	if err != nil {
-		return "", err
-	}
-	for n := 1; n <= homeNames; n++ {
-		to := homeName(root, home, n)
-		taken, err := c.PathTaken(to, p.Key())
+	shared := map[string]bool{}
+	for dir, paths := range byDir {
+		list, err := json.Marshal(paths)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		there, err := os.Lstat(under(root, to))
-		switch {
-		case taken:
-		case errors.Is(err, fs.ErrNotExist):
-			return to, moveName(root, p.Path, to)
-		case err != nil:
-			return "", err
-		case os.SameFile(info, there):
-			return to, os.Remove(under(root, p.Path))
+		found, err := texts(c.db.Query(`SELECT path FROM library_photos WHERE path >= ? AND path < ? AND lower(path) IN (SELECT lower(value) FROM json_each(?))`, dir+"/", dir+"0", string(list)))
+		if err != nil {
+			return nil, err
+		}
+		n := map[string]int{}
+		for _, p := range found {
+			n[strings.ToLower(p)]++
+		}
+		for _, p := range paths {
+			shared[p] = n[strings.ToLower(p)] > 1
 		}
 	}
-	return "", errNotIts
+	return shared, nil
 }
 
 // photosOf are those of keys that a condition keeps.
@@ -540,17 +412,6 @@ func (c *Catalog) photosOf(keys []Key, condition string) ([]Photo, error) {
 // by the photo's path, and the .xmp of a date given.
 func besides(rel string) []string {
 	return []string{path.Join(WorkDir, "metadata", rel+".json"), rel + ".xmp"}
-}
-
-// moveName moves a photo's file, and first what goes with it, so that a run
-// killed leaves nothing behind.
-func moveName(root, from, to string) error {
-	moveBesides(root, from, to)
-	err := rename(under(root, from), under(root, to))
-	if err != nil {
-		moveBesides(root, to, from)
-	}
-	return err
 }
 
 // moveBesides moves what goes with the photo at from; what cannot, stays.
@@ -591,9 +452,9 @@ func rename(from, to string) error {
 // library has, stays in the Trash with it, and so does one whose file is not
 // there with nothing to say it is not only away. It says those left there, and
 // the contents no library has any more.
-func EmptyTrash(root, catalog string, photos []Key, turn Turn) (left []Key, gone []string, err error) {
+func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write) (left []Key, gone []string, err error) {
 	// Files not where they belong first.
-	if gone, err = TidyTrash(root, catalog, photos, turn); err != nil && !exists(catalog) {
+	if gone, err = TidyTrash(root, catalog, photos, turn, write); err != nil && !exists(catalog) {
 		return photos, gone, err
 	}
 	var rows, stray, claimed []Photo
@@ -817,8 +678,17 @@ func eraseRead(root string, c *Catalog, rows []Photo, read []doomed, was int) (e
 	}
 	var sure []Photo
 	files := map[Key]doomed{}
+	// One on its way, its folder away, is whole somewhere.
+	moves, err := movesOf(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	going := map[Key]bool{}
+	for _, m := range moves {
+		going[m.Key] = true
+	}
 	for _, d := range read {
-		if !slices.ContainsFunc(d.files, func(f seen) bool { return !f.still(root) }) && (d.files[0].info != nil || proved(root, d.Path)) {
+		if !going[d.Key()] && !slices.ContainsFunc(d.files, func(f seen) bool { return !f.still(root) }) && (d.files[0].info != nil || proved(root, d.Path)) {
 			sure = append(sure, d.Photo)
 			files[d.Key()] = d
 		}
@@ -827,7 +697,7 @@ func eraseRead(root string, c *Catalog, rows []Photo, read []doomed, was int) (e
 	if err != nil {
 		return nil, nil, err
 	}
-	going := map[Key]bool{}
+	clear(going)
 	for k := range claimed {
 		// One that was to go with it was restored, or changed, with no file.
 		going[k] = !slices.ContainsFunc(files[k].with, func(o Key) bool {

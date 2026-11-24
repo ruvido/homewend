@@ -188,7 +188,7 @@ func TestEmptiedInAnotherProcessWhileRestored(t *testing.T) {
 	if err := other.Wait(); err != nil {
 		t.Fatalf("%v\n%s", err, said.String())
 	}
-	if _, err := library.TidyTrash(root, catalogPath(root), nil, trashTurn(root)); err != nil {
+	if _, err := library.TidyTrash(root, catalogPath(root), nil, trashTurn(root), unlisted); err != nil {
 		t.Fatal(err)
 	}
 	for _, k := range keys {
@@ -231,25 +231,84 @@ func TestAnEarlierTrashGoesIntoTheFolder(t *testing.T) {
 	}
 }
 
-// A Delete changes the catalog once: the file follows it with no other write,
-// which the window would read its lists again for.
-func TestADeleteChangesTheCatalogOnce(t *testing.T) {
-	root, _, _, hash, rons := twoPhones(t)
+// A Delete, or a Restore, has the window read its lists once: the file follows
+// with a write that shows in none. Another's write meanwhile does.
+func TestAFileThatFollowsIsNoChange(t *testing.T) {
+	root, ron, _, hash, rons := twoPhones(t)
 	was := beside
 	var later []func()
 	beside = func(do func()) { later = append(later, do) }
 	defer func() { beside = was }()
-	if _, err := Mark(library.Trashed, []library.Key{{Hash: hash, Profile: "ron"}}, true); err != nil {
+	k := []library.Key{{Hash: hash, Profile: "ron"}}
+	for _, on := range []bool{true, false} {
+		later = nil
+		tag, _, err := PhoneList(context.Background(), ron)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Mark(library.Trashed, k, on); err != nil {
+			t.Fatal(err)
+		}
+		marked, err := LibraryChanges()
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw := library.Changes(catalogPath(root))
+		for _, do := range later {
+			do()
+		}
+		if _, err := os.Stat(filepath.Join(root, ".trash", rons.Path)); (err == nil) != on || library.Changes(catalogPath(root)) == raw {
+			t.Errorf("on %v: not moved and recorded: %v", on, err)
+		}
+		if now, err := LibraryChanges(); err != nil || now != marked {
+			t.Errorf("on %v: the lists are read again: %s, %s %v", on, marked, now, err)
+		}
+		if after, _, err := PhoneList(context.Background(), ron); err != nil || after == tag {
+			t.Errorf("the phone's list is not another: %v", err)
+		}
+		if _, err := Mark(library.Favorite, k, on); err != nil {
+			t.Fatal(err)
+		}
+		if now, err := LibraryChanges(); err != nil || now == marked {
+			t.Errorf("a heart is no change: %v", err)
+		}
+	}
+}
+
+// Between a file's move and its record its picture is found, and a phone has it.
+func TestAPhotoInTransit(t *testing.T) {
+	root, ron, _, hash, rons := twoPhones(t)
+	k := library.Key{Hash: hash, Profile: "ron"}
+	work := filepath.Join(root, library.WorkDir, "trash-moves.json")
+	if err := os.WriteFile(work, []byte(`[{"hash":"`+hash+`","profile":"ron","From":"`+rons.Path+`","To":".trash/`+rons.Path+`"}]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	marked := library.Changes(catalogPath(root))
-	for _, do := range later {
-		do()
+	to := filepath.Join(root, ".trash", rons.Path)
+	os.MkdirAll(filepath.Dir(to), 0o755)
+	if err := os.Rename(filepath.Join(root, rons.Path), to); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".trash", rons.Path)); err != nil || len(later) != 1 {
-		t.Errorf("%d runs, %v", len(later), err)
+	haveIs(t, ron, hash, "have")
+	if at, err := PathOf(k); err != nil || at != to {
+		t.Errorf("%s %v", at, err)
 	}
-	if now := library.Changes(catalogPath(root)); now != marked {
-		t.Errorf("written again: %s, %s", marked, now)
+	if at, _, err := pictureOf(k, os.Stat); err != nil || at != to {
+		t.Errorf("%s %v", at, err)
+	}
+	// The next to take the turn finishes it: the photo, live, is home.
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	s, _ := LoadSettings()
+	if _, err := LibraryOverview(s); err != nil {
+		t.Fatal(err)
+	}
+	if at, err := PathOf(k); err != nil || at != filepath.Join(root, rons.Path) {
+		t.Errorf("%s %v", at, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, rons.Path)); err != nil {
+		t.Error(err)
 	}
 }

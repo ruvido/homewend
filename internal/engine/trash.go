@@ -12,79 +12,34 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/thumb"
 )
 
-// tidying is the one run that moves files in and out of the Trash, what each
-// library was asked since it began, and the libraries looked at whole.
+// tidying is the one run that moves files in and out of the Trash, the photos
+// of each library asked of it since it began (nil: all), and the libraries
+// looked at whole.
 var tidying = struct {
 	sync.Mutex
 	running bool
-	asked   map[string][]func() error
+	asked   map[string][]library.Key
 	done    map[string]bool
-}{asked: map[string][]func() error{}, done: map[string]bool{}}
+}{asked: map[string][]library.Key{}, done: map[string]bool{}}
 
-// markTidy is Catalog.Mark, and for the Trash the files follow beside the
-// request: a share takes its time. The catalog c is closed. A photo put in the
-// Trash is written once, with its file's new place, unless others place
-// photos now: then its file goes later, as a restored one's does.
-func markTidy(c *library.Catalog, state library.State, photos []library.Key, on bool) ([]library.Key, error) {
-	root, err := ChosenLibrary()
-	if state != library.Trashed || err != nil {
-		defer c.Close()
-		return c.Mark(state, photos, on)
-	}
-	catalog, turn := catalogPath(root), trashTurn(root)
-	if unlock, err := lockLibrary(root); on && err == nil {
-		done, moves, err := library.PutInTrash(root, c, photos)
-		unlock()
-		if err != nil || len(moves) == 0 {
-			c.Close()
-		} else {
-			follow(root, func() error {
-				left, err := library.MoveIn(root, c, moves, turn)
-				c.Close()
-				if len(left) > 0 {
-					_, more := library.TidyTrash(root, catalog, left, turn)
-					err = errors.Join(err, more)
-				}
-				return err
-			})
-		}
-		return done, err
-	} else if err == nil {
-		unlock()
-	}
-	done, err := c.Mark(state, photos, on)
-	c.Close()
-	if err == nil && len(done) > 0 {
-		follow(root, func() error {
-			_, err := library.TidyTrash(root, catalog, done, turn)
-			return err
-		})
-	}
-	return done, err
-}
-
-// trashTurn is root's turn, while it is there: never made again here.
-func trashTurn(root string) library.Turn {
-	return func() (func(), error) {
-		if _, err := os.Stat(catalogPath(root)); err != nil {
-			return nil, err
-		}
-		return takeLibrary(context.Background(), root)
-	}
-}
-
-// follow runs do beside the requests, after what was asked before it. What it
-// could not do, others placing photos, is found by a look at the whole library.
-func follow(root string, do func() error) {
+// follow moves the files of photos just put in root's Trash, or restored,
+// beside the requests: the catalog has said it, and a share takes its time. Not
+// done while others place photos, it is by a look at the whole library.
+func follow(root string, photos []library.Key) {
 	tidying.Lock()
 	run := !tidying.running
 	tidying.running = true
-	tidying.asked[root] = append(tidying.asked[root], do)
+	if asked, some := tidying.asked[root]; photos == nil || some && asked == nil {
+		tidying.asked[root] = nil
+	} else {
+		tidying.asked[root] = append(asked, photos...)
+	}
 	tidying.Unlock()
 	if !run {
 		return
@@ -99,17 +54,39 @@ func follow(root string, do func() error) {
 			if len(now) == 0 {
 				return
 			}
-			for root, all := range now {
-				for _, do := range all {
-					if err := do(); errors.Is(err, ErrLibraryBusy) {
-						lookAgain(root)
-					} else if err != nil {
-						log.Printf("the Trash: %v", err)
-					}
+			for root, photos := range now {
+				gone, err := library.TidyTrash(root, catalogPath(root), photos, yielding(trashTurn(root)), unlisted)
+				forgetPictures(gone)
+				if errors.Is(err, ErrLibraryBusy) {
+					lookAgain(root)
+				} else if err != nil {
+					log.Printf("the Trash: %v", err)
 				}
 			}
 		}
 	})
+}
+
+// trashTurn is root's turn, while it is there: never made again here.
+func trashTurn(root string) library.Turn {
+	return func() (func(), error) {
+		if _, err := os.Stat(catalogPath(root)); err != nil {
+			return nil, err
+		}
+		return takeLibrary(context.Background(), root)
+	}
+}
+
+// yielding is turn, with a pause before each but the first: whoever waits asks.
+func yielding(turn library.Turn) library.Turn {
+	first := true
+	return func() (func(), error) {
+		if !first {
+			time.Sleep(2 * lockPoll)
+		}
+		first = false
+		return turn()
+	}
 }
 
 func lookAgain(root string) {
@@ -131,11 +108,7 @@ func tidyTrashOnce(root string) {
 	if done {
 		return
 	}
-	follow(root, func() error {
-		gone, err := library.TidyTrash(root, catalogPath(root), nil, trashTurn(root))
-		forgetPictures(gone)
-		return err
-	})
+	follow(root, nil)
 }
 
 // EmptyTrash deletes for good those of photos that are in the Trash, and says
@@ -155,7 +128,7 @@ func EmptyTrash(photos []library.Key) ([]library.Key, error) {
 		return nil, err
 	}
 	unlock()
-	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, turn)
+	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, turn, unlisted)
 	forgetPictures(gone)
 	if err != nil {
 		lookAgain(root) // what it claimed and could not record

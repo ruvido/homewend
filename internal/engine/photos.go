@@ -473,7 +473,8 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 		lookNow()
 		return done, err
 	}
-	done, err := markTidy(c, state, photos, on)
+	done, err := c.Mark(state, photos, on)
+	c.Close()
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {
 		offMissing(done)
@@ -482,6 +483,9 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 		missing.Lock()
 		missing.at = time.Time{}
 		missing.Unlock()
+	}
+	if root, err := ChosenLibrary(); err == nil && state == library.Trashed && len(done) > 0 {
+		follow(root, done)
 	}
 	return done, err
 }
@@ -558,8 +562,16 @@ func pictureOf(k library.Key, stat func(string) (fs.FileInfo, error)) (file, ver
 	if c == nil {
 		return "", "", fs.ErrNotExist
 	}
+	defer c.Close()
+	if file, version, err = pictureIn(c, root, k, stat); errors.Is(err, fs.ErrNotExist) {
+		// Moved as it was looked for, it is recorded where it is now.
+		file, version, err = pictureIn(c, root, k, stat)
+	}
+	return file, version, err
+}
+
+func pictureIn(c *library.Catalog, root string, k library.Key, stat func(string) (fs.FileInfo, error)) (file, version string, err error) {
 	copies, err := c.Copies(k.Hash)
-	c.Close()
 	if err != nil {
 		return "", "", err
 	}
@@ -568,7 +580,7 @@ func pictureOf(k library.Key, stat func(string) (fs.FileInfo, error)) (file, ver
 		copies[0], copies[i] = copies[i], copies[0]
 	}
 	for _, p := range copies {
-		at := filepath.Join(root, filepath.FromSlash(p.Path))
+		at := filepath.Join(root, filepath.FromSlash(library.At(root, p.Path)))
 		info, err := stat(at)
 		switch {
 		case err != nil:
@@ -645,7 +657,7 @@ func PathOf(k library.Key) (string, error) {
 	if err != nil || !ok {
 		return "", errors.Join(err, fs.ErrNotExist)
 	}
-	return filepath.Join(root, filepath.FromSlash(rel)), nil
+	return filepath.Join(root, filepath.FromSlash(library.At(root, rel))), nil
 }
 
 // Folder is where a place of the library is on disk: a profile, a year, the

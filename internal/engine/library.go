@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"sync"
 
 	"github.com/ruvido/homewend/internal/library"
 )
@@ -71,7 +72,31 @@ func LibraryChanges() (string, error) {
 	}
 	missing.Lock()
 	defer missing.Unlock()
-	return fmt.Sprint(library.Changes(catalogPath(root)), missing.moves), nil
+	return fmt.Sprint(changesShown(library.Changes(catalogPath(root))), missing.moves), nil
+}
+
+// unseen is the last write to a catalog that changed no list: what the
+// catalog's files said after it, and before.
+var unseen struct {
+	sync.Mutex
+	after, before string
+}
+
+// changesShown is library.Changes, the same before and after such a write.
+func changesShown(changes string) string {
+	unseen.Lock()
+	defer unseen.Unlock()
+	if changes == unseen.after {
+		return unseen.before
+	}
+	return changes
+}
+
+func sameChanges(before, after library.Written) {
+	shown := changesShown(before.Changes)
+	unseen.Lock()
+	defer unseen.Unlock()
+	unseen.after, unseen.before = after.Changes, shown
 }
 
 // LibraryOverview reads the catalog of every shown account. An account with no

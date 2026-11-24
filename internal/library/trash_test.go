@@ -46,6 +46,8 @@ func (l *trashing) db() string { return filepath.Join(l.root, WorkDir, "catalog.
 
 func anyTurn() (func(), error) { return func() {}, nil }
 
+func plainly(_ *Catalog, do func() error) error { return do() }
+
 // add files a photo, its file too unless it is there.
 func (l *trashing) add(rel, content string) Key {
 	l.Helper()
@@ -69,7 +71,7 @@ func (l *trashing) mark(on bool, keys ...Key) {
 
 func (l *trashing) tidy() []string {
 	l.Helper()
-	gone, err := TidyTrash(l.root, l.db(), nil, anyTurn)
+	gone, err := TidyTrash(l.root, l.db(), nil, anyTurn, plainly)
 	if err != nil {
 		l.Fatal(err)
 	}
@@ -79,19 +81,16 @@ func (l *trashing) tidy() []string {
 // trash puts photos in the Trash, their files too.
 func (l *trashing) trash(keys ...Key) {
 	l.Helper()
-	done, moves, err := PutInTrash(l.root, l.c, keys)
-	if err != nil || len(done) != len(keys) {
-		l.Fatalf("%v %v", done, err)
-	}
-	if left, err := MoveIn(l.root, l.c, moves, anyTurn); err != nil || len(left) != 0 {
-		l.Fatalf("%v %v", left, err)
+	l.mark(true, keys...)
+	if _, err := TidyTrash(l.root, l.db(), keys, anyTurn, plainly); err != nil {
+		l.Fatal(err)
 	}
 }
 
 // empty empties keys and wants those left.
 func (l *trashing) empty(keys []Key, left ...Key) (gone []string) {
 	l.Helper()
-	got, gone, err := EmptyTrash(l.root, l.db(), keys, anyTurn)
+	got, gone, err := EmptyTrash(l.root, l.db(), keys, anyTurn, plainly)
 	if err != nil || len(got) != len(left) {
 		l.Fatalf("left %v %v, want %v", got, err, left)
 	}
@@ -221,16 +220,14 @@ func TestAPhotoRestoredAsEmptyReads(t *testing.T) {
 	os.Remove(under(l.root, ".trash/ann/d.jpg"))
 	turns := 0
 	left, _, err := EmptyTrash(l.root, l.db(), []Key{a, b, d, anns}, func() (func(), error) {
-		// The first settles hers, whose file is not there; the second comes
-		// as all were read.
-		if turns++; turns == 2 {
+		if turns++; turns == 1 { // all were read
 			l.mark(false, a, anns)
 			write(t, l.root, ".trash/ron/b.jpg", []byte("an edit"))
 			os.Chtimes(under(l.root, ".trash/ron/b.jpg"), time.Now(), time.Now().Add(time.Second))
 		}
 		return func() {}, nil
-	})
-	if err != nil || turns != 2 || len(left) != 4 {
+	}, plainly)
+	if err != nil || turns != 1 || len(left) != 4 {
 		t.Fatalf("left %v %v in %d turns, want all", left, err, turns)
 	}
 	l.tidy()
@@ -259,58 +256,69 @@ func TestAPlaceTakenMeanwhile(t *testing.T) {
 	}
 }
 
-// A run killed at each point of a move, in or out, is found by what the
-// catalog says, whatever the person does before the next look: the photo is
-// where it belongs with what goes with it, and is never missing meanwhile.
-func TestAMoveKilledIsFound(t *testing.T) {
+// A run killed at each point of a move, in or out: until it is finished the
+// photo is known where its file is, whatever the person does; then it is where
+// it belongs with what goes with it.
+func TestAMoveKilledIsFinished(t *testing.T) {
 	const home, in = "ron/a.jpg", ".trash/ron/a.jpg"
-	for _, where := range []string{"not moved", "what goes with it moved", "two names", "moved"} {
+	for _, where := range []string{"not moved", "two names", "moved", "what goes with it moved", "recorded"} {
 		for _, then := range []string{"nothing", "restored", "put in the Trash", "emptied"} {
 			for _, out := range []bool{false, true} {
 				t.Run(fmt.Sprint(where, ", out ", out, ", then ", then), func(t *testing.T) {
 					l := newTrashing(t)
 					a := l.add(home, "a photo")
 					write(t, l.root, home+".xmp", []byte("date"))
-					l.trash(a)
 					from, to := home, in
 					if out {
-						l.mark(false, a)
+						l.trash(a)
 						from, to = in, home
-					} else {
-						os.MkdirAll(under(l.root, "ron"), 0o755)
-						os.Rename(under(l.root, in), under(l.root, home))
-						os.Rename(under(l.root, in+".xmp"), under(l.root, home+".xmp"))
+					}
+					l.mark(!out, a)
+					if err := keepMoves(l.root, []transit{{a, from, to}}); err != nil {
+						t.Fatal(err)
 					}
 					os.MkdirAll(filepath.Dir(under(l.root, to)), 0o755)
-					if where != "not moved" {
-						os.Rename(under(l.root, from+".xmp"), under(l.root, to+".xmp"))
-					}
 					switch where {
 					case "two names":
 						os.Link(under(l.root, from), under(l.root, to))
-					case "moved":
+					case "moved", "what goes with it moved", "recorded":
 						os.Rename(under(l.root, from), under(l.root, to))
+					}
+					if where == "what goes with it moved" || where == "recorded" {
+						moveBesides(l.root, from, to)
+					}
+					if where == "recorded" {
+						l.exec(`UPDATE library_photos SET path = ?`, to)
 					}
 					trashed := !out
 					switch then {
 					case "restored":
 						l.mark(false, a)
 						trashed = false
-					case "put in the Trash":
+					case "put in the Trash", "emptied":
 						l.mark(true, a)
 						trashed = true
-					case "emptied":
-						l.mark(true, a)
-						l.empty([]Key{a})
-						l.isErased(a)
-						l.file(in, false)
-						l.file(home, false)
-						l.file(home+".xmp", false)
-						return
+					}
+					// Before anything is finished.
+					if h, err := Holds(l.c, l.root, a); err != nil || h.Deleted || h.Trashed != trashed {
+						t.Errorf("held %+v %v", h, err)
 					}
 					if missing, err := Missing(l.db(), l.root); err != nil || len(missing) != 0 {
 						t.Errorf("missing %v %v", missing, err)
 					}
+					p, _ := l.c.Photo(a)
+					l.file(At(l.root, p.Path), true)
+					if then == "emptied" {
+						l.finish()
+						l.empty([]Key{a})
+						l.isErased(a)
+						for _, rel := range []string{home, home + ".xmp", in, in + ".xmp"} {
+							l.file(rel, false)
+						}
+						return
+					}
+					// By whoever takes the turn, or the look at the whole library.
+					l.finish()
 					l.tidy()
 					want, other := home, in
 					if trashed {
@@ -319,10 +327,101 @@ func TestAMoveKilledIsFound(t *testing.T) {
 					l.at(a, want)
 					l.file(want+".xmp", true)
 					l.file(other, false)
+					l.file(other+".xmp", false)
+					l.file(WorkDir+"/trash-moves.json", false)
 				})
 			}
 		}
 	}
+}
+
+// finish is what the turn of the library does first.
+func (l *trashing) finish() {
+	l.Helper()
+	if err := FinishMoves(l.root, l.db(), plainly); err != nil {
+		l.Fatal(err)
+	}
+}
+
+// A move whose folder is away is kept for when it is back, and its photo stays
+// in the Trash meanwhile; one whose file is an edit is not deleted.
+func TestAMoveOfAFolderAway(t *testing.T) {
+	for _, out := range []bool{false, true} {
+		l := newTrashing(t)
+		a := l.add("ron/a.jpg", "a photo")
+		from, to := "ron/a.jpg", ".trash/ron/a.jpg"
+		if out {
+			l.trash(a)
+			from, to = to, from
+		}
+		l.mark(true, a)
+		if err := keepMoves(l.root, []transit{{a, from, to}}); err != nil {
+			t.Fatal(err)
+		}
+		folder := strings.Split(from, "/")[0]
+		away := filepath.Join(t.TempDir(), "away")
+		if err := os.Rename(under(l.root, folder), away); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			l.finish()
+			l.empty([]Key{a}, a)
+			l.file(WorkDir+"/trash-moves.json", true)
+		}
+		os.MkdirAll(under(l.root, folder), 0o755) // an empty folder in its place
+		if err := os.Remove(under(l.root, folder)); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Rename(away, under(l.root, folder)); err != nil {
+			t.Fatal(err)
+		}
+		l.finish()
+		l.empty([]Key{a})
+		l.isErased(a)
+	}
+	// Killed, then edited at its home.
+	l := newTrashing(t)
+	a := l.add("ron/a.jpg", "a photo")
+	l.mark(true, a)
+	if err := keepMoves(l.root, []transit{{a, "ron/a.jpg", ".trash/ron/a.jpg"}}); err != nil {
+		t.Fatal(err)
+	}
+	write(t, l.root, "ron/a.jpg", []byte("an edit of it"))
+	l.finish()
+	l.empty([]Key{a}, a)
+	l.at(a, "ron/a.jpg")
+}
+
+// A live photo whose place another file took is missing, in transit or not.
+func TestAnotherFileInAPlaceInTransit(t *testing.T) {
+	l := newTrashing(t)
+	a := l.add("ron/a.jpg", "a photo")
+	l.trash(a)
+	l.mark(false, a)
+	os.Remove(under(l.root, ".trash/ron/a.jpg"))
+	write(t, l.root, "ron/a.jpg", []byte("not it"))
+	if missing, err := Missing(l.db(), l.root); err != nil || len(missing) != 1 {
+		t.Errorf("missing %v %v, want it", missing, err)
+	}
+	if h, err := Holds(l.c, l.root, a); err != nil || !h.Deleted {
+		t.Errorf("held %+v %v", h, err)
+	}
+}
+
+// A folder of the Trash's own that is a link is not gone through.
+func TestALinkInTheTrash(t *testing.T) {
+	l := newTrashing(t)
+	a := l.add("ron/a.jpg", "a photo")
+	l.trash(a)
+	b := l.add("ron/a.jpg", "another")
+	outside := t.TempDir()
+	if err := os.Symlink(outside, under(l.root, ".trash/.2")); err != nil {
+		t.Skip(err)
+	}
+	l.trash(b)
+	l.at(b, "ron/a.jpg")
+	l.empty([]Key{b}, b)
+	l.at(b, "ron/a.jpg")
 }
 
 // An Empty killed after its claim is finished, the file deleted or not yet;
@@ -535,7 +634,7 @@ func TestAFileNotItsOwnIsLeft(t *testing.T) {
 			a := l.add("ron/a.jpg", "a photo")
 			file := set(l)
 			l.mark(true, a)
-			_, _ = TidyTrash(l.root, l.db(), nil, anyTurn)
+			_, _ = TidyTrash(l.root, l.db(), nil, anyTurn, plainly)
 			l.empty([]Key{a}, a)
 			l.file(file, true)
 		})
@@ -598,7 +697,7 @@ func TestAFileGoneAlready(t *testing.T) {
 	if err := os.Rename(l.root, whole); err != nil {
 		t.Skip(err)
 	}
-	if left, _, err := EmptyTrash(l.root, l.db(), []Key{e}, anyTurn); err == nil || len(left) != 1 {
+	if left, _, err := EmptyTrash(l.root, l.db(), []Key{e}, anyTurn, plainly); err == nil || len(left) != 1 {
 		t.Errorf("emptied with the disk away: %v %v", left, err)
 	}
 	if err := os.Rename(whole, l.root); err != nil {
@@ -685,7 +784,7 @@ func TestAFolderThatCannotBeWritten(t *testing.T) {
 	lock("ron", 0o555)
 	lock(".trash/ann", 0o555)
 	l.mark(true, a)
-	if _, err := TidyTrash(l.root, l.db(), nil, anyTurn); err == nil {
+	if _, err := TidyTrash(l.root, l.db(), nil, anyTurn, plainly); err == nil {
 		t.Error("not said")
 	}
 	l.at(a, "ron/a.jpg")
@@ -702,16 +801,20 @@ func TestAFolderThatCannotBeWritten(t *testing.T) {
 	d := l.add("ron/d.jpg", "a third")
 	l.trash(d)
 	l.exec(`CREATE TRIGGER full BEFORE UPDATE OF out, path ON library_photos BEGIN SELECT RAISE(ABORT, 'full'); END`)
-	if left, _, err := EmptyTrash(l.root, l.db(), []Key{d}, anyTurn); err == nil || len(left) != 1 {
+	if left, _, err := EmptyTrash(l.root, l.db(), []Key{d}, anyTurn, plainly); err == nil || len(left) != 1 {
 		t.Errorf("left %v %v", left, err)
 	}
 	l.at(d, ".trash/ron/d.jpg")
 	l.mark(false, d)
-	if _, err := TidyTrash(l.root, l.db(), nil, anyTurn); err == nil {
+	if _, err := TidyTrash(l.root, l.db(), nil, anyTurn, plainly); err == nil {
 		t.Error("not said")
 	}
-	l.at(d, ".trash/ron/d.jpg")
-	l.file("ron/d.jpg", false)
+	// Moved and not recorded, it is found, and recorded when it can be.
+	p, _ := l.c.Photo(d)
+	l.file(At(l.root, p.Path), true)
+	l.exec(`DROP TRIGGER full`)
+	l.finish()
+	l.at(d, "ron/d.jpg")
 }
 
 // An emptied photo is skipped by a Takeout and by a card, and comes back only
@@ -843,7 +946,7 @@ func TestAnOldLibrarysTrashFolder(t *testing.T) {
 			for _, p := range photos {
 				keys = append(keys, p.Key())
 			}
-			err = settle(root, c, keys)
+			err = settle(root, c, keys, plainly)
 		}
 		if err != nil {
 			t.Fatal(err)
@@ -887,11 +990,11 @@ func TestKilledAtAnyMoment(t *testing.T) {
 			keys = append(keys, p.Key())
 		}
 		for n := 0; ; n++ {
-			_, moves, _ := PutInTrash(root, c, keys)
-			MoveIn(root, c, moves, anyTurn)
-			EmptyTrash(root, db, keys[:min(n, len(keys))], anyTurn)
+			c.Mark(Trashed, keys, true)
+			TidyTrash(root, db, keys, anyTurn, plainly)
+			EmptyTrash(root, db, keys[:min(n, len(keys))], anyTurn, plainly)
 			c.Mark(Trashed, keys, false)
-			TidyTrash(root, db, nil, anyTurn)
+			TidyTrash(root, db, nil, anyTurn, plainly)
 		}
 	}
 	for round := range 12 {
@@ -959,7 +1062,7 @@ func TestEmptyTakesItsTurnForAFew(t *testing.T) {
 		}
 		turns++
 		return func() {}, nil
-	})
+	}, plainly)
 	if err != nil || len(left) != 0 || len(gone) != len(keys) || turns != 3 {
 		t.Errorf("left %v, %d gone, %d turns, %v", left, len(gone), turns, err)
 	}
@@ -976,11 +1079,44 @@ func TestEmptyTakesItsTurnForAFew(t *testing.T) {
 			return nil, busy
 		}
 		return func() {}, nil
-	})
+	}, plainly)
 	if !errors.Is(err, busy) || len(left) != 1 {
 		t.Errorf("left %v %v, want one", left, err)
 	}
 	if n, err := l.c.Count(Filter{Trashed: true}); err != nil || n != 1 {
 		t.Errorf("%d in the Trash %v, want one", n, err)
+	}
+}
+
+// A library from before profiles, its photo killed on its way to the Trash and
+// another library's hard-linked to it: its only file is not cleared away.
+func TestAnOldPhotoInTransitKeepsItsFile(t *testing.T) {
+	for _, moved := range []bool{false, true} {
+		root, c, hashes := relaying(t, map[string]string{"2019/07/a.jpg": "a photo"})
+		l := &trashing{t, root, c}
+		old := Key{Hash: hashes["2019/07/a.jpg"]}
+		os.MkdirAll(under(root, "ann/2019/07"), 0o755)
+		if err := os.Link(under(root, "2019/07/a.jpg"), under(root, "ann/2019/07/a.jpg")); err != nil {
+			t.Skip(err)
+		}
+		l.add("ann/2019/07/a.jpg", "a photo")
+		l.mark(true, old)
+		if err := keepMoves(root, []transit{{old, "2019/07/a.jpg", ".trash/2019/07/a.jpg"}}); err != nil {
+			t.Fatal(err)
+		}
+		if moved {
+			os.MkdirAll(under(root, ".trash/2019/07"), 0o755)
+			os.Rename(under(root, "2019/07/a.jpg"), under(root, ".trash/2019/07/a.jpg"))
+		}
+		l.finish()
+		if err := Relayout(root, c, nil, ronsAccount, "ron", time.UTC); err != nil {
+			t.Fatal(err)
+		}
+		l.tidy()
+		l.at(Key{old.Hash, "ron"}, ".trash/ron/2019/07/a.jpg")
+		l.mark(false, Key{old.Hash, "ron"})
+		l.tidy()
+		l.at(Key{old.Hash, "ron"}, "ron/2019/07/a.jpg")
+		l.file("ann/2019/07/a.jpg", true)
 	}
 }
