@@ -188,7 +188,9 @@ func TestEmptiedInAnotherProcessWhileRestored(t *testing.T) {
 	if err := other.Wait(); err != nil {
 		t.Fatalf("%v\n%s", err, said.String())
 	}
-	tidyTrashNow(root)
+	if _, err := library.TidyTrash(root, catalogPath(root), nil, trashTurn(root)); err != nil {
+		t.Fatal(err)
+	}
 	for _, k := range keys {
 		path, err := PathOf(k)
 		if err != nil {
@@ -226,5 +228,28 @@ func TestAnEarlierTrashGoesIntoTheFolder(t *testing.T) {
 	haveIs(t, ron, hash, "out")
 	if list, err := lookForMissing(root); err != nil || len(list) != 0 {
 		t.Errorf("%v %v", list, err)
+	}
+}
+
+// A Delete changes the catalog once: the file follows it with no other write,
+// which the window would read its lists again for.
+func TestADeleteChangesTheCatalogOnce(t *testing.T) {
+	root, _, _, hash, rons := twoPhones(t)
+	was := beside
+	var later []func()
+	beside = func(do func()) { later = append(later, do) }
+	defer func() { beside = was }()
+	if _, err := Mark(library.Trashed, []library.Key{{Hash: hash, Profile: "ron"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	marked := library.Changes(catalogPath(root))
+	for _, do := range later {
+		do()
+	}
+	if _, err := os.Stat(filepath.Join(root, ".trash", rons.Path)); err != nil || len(later) != 1 {
+		t.Errorf("%d runs, %v", len(later), err)
+	}
+	if now := library.Changes(catalogPath(root)); now != marked {
+		t.Errorf("written again: %s, %s", marked, now)
 	}
 }

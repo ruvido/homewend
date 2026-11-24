@@ -473,8 +473,7 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 		lookNow()
 		return done, err
 	}
-	done, err := c.Mark(state, photos, on)
-	c.Close()
+	done, err := markTidy(c, state, photos, on)
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {
 		offMissing(done)
@@ -483,9 +482,6 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 		missing.Lock()
 		missing.at = time.Time{}
 		missing.Unlock()
-	}
-	if root, err := ChosenLibrary(); err == nil && state == library.Trashed && len(done) > 0 {
-		tidyTrash(root)
 	}
 	return done, err
 }

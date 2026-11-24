@@ -113,7 +113,7 @@ type Catalog struct {
 
 func newCatalog(db *sql.DB, path string) *Catalog {
 	return &Catalog{db: db, path: path, held: sync.OnceValues(func() (*sql.Stmt, error) {
-		return db.Prepare(`SELECT profile, path, trashed AND out = 0, archived, trashed AND out > 0 FROM library_photos WHERE hash = ?`)
+		return db.Prepare(`SELECT profile, path, ` + inTheTrash + `, archived, ` + deletedForGood + ` FROM library_photos WHERE hash = ?`)
 	})}
 }
 
@@ -126,8 +126,8 @@ CREATE TABLE library_photos (
   id      INTEGER PRIMARY KEY,
   taken   INTEGER,          -- unix seconds, NULL when nothing is known
   -- Taken out of the library and kept out of the imports: out of every list,
-  -- still known, so that an import leaves it out as deleted. With trashed, it
-  -- was deleted for good by emptying the Trash (trash.go).
+  -- still known, so that an import leaves it out as deleted. With trashed:
+  -- trash.go.
   out     INTEGER NOT NULL DEFAULT 0,
   -- In the Trash: out of every list and every import until restored; archived:
   -- out of the grid and the years, still in its albums, still backed up;
@@ -400,7 +400,7 @@ func (c *Catalog) Put(photo Photo, sources ...string) error {
 			 ON CONFLICT(hash, profile) DO UPDATE SET
 			   path=excluded.path, name=excluded.name, bytes=excluded.bytes,
 			   taken=excluded.taken, source=excluded.source, kind=excluded.kind,
-			   origin=excluded.origin, trashed=CASE WHEN out > 0 THEN 0 ELSE trashed END, out=0
+			   origin=excluded.origin, trashed=CASE WHEN `+deletedForGood+` THEN 0 ELSE trashed END, out=0
 			 RETURNING id`,
 			photo.Hash, photo.Profile, photo.Path, photo.Name, photo.Bytes, taken,
 			string(photo.Source), string(photo.Kind), string(photo.Origin)).Scan(&id)
@@ -444,7 +444,7 @@ func (c *Catalog) PathOf(k Key) (string, bool, error) {
 
 // erased is whether the photo k was deleted for good from its library.
 func (c *Catalog) erased(k Key) (is bool, err error) {
-	err = c.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM library_photos WHERE hash = ? AND profile = ? AND out > 0 AND trashed = 1)`, k.Hash, k.Profile).Scan(&is)
+	err = c.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM library_photos WHERE hash = ? AND profile = ? AND `+deletedForGood+`)`, k.Hash, k.Profile).Scan(&is)
 	return is, err
 }
 
@@ -645,7 +645,7 @@ func (c *Catalog) Count(f Filter) (int, error) {
 func (f Filter) where(query string) (string, []any) {
 	where := []string{"NOT " + away}
 	if f.Trashed {
-		where = []string{"out = 0", "trashed = 1"}
+		where = []string{inTheTrash}
 	}
 	var args []any
 	if f.Album != "" {
@@ -808,34 +808,39 @@ const (
 // Mark sets state on photos, or clears it, and says which those were: one
 // not in its library is left out, and the same photo in another library is
 // left as it is.
-func (c *Catalog) Mark(state State, photos []Key, on bool) ([]Key, error) {
-	done := []Key{}
-	err := c.inTx(func(tx *sql.Tx) error {
-		find, err := tx.Prepare(`SELECT id FROM library_photos WHERE hash = ? AND profile = ? AND out = 0`)
-		if err != nil {
-			return err
-		}
-		set, err := tx.Prepare(setting(state))
-		if err != nil {
-			return err
-		}
-		for _, k := range photos {
-			var id int64
-			err := find.QueryRow(k.Hash, k.Profile).Scan(&id)
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			if err == nil {
-				_, err = set.Exec(on, id)
-			}
-			if err != nil {
-				return err
-			}
-			done = append(done, k)
-		}
-		return nil
+func (c *Catalog) Mark(state State, photos []Key, on bool) (done []Key, err error) {
+	err = c.inTx(func(tx *sql.Tx) error {
+		done, err = setState(tx, state, photos, on)
+		return err
 	})
 	return done, err
+}
+
+func setState(tx *sql.Tx, state State, photos []Key, on bool) ([]Key, error) {
+	done := []Key{}
+	find, err := tx.Prepare(`SELECT id FROM library_photos WHERE hash = ? AND profile = ? AND out = 0`)
+	if err != nil {
+		return done, err
+	}
+	set, err := tx.Prepare(setting(state))
+	if err != nil {
+		return done, err
+	}
+	for _, k := range photos {
+		var id int64
+		err := find.QueryRow(k.Hash, k.Profile).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err == nil {
+			_, err = set.Exec(on, id)
+		}
+		if err != nil {
+			return done, err
+		}
+		done = append(done, k)
+	}
+	return done, nil
 }
 
 // TurnLeft gives a photo a quarter turn more, anticlockwise, and says how
@@ -945,6 +950,8 @@ func Missing(catalog, root string) ([]Gone, error) {
 	var gone, back []known
 	for _, k := range all {
 		switch _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(k.path))); {
+		// Restored from a Trash whose move was cut short: at its home.
+		case errors.Is(err, fs.ErrNotExist) && inTrash(k.path) && exists(under(root, homeOf(k.path))):
 		case errors.Is(err, fs.ErrNotExist) && !k.out:
 			gone = append(gone, k)
 		case err == nil && k.out:
