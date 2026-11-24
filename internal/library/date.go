@@ -454,7 +454,8 @@ func EmbeddedThumbnails(path string) (exif, flashPix []byte) {
 // flashPixThumbnail is the JPEG in a FlashPix stream of a photo's APP2
 // segments (the EXIF standard, "FPXR"): after the name and a version byte,
 // 2 says a piece of a stream, then its number, its offset and the piece. One
-// with a piece missing or out of its place is left. A Fuji's is 320 by 240, where its EXIF's is 160 by 120.
+// with a piece missing or out of its place is left. A Fuji's is 320 by 240,
+// where its EXIF's is 160 by 120.
 func flashPixThumbnail(path string) []byte {
 	file, err := os.Open(path)
 	if err != nil {
