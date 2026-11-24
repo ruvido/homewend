@@ -149,6 +149,9 @@ export type MarkAct = { icon: IconName; label: string; state: MarkState; on: boo
 export const mark = (photos: PhotoKey[], state: MarkState, on: boolean) =>
 	call<{ marked: number }>('POST', '/api/mark', { photos: photos.map(keyOf), state, on });
 
+/** Photos shown in the Trash deleted for good; those that could not be are left in it. */
+export const emptyTrash = (photos: PhotoKey[]) => call<{ left: PhotoKey[] }>('POST', '/api/trash/empty', { photos: photos.map(keyOf) });
+
 export interface JobState {
 	running: boolean;
 	year: number;

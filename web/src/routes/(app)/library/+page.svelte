@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
-	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct } from '#lib/api.js';
+	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct, type PhotoKey } from '#lib/api.js';
 	import { isView } from '#lib/library.js';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
@@ -16,6 +16,7 @@
 	import Viewer from '#lib/components/Viewer.svelte';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import TakeOut from '#lib/components/TakeOut.svelte';
+	import EmptyTrash from '#lib/components/EmptyTrash.svelte';
 	import GiveDate from '#lib/components/GiveDate.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import LibraryFilter from '#lib/components/LibraryFilter.svelte';
@@ -56,6 +57,9 @@
 							: text.allPhotos
 	);
 	let takingOut = $state(false);
+	// The photos the Trash showed as Empty was asked: one put in it meanwhile is not deleted.
+	let emptying = $state.raw<PhotoKey[] | null>(null);
+	let emptyBusy = $state(false);
 	let reload = $state(0);
 
 	// The photos picked (K1), by id; the last one picked, for Shift.
@@ -150,13 +154,14 @@
 	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
 	// Ctrl+A or ⌘A picks all the photos shown.
 	function key(e: KeyboardEvent) {
-		if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
+		if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && !emptying && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
 			e.preventDefault();
 			selected = new Set(photos.map((p) => p.id));
 			return;
 		}
 		if (e.key !== 'Escape') return;
 		if (asking) return void (asking = null);
+		if (emptying) return void (emptyBusy || (emptying = null));
 		if (open !== null) return;
 		if (dating) dating = false;
 		else if (selected.size > 0) selected = new Set();
@@ -317,7 +322,12 @@
 	<Grid {photos} withYear={place.kind !== 'year'} onopen={(i) => (open = i)} {selected} onselect={select} view={filter} settled={loaded}>
 		{#snippet header()}
 			<div class="head">
-				<h1>{title}</h1>
+				<div class="top">
+					<h1>{title}</h1>
+					{#if place.kind === 'trash' && loaded && photos.length > 0}
+						<PrimaryButton danger onclick={() => (emptying = photos)}><Icon name="trash" size={16} />{text.emptyTrash}</PrimaryButton>
+					{/if}
+				</div>
 				<p aria-live={loaded ? 'polite' : 'off'}>
 					{subtitle}{loaded ? '' : '…'}
 					{#if where}
@@ -363,6 +373,17 @@
 			onclose={(moved) => {
 				dating = false;
 				if (moved) reload++;
+			}}
+		/>
+	{/if}
+	{#if emptying}
+		<EmptyTrash
+			photos={emptying}
+			bind:busy={emptyBusy}
+			onclose={() => (emptying = null)}
+			onemptied={(left) => {
+				emptying = left.length > 0 ? left : null;
+				reload++;
 			}}
 		/>
 	{/if}
@@ -417,6 +438,12 @@
 	}
 	.close:hover {
 		background: var(--soft);
+	}
+	.top {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: var(--space-16);
 	}
 	.head {
 		padding: var(--space-32) 0 var(--space-8);
