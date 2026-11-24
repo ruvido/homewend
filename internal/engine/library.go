@@ -102,8 +102,12 @@ func LibraryOverview(s Settings) (Overview, error) {
 	if o.Gone == "" {
 		err = seenFilled(root, s)
 	}
-	names, first := ProfileNames(accounts, s)
-	o.Profiles, o.Profile = append([]string{}, names...), first
+	if err != nil {
+		return o, err
+	}
+	_, o.Profile = ProfileNames(accounts, s)
+	names, err := knownProfiles(accounts, s)
+	o.Profiles = append(o.Profiles, names...)
 	return o, err
 }
 
@@ -123,7 +127,7 @@ func shownAddresses(accounts []AccountInfo, hidden []string) []string {
 }
 
 func overview(root string, accounts []AccountInfo, hidden []string, filled string) (Overview, error) {
-	o := Overview{Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []ShownAccount{}, Missing: map[string]int{}}
+	o := Overview{Profiles: []string{}, Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []ShownAccount{}, Missing: map[string]int{}}
 	idOf := map[string]string{}
 	for _, a := range accounts {
 		// A profile that is signed out is nobody yet.

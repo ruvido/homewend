@@ -11,6 +11,8 @@ export interface Account {
 	shown: boolean;
 	/** Photos in the library this account brought. */
 	photos?: number;
+	/** The person's place in the engine's profiles: their colour. */
+	index?: number;
 }
 
 /** "arriving": a running download still brings photos of the year. */
@@ -63,6 +65,10 @@ export type Place =
 export function samePlace(a: Place, b: Place): boolean {
 	return JSON.stringify(a) === JSON.stringify(b);
 }
+
+// People are told apart by colour, taken in order from the theme.
+const colours = ['--accent', '--fg', '--ok', '--warn', '--err', '--folder', '--chip'].map((c) => `var(${c})`);
+export const colourOf = (index: number) => colours[index % colours.length];
 
 /** One letter for an avatar: the address's first, or a name's initials. */
 export function initials(name: string): string {

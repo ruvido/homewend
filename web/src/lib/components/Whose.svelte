@@ -7,7 +7,7 @@
 	import Avatar from '#lib/components/Avatar.svelte';
 	import ContextMenu from '#lib/components/ContextMenu.svelte';
 	import Icon from '#lib/components/Icon.svelte';
-	import { app } from '#lib/app.svelte.js';
+	import { app, personOf } from '#lib/app.svelte.js';
 	import { text } from '#lib/strings.js';
 
 	// typed: a name chosen or typed; profile: the one in use, the parent's.
@@ -25,7 +25,7 @@
 	<span>{text.libraryLabel}</span>
 	{#if profile && !naming}
 		<button class="account" aria-haspopup="menu" onclick={(e) => (menu = menu ? null : e.currentTarget)}
-			><Avatar account={{ id: profile, name: profile, email: '', shown: true }} /><b>{profile}</b><Icon name="chevron-down" size={14} /></button
+			><Avatar account={{ id: profile, name: profile, email: '', shown: true }} index={personOf(profile)} /><b>{profile}</b><Icon name="chevron-down" size={14} /></button
 		>
 	{:else}
 		<!-- svelte-ignore a11y_autofocus -->

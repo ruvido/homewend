@@ -201,11 +201,16 @@ export async function toggleAccount(id: string) {
 /** Every photo not on the disk, of the accounts shown. */
 export const missingTotal = (o: Overview) => Object.values(o.missing).reduce((a, b) => a + b, 0);
 
+/** A person's place in the engine's profiles: their colour, the same everywhere. */
+export const personOf = (profile = '') => Math.max(0, app.overview?.profiles.indexOf(profile) ?? 0);
+/** An account's person. */
+export const personOfAccount = (id: string) => personOf(app.overview?.accounts.find((a) => a.id === id)?.profile);
+
 /** The engine's overview as the sidebar draws it. */
 export function sidebarOf(o: Overview): Sidebar {
 	return {
 		// An account is its address: Homewend asks Google for nothing more.
-		accounts: o.accounts.map((a) => ({ id: a.id, email: a.email, name: a.email, shown: a.shown, photos: a.photos })),
+		accounts: o.accounts.map((a) => ({ id: a.id, email: a.email, name: a.email, shown: a.shown, photos: a.photos, index: o.profiles.indexOf(a.profile) })),
 		total: o.total,
 		years: o.years.map((y) => ({
 			label: y.year || text.noDate,

@@ -119,22 +119,38 @@ func ValidProfile(p string) bool {
 	return p != "" && p != "." && p != ".." && !strings.ContainsAny(p, "/\\") && !strings.HasPrefix(p, ".") && p == strings.TrimSpace(p)
 }
 
-// knownProfiles are the profiles there are, phones' too, paired or not any
-// more.
+// knownProfiles are the profiles there are, in one order for every list and
+// every colour: ProfileNames', then the phones', paired or not any more.
 func knownProfiles(accounts []AccountInfo, s Settings) ([]string, error) {
 	profiles, _ := ProfileNames(accounts, s)
 	phones, err := LoadPhones()
 	if err != nil {
 		return nil, err
 	}
+	var more []string
 	for _, p := range phones.Phones {
-		profiles = append(profiles, p.Profile)
+		more = append(more, p.Profile)
 	}
 	for _, p := range phones.Unpaired {
-		profiles = append(profiles, p.Profile)
+		more = append(more, p.Profile)
 	}
-	slices.Sort(profiles)
-	return slices.Compact(profiles), nil
+	slices.Sort(more)
+	for _, p := range more {
+		if !slices.Contains(profiles, p) {
+			profiles = append(profiles, p)
+		}
+	}
+	return profiles, nil
+}
+
+// people are the accounts and the profiles there are.
+func people(s Settings) ([]AccountInfo, []string, error) {
+	accounts, err := Accounts()
+	if err != nil {
+		return nil, nil, err
+	}
+	profiles, err := knownProfiles(accounts, s)
+	return accounts, profiles, err
 }
 
 // ErrProfileCase is a new profile named as one there is but for its capitals:

@@ -564,3 +564,36 @@ func TestTheCopyOfAnOlderCatalog(t *testing.T) {
 		t.Errorf("left: %v", left)
 	}
 }
+
+// An opening waits for another that takes longer than any other wait to bring
+// the catalog up to date: it does not fail.
+func TestAnOpeningWaitsForALongUpgrade(t *testing.T) {
+	was := waiting
+	waiting = "_pragma=busy_timeout(50)"
+	t.Cleanup(func() { waiting = was })
+	for name, open := range map[string]func(string) (*Catalog, error){"to write": OpenCatalog, "to look": OpenCatalogReadOnly} {
+		path := older(t, 1, `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('a', 'ron/2019/07/a.jpg', 'a.jpg', 1, 1, '', '', '')`)
+		db, err := sql.Open("sqlite", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db.SetMaxOpenConns(1)
+		// As an upgrade does once it writes what it has in memory.
+		if _, err := db.Exec(`BEGIN EXCLUSIVE`); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			time.Sleep(time.Second)
+			db.Exec(`COMMIT`)
+			db.Close()
+		}()
+		c, err := open(path)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if n, err := c.Count(Filter{Profile: "ron"}); err != nil || n != 1 {
+			t.Errorf("%s: %d %v", name, n, err)
+		}
+		c.Close()
+	}
+}

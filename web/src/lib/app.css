@@ -212,3 +212,15 @@ a {
 .listing .more:hover {
 	background: var(--field);
 }
+
+/* A person's letter on their colour: the Avatar, and a tile of the grid, where
+   a component for each would be too much. */
+.avatar {
+	border-radius: 50%;
+	display: grid;
+	place-items: center;
+	flex-shrink: 0;
+	color: var(--on-accent);
+	font-size: 9px;
+	font-weight: 600;
+}

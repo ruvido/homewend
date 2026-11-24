@@ -24,9 +24,15 @@ import (
 // GridPhoto is one tile of the window's grid: a photo two libraries have is
 // two tiles.
 type GridPhoto struct {
-	library.Key
-	Name  string    `json:"name"`
-	Taken time.Time `json:"taken,omitzero"`
+	Hash    string `json:"hash"`
+	Profile string `json:"-"`
+	// Of is Profile, by its place in the list's Profiles: on every tile a
+	// name would be a tenth of the list. None is the first.
+	Of int `json:"of,omitempty"`
+	// Shared: another tile of the list is the same photo, in another library.
+	Shared bool      `json:"shared,omitempty"`
+	Name   string    `json:"name"`
+	Taken  time.Time `json:"taken,omitzero"`
 	// Guessed: how much of Taken is guessed ("year", "day", "time");
 	// empty when the date is known.
 	Guessed string `json:"guessed,omitempty"`
@@ -42,6 +48,69 @@ type GridPhoto struct {
 	// Origin: the app it came through, or a screenshot; empty when it came
 	// from a camera or nothing says.
 	Origin library.Origin `json:"origin,omitempty"`
+}
+
+// Key is the photo's.
+func (p GridPhoto) Key() library.Key { return library.Key{Hash: p.Hash, Profile: p.Profile} }
+
+// PhotoList is a list of tiles, and the profiles theirs are among: those there
+// are, in the overview's order, whatever is listed.
+type PhotoList struct {
+	Profiles []string    `json:"profiles"`
+	Photos   []GridPhoto `json:"photos"`
+}
+
+// listOf is photos as a list: whose each is, and which two libraries have.
+func listOf(photos []GridPhoto, profiles []string) PhotoList {
+	place := map[string]int{}
+	for i, p := range profiles {
+		place[p] = i
+	}
+	// No longer an account's, a phone's or an import's, its photos are there.
+	var gone []string
+	count := map[string]int{}
+	for i := range photos {
+		p := photos[i].Profile
+		if _, known := place[p]; !known && count[p] == 0 {
+			gone = append(gone, p)
+		}
+		count[p]++
+	}
+	slices.Sort(gone)
+	for _, p := range gone {
+		place[p] = len(profiles)
+		profiles = append(profiles, p)
+	}
+	most := ""
+	for p, n := range count {
+		if n > count[most] {
+			most = p
+		}
+	}
+	// The few of the smaller libraries are remembered, the many looked up.
+	first := map[string]int{}
+	for i := range photos {
+		p := &photos[i]
+		p.Of = place[p.Profile]
+		if p.Profile == most {
+			continue
+		}
+		if j, twice := first[p.Hash]; twice {
+			p.Shared, photos[j].Shared = true, true
+		} else {
+			first[p.Hash] = i
+		}
+	}
+	if len(first) > 0 {
+		for i := range photos {
+			if p := &photos[i]; p.Profile == most {
+				if j, twice := first[p.Hash]; twice {
+					p.Shared, photos[j].Shared = true, true
+				}
+			}
+		}
+	}
+	return PhotoList{Profiles: profiles, Photos: photos}
 }
 
 // ErrNoLibrary is asking for photos before a library folder was chosen.
@@ -119,29 +188,29 @@ const (
 // Photos are the grid's, newest first: all of it, a year ("" for no date),
 // an album of an account ("": not known), or a view; with a limit, the first of them.
 // Only the photos of the accounts shown are in it.
-func Photos(s Settings, year, album, albumOf string, noDate bool, view string, limit int) ([]GridPhoto, error) {
+func Photos(s Settings, year, album, albumOf string, noDate bool, view string, limit int) (PhotoList, error) {
 	c, root, err := openLibrary()
 	if err != nil || c == nil {
-		return []GridPhoto{}, err
+		return listOf([]GridPhoto{}, []string{}), err
 	}
 	defer c.Close()
-	accounts, err := Accounts()
+	accounts, profiles, err := people(s)
 	if err != nil {
-		return nil, err
+		return PhotoList{}, err
 	}
 	shown := shownAddresses(accounts, s.Hidden)
 	var all []library.Gone
 	if view == ViewMissing {
 		// It waits for the first look: none yet is not none missing.
 		if all, err = firstMissing(root); err != nil {
-			return nil, err
+			return PhotoList{}, err
 		}
 	} else {
 		all = missingIn(root)
 	}
 	gone, err := shownOf(all, c, shown)
 	if err != nil {
-		return nil, err
+		return PhotoList{}, err
 	}
 	isGone := map[library.Key]bool{}
 	for _, g := range gone {
@@ -157,16 +226,16 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 	}
 	page, err := c.Page(f)
 	if err != nil {
-		return nil, err
+		return PhotoList{}, err
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Key: p.Key(), Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Archived: p.Archived, Favorite: p.Favorite}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
 	}
-	return out, nil
+	return listOf(out, profiles), nil
 }
 
 // The photos whose file is gone, as last looked at. A look at every file
@@ -592,18 +661,26 @@ func ProfileFolder(profile string) (string, error) {
 }
 
 // Latest are the n photos that arrived last.
-func Latest(n int) ([]GridPhoto, error) {
+func Latest(n int) (PhotoList, error) {
 	c, _, err := openLibrary()
 	if err != nil || c == nil {
-		return []GridPhoto{}, err
+		return listOf([]GridPhoto{}, []string{}), err
 	}
 	defer c.Close()
+	s, err := LoadSettings()
+	if err != nil {
+		return PhotoList{}, err
+	}
+	_, profiles, err := people(s)
+	if err != nil {
+		return PhotoList{}, err
+	}
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
 	for i, p := range list {
-		out[i] = GridPhoto{Key: p.Key(), Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn}
 	}
-	return out, err
+	return listOf(out, profiles), err
 }
 
 // PhotoAbout is what the viewer says beside a photo's name.

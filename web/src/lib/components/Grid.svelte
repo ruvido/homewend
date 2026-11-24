@@ -24,12 +24,12 @@
 </script>
 
 <script lang="ts">
-	import Avatar from './Avatar.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import { pathOf, pictureOf, turned, type GridPhoto } from '#lib/api.js';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { Opener } from '#lib/menu.svelte.js';
+	import { colourOf, initials } from '#lib/library.js';
 	import { swap } from '#lib/motion.js';
 	import { text } from '#lib/strings.js';
 
@@ -105,15 +105,13 @@
 		else onopen?.(i);
 	}
 
-	// The libraries among the photos, and the contents two of them show: their
-	// tiles say whose each is (W1). One library has none.
-	const libraries = $derived([...new Set(photos.map((p) => p.profile))].sort());
-	const shared = $derived.by(() => {
-		const once = new Set<string>();
-		const twice = new Set<string>();
-		if (libraries.length > 1) for (const p of photos) (once.has(p.hash) ? twice : once).add(p.hash);
-		return twice;
-	});
+	// Whose a photo of two libraries is (W1): the letter, once a person.
+	const letters = new Map<string, string>();
+	function letterOf(profile: string) {
+		let letter = letters.get(profile);
+		if (letter === undefined) letters.set(profile, (letter = initials(profile)));
+		return letter;
+	}
 
 	const cols = $derived(Math.max(1, Math.floor((width + GAP) / (MIN_TILE + GAP))));
 	const tile = $derived(width > 0 ? (width - GAP * (cols - 1)) / cols : MIN_TILE);
@@ -273,7 +271,7 @@
 								use:shown
 							/>
 							{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
-							{#if shared.has(p.hash)}<span class="whose"><Avatar account={{ id: p.profile, name: p.profile, email: p.profile, shown: true }} index={libraries.indexOf(p.profile)} size={20} /></span>{/if}
+							{#if p.shared}<span class="avatar whose" style:background={colourOf(p.of ?? 0)} title={p.profile}>{letterOf(p.profile)}</span>{/if}
 							{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
 							<!-- Only where it can be seen: a tile is as little as it can be. -->
 							{#if onselect && (selecting || over === p.id)}
@@ -363,6 +361,8 @@
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 	}
 	.whose {
+		width: var(--space-20);
+		height: var(--space-20);
 		position: absolute;
 		right: var(--space-6);
 		bottom: var(--space-6);

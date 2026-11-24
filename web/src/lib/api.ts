@@ -82,7 +82,14 @@ export interface PhotoKey {
 	profile: string;
 }
 const keyOf = ({ hash, profile }: PhotoKey): PhotoKey => ({ hash, profile });
-const of = (p: PhotoKey) => `${p.hash}?${q({ profile: p.profile })}`;
+// Each profile's end of an address, put together once: a tile's is asked at
+// every row that scrolls in.
+const ends = new Map<string, string>();
+function of(p: PhotoKey) {
+	let end = ends.get(p.profile);
+	if (end === undefined) ends.set(p.profile, (end = '?profile=' + encodeURIComponent(p.profile)));
+	return p.hash + end;
+}
 
 /** Its picture, small, at the size of a screen, or its own file. */
 export const pictureOf = (p: PhotoKey, what: 'thumb' | 'preview' | 'original' = 'thumb') => `/api/${what}/${of(p)}`;
@@ -90,6 +97,10 @@ export const pictureOf = (p: PhotoKey, what: 'thumb' | 'preview' | 'original' = 
 export interface GridPhoto extends PhotoKey {
 	/** Its library and its content in one: what a list and a selection know it by. */
 	id: string;
+	/** Whose library's, by its place in the engine's profiles: none is the first. */
+	of?: number;
+	/** Another library has it too, and both are in the list. */
+	shared?: boolean;
 	name: string;
 	taken?: string;
 	/** How much of taken is a guess: Google's folder gave the year, the file's name the day or the time. */
@@ -107,10 +118,14 @@ export interface GridPhoto extends PhotoKey {
 	origin?: 'whatsapp' | 'telegram' | 'signal' | 'instagram' | 'app' | 'screenshot';
 }
 
-// Each photo's id, put together once as it comes.
-const withIds = (list: GridPhoto[]) => {
-	for (const p of list) p.id = `${p.profile}/${p.hash}`;
-	return list;
+// Whose each photo is and its id, once as the list comes. The first profile's
+// id is its hash: most libraries are one person's.
+const asPhotos = ({ profiles, photos }: { profiles: string[]; photos: GridPhoto[] }) => {
+	for (const p of photos) {
+		p.profile = profiles[p.of ?? 0];
+		p.id = p.of ? `${p.profile}/${p.hash}` : p.hash;
+	}
+	return photos;
 };
 
 export function getPhotos(q: { year?: string; album?: string; /** The album's, "" when not known. */ account?: string; noDate?: boolean; view?: View; /** The first of them; all when not given. */ limit?: number }) {
@@ -121,7 +136,7 @@ export function getPhotos(q: { year?: string; album?: string; /** The album's, "
 	if (q.account) p.set('account', q.account);
 	if (q.noDate) p.set('nodate', '1');
 	if (q.view) p.set('view', q.view);
-	return call<GridPhoto[]>('GET', `/api/photos?${p}`).then(withIds);
+	return call<Parameters<typeof asPhotos>[0]>('GET', `/api/photos?${p}`).then(asPhotos);
 }
 
 /** What a photo's owner sets on it, from the selection's bar or the viewer:
@@ -224,7 +239,7 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 		`/api/folder?${q({ account: o.account, profile: o.profile, year: o.year, album: o.album, nodate: o.noDate ? '1' : undefined })}`
 	);
 
-export const getLatest = () => call<GridPhoto[]>('GET', '/api/latest').then(withIds);
+export const getLatest = () => call<Parameters<typeof asPhotos>[0]>('GET', '/api/latest').then(asPhotos);
 export const giveDates = (photos: PhotoKey[], when: string) => call<{ moved: number }>('POST', '/api/dates', { photos: photos.map(keyOf), when });
 export const turnLeft = (p: PhotoKey) => call<{ turn: number }>('POST', `/api/turn/${of(p)}`);
 /** A square picture turned as the person turned the photo. */
@@ -307,7 +322,7 @@ export interface Choice {
 export interface Counts {
 	in_library: number;
 	twins: number;
-	/** Moved to a date given; given one but filed in another profile. */
+	/** Moved to a date given. */
 	redated: number;
 	/** Deleted from the library: left out, and brought back; those left out by path, and how many more. */
 	deleted: number;

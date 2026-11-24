@@ -99,7 +99,7 @@
 					oncontextmenu={(e) => context(e, 'a:' + account.id, { account: account.id })}
 					class:target={opener.menu?.key === 'a:' + account.id}
 				>
-					<span class="lead"><Avatar {account} index={data.accounts.indexOf(account)} /></span>
+					<span class="lead"><Avatar {account} index={account.index ?? data.accounts.indexOf(account)} /></span>
 					<span class="label">{account.name}</span>
 					{#if many}
 						<span class="check" class:on={account.shown}>

@@ -194,7 +194,24 @@ func catalogDSN(path, options string) string {
 // waiting is how long a connection waits for others to let go of the catalog.
 // They take turns by chance, not in order: between two that write without
 // pause, one was seen to wait more than 5 seconds on Windows.
-const waiting = "_pragma=busy_timeout(30000)"
+var waiting = "_pragma=busy_timeout(30000)"
+
+// upgradeWait is how long an opening waits for another that is bringing the
+// catalog up to date, seconds for each hundred thousand photos: past waiting,
+// it asks again.
+const upgradeWait = 10 * time.Minute
+
+// patient is do, asked again while another has the catalog.
+func patient(do func() error) error {
+	until := time.Now().Add(upgradeWait)
+	for {
+		err := do()
+		var e *sqlite.Error
+		if err == nil || !errors.As(err, &e) || e.Code()&0xff != sqlite3.SQLITE_BUSY || time.Now().After(until) {
+			return err
+		}
+	}
+}
 
 // openCatalog opens the index at path with options, out of WAL mode if it was
 // left in it. Every system keeps the catalog the same way, with a rollback
@@ -243,7 +260,7 @@ func OpenCatalog(path string) (*Catalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
-	if err := upgrade(db, path); err != nil {
+	if err := patient(func() error { return upgrade(db, path) }); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("preparing the catalog: %w", err)
 	}
@@ -302,7 +319,7 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
 	var version int
-	err = db.QueryRow(`PRAGMA user_version`).Scan(&version) // the first look at the file
+	err = patient(func() error { return db.QueryRow(`PRAGMA user_version`).Scan(&version) }) // the first look at the file
 	var e *sqlite.Error
 	if fi, serr := os.Stat(path + "-wal"); errors.As(err, &e) && (e.Code()&0xff == sqlite3.SQLITE_CANTOPEN || e.Code() == sqlite3.SQLITE_READONLY_DIRECTORY) && (serr != nil || fi.Size() == 0) {
 		db.Close()

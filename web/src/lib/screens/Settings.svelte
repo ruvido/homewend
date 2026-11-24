@@ -9,7 +9,7 @@
 	import { bytes } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
 	import { theme, setTheme } from '#lib/theme.svelte.js';
-	import { app, refresh, sidebarOf } from '#lib/app.svelte.js';
+	import { app, refresh, sidebarOf, personOfAccount } from '#lib/app.svelte.js';
 	import { getLibrary, getVersion, logout, putLibrary, type Theme } from '#lib/api.js';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import Avatar from '#lib/components/Avatar.svelte';
@@ -94,9 +94,9 @@
 					<p>{text.googleCookiesDesc}</p>
 				</div>
 			</div>
-			{#each accounts as a, i (a.id)}
+			{#each accounts as a (a.id)}
 				<div class="item account">
-					<Avatar account={a} index={i} />
+					<Avatar account={a} index={personOfAccount(a.id)} />
 					<div class="text">
 						<h3>{a.email}</h3>
 					</div>

@@ -10,7 +10,7 @@
 	import { text } from '#lib/strings.js';
 
 	import Avatar from './Avatar.svelte';
-	import { app, resumeJob } from '#lib/app.svelte.js';
+	import { app, personOfAccount, resumeJob } from '#lib/app.svelte.js';
 	import { roughly } from '#lib/format.js';
 
 	let { account, job, ondetails }: { account: string; job: JobState; ondetails?: () => void } =
@@ -23,7 +23,7 @@
 	{#if job.error}<Icon name="exclamation-circle" size={16} />{:else if busy(job)}<Icon name="arrow-repeat" size={16} />{:else}<Icon name="download" size={16} />{/if}
 </span>
 <span class="what">{headline(job)}</span>
-{#if email}<span class="who"><Avatar account={{ id: account, name: email, email, shown: true }} />{email}</span>{/if}
+{#if email}<span class="who"><Avatar account={{ id: account, name: email, email, shown: true }} index={personOfAccount(account)} />{email}</span>{/if}
 {#if job.total > 0}
 	<span class="track"><b style:width="{fraction(job) * 100}%"></b></span>
 	<span class="numbers"

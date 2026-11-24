@@ -6,7 +6,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { app, startFailure, startJob } from '#lib/app.svelte.js';
+	import { app, startFailure, startJob, personOfAccount } from '#lib/app.svelte.js';
 	import { getLibrary, putLibrary } from '#lib/api.js';
 	import { Years } from '#lib/years.svelte.js';
 	import { chooseUrl } from '#lib/places.js';
@@ -69,9 +69,9 @@
 	<p class="lead">{text.chooseLead}</p>
 
 	<div class="accounts" role="radiogroup">
-		{#each accounts as a, i (a.id)}
+		{#each accounts as a (a.id)}
 			<button role="radio" aria-checked={account === a.id} class:on={account === a.id} onclick={() => (account = a.id)}>
-				<Avatar account={a} index={i} />
+				<Avatar account={a} index={personOfAccount(a.id)} />
 				<b>{a.email}</b>
 			</button>
 		{/each}

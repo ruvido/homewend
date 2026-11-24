@@ -90,8 +90,8 @@ func TestAPhotoAnotherLibraryHasIsNotSentAgain(t *testing.T) {
 			t.Errorf("%s's library %+v %v", phone.Profile, l, err)
 		}
 	}
-	if list, err := Photos(Settings{}, "", "", "", false, "", 0); err != nil || len(list) != 2 {
-		t.Errorf("%d tiles %v, want two", len(list), err)
+	if list, err := Photos(Settings{}, "", "", "", false, "", 0); err != nil || len(list.Photos) != 2 {
+		t.Errorf("%d tiles %v, want two", len(list.Photos), err)
 	}
 	if left, _ := os.ReadDir(filepath.Join(root, ".homewend", "phone")); len(left) > 0 {
 		t.Errorf("left behind: %v", left)
@@ -157,7 +157,7 @@ func TestWhatOneDoesToAPhotoIsNotDoneToTheOthers(t *testing.T) {
 	if _, err := lookForMissing(root); err != nil {
 		t.Fatal(err)
 	}
-	if list, err := Photos(Settings{}, "", "", "", false, ViewMissing, 0); err != nil || len(list) != 1 || list[0].Profile != "ron" || !list[0].Missing {
+	if list, err := Photos(Settings{}, "", "", "", false, ViewMissing, 0); err != nil || len(list.Photos) != 1 || list.Photos[0].Profile != "ron" || !list.Photos[0].Missing {
 		t.Errorf("missing %+v %v, want ron's", list, err)
 	}
 	if n, err := TakeOutMissing(&library.Key{Hash: hash, Profile: "ann"}, false); err != nil || n != 0 {
@@ -269,11 +269,11 @@ func TestAnImportInAnotherProcessIntoTheOtherLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range list {
+	for _, p := range list.Photos {
 		if p.Profile != "ron" {
 			continue
 		}
-		if done, err := Mark(library.Trashed, []library.Key{p.Key}, true); err != nil || len(done) != 1 {
+		if done, err := Mark(library.Trashed, []library.Key{p.Key()}, true); err != nil || len(done) != 1 {
 			t.Fatalf("%v %v", done, err)
 		}
 	}
@@ -281,11 +281,11 @@ func TestAnImportInAnotherProcessIntoTheOtherLibrary(t *testing.T) {
 		t.Fatalf("%v\n%s", err, said.String())
 	}
 	list, err = Photos(Settings{}, "", "", "", false, "", 0)
-	if err != nil || len(list) != photos || slices.ContainsFunc(list, func(p GridPhoto) bool { return p.Profile != "ann" }) {
-		t.Errorf("%d in the grid %v, want ann's %d alone", len(list), err, photos)
+	if err != nil || len(list.Photos) != photos || slices.ContainsFunc(list.Photos, func(p GridPhoto) bool { return p.Profile != "ann" }) {
+		t.Errorf("%d in the grid %v, want ann's %d alone", len(list.Photos), err, photos)
 	}
-	if trash, err := Photos(Settings{}, "", "", "", false, ViewTrash, 0); err != nil || len(trash) != photos {
-		t.Errorf("%d in the Trash %v, want ron's %d", len(trash), err, photos)
+	if trash, err := Photos(Settings{}, "", "", "", false, ViewTrash, 0); err != nil || len(trash.Photos) != photos {
+		t.Errorf("%d in the Trash %v, want ron's %d", len(trash.Photos), err, photos)
 	}
 	// Again into both: nothing comes in, ron's deleted stay out.
 	for _, p := range []string{"ron", "ann"} {
@@ -482,5 +482,53 @@ func TestAProfileOfOtherCapitalsIsRefused(t *testing.T) {
 	}
 	if err := SetProfile("google/ron@example.com", "Ron"); err != nil {
 		t.Errorf("its own proposed name, in capitals: %v", err)
+	}
+}
+
+// Each tile says whose it is by one list, the overview's whatever is shown, and
+// the photo two libraries show says so; one library's says nothing.
+func TestWhoseATileIs(t *testing.T) {
+	_, _, ann, hash, _ := twoPhones(t)
+	if _, err := UpdatePhones(func(p *Phones) error {
+		p.Phones = []Phone{{ID: "p1", Profile: "ron"}, {ID: "p2", Profile: "ann"}}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	list := func() PhotoList {
+		t.Helper()
+		l, err := Photos(Settings{}, "", "", "", false, "", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	if l := list(); len(l.Photos) != 1 || l.Photos[0].Shared || l.Photos[0].Of != 1 {
+		t.Errorf("ron's alone: %+v", l)
+	}
+	if _, err := ReceivePhoto(context.Background(), ann, hash, "IMG_1.JPG", 14, unread{}); err != nil {
+		t.Fatal(err)
+	}
+	send(t, ann, "IMG_2.JPG", "ann's alone")
+	l := list()
+	if !slices.Equal(l.Profiles, []string{"ann", "ron"}) || len(l.Photos) != 3 {
+		t.Fatalf("%+v", l)
+	}
+	for _, p := range l.Photos {
+		if p.Shared != (p.Hash == hash) || l.Profiles[p.Of] != p.Profile {
+			t.Errorf("%+v", p)
+		}
+	}
+	// One of the two no longer shown, the other is as any photo.
+	if _, err := Mark(library.Archived, []library.Key{{Hash: hash, Profile: "ann"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range list().Photos {
+		if p.Shared {
+			t.Errorf("%+v: the other is not in the list", p)
+		}
+	}
+	if o, err := LibraryOverview(Settings{}); err != nil || !slices.Equal(o.Profiles, l.Profiles) {
+		t.Errorf("the overview's %v %v, want the list's %v", o.Profiles, err, l.Profiles)
 	}
 }

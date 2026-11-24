@@ -139,10 +139,13 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			}
 		}
 		emit.Emit(progress.Event{Stage: progress.Copy, N: i + 1, Of: len(items), Name: filepath.Base(item.Path)})
-		hash, err := hashReading(item.Path, tell)
-		if err != nil {
-			done.Unreadable++
-			continue
+		hash := item.Hash
+		if hash == "" {
+			var err error
+			if hash, err = hashReading(item.Path, tell); err != nil {
+				done.Unreadable++
+				continue
+			}
 		}
 		when, dated := dates[item.Path]
 		key := Key{hash, opt.Profile}
@@ -191,9 +194,9 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		if shared != "" {
 			src, link = shared, true
 		}
-		placed, err := bringIn(src, filepath.Base(item.Path), i, root, catalog, opt, link, how.Fits, arrival, tell)
+		placed, err := bringIn(src, filepath.Base(item.Path), hash, i, root, catalog, opt, link, how.Fits, arrival, tell)
 		if shared != "" && errors.Is(err, ErrNoLink) {
-			placed, err = bringIn(src, filepath.Base(item.Path), i, root, catalog, opt, false, how.Fits, arrival, tell)
+			placed, err = bringIn(src, filepath.Base(item.Path), hash, i, root, catalog, opt, false, how.Fits, arrival, tell)
 		}
 		if err != nil {
 			return done, err
@@ -304,7 +307,7 @@ func Holds(catalog *Catalog, root string, k Key) (Held, error) {
 // bringIn copies or links one file into the arrivals, under name, and places
 // it as item, which holds all but its path. A capture
 // with no date is read from the copy, the camera's own.
-func bringIn(src, name string, i int, root string, catalog *Catalog, opt Options, link bool, fits func(int64) error, item Item, copied func(int64)) (Organized, error) {
+func bringIn(src, name, hash string, i int, root string, catalog *Catalog, opt Options, link bool, fits func(int64) error, item Item, copied func(int64)) (Organized, error) {
 	// A folder of its own for each file: two cameras both name a photo
 	// DSCF0001.JPG. Emptied once the file is placed.
 	arrived := filepath.Join(arrivals(root), fmt.Sprint(i), name)
@@ -322,6 +325,8 @@ func bringIn(src, name string, i int, root string, catalog *Catalog, opt Options
 		if err := os.Link(target, arrived); err != nil {
 			return Organized{}, fmt.Errorf("%w: %v", ErrNoLink, err)
 		}
+		// Another name for what was read to know it.
+		item.Hash = hash
 	} else {
 		if err := fits(sizeOf(src)); err != nil {
 			return Organized{}, err

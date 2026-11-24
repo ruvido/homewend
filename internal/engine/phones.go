@@ -411,14 +411,26 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	}
 	defer os.RemoveAll(dir)
 	file := filepath.Join(dir, filepath.Base(filepath.Clean("/"+name)))
-	if !elsewhere || !sharedInto(file, root, hash) {
+	// In its turn: what is read of another library's file is what is linked.
+	known := ""
+	if elsewhere {
+		if unlock, err = waitLibrary(ctx, root, nil); err != nil {
+			return Received{}, err
+		}
+		if sharedInto(file, root, hash) {
+			known = hash
+		} else {
+			unlock()
+		}
+	}
+	if known == "" {
 		if err := receive(file, hash, body); err != nil {
 			return Received{}, err
 		}
-	}
-	// Its bytes are here: it waits its turn rather than being sent again.
-	if unlock, err = waitLibrary(ctx, root, nil); err != nil {
-		return Received{}, err
+		// Its bytes are here: it waits its turn rather than being sent again.
+		if unlock, err = waitLibrary(ctx, root, nil); err != nil {
+			return Received{}, err
+		}
 	}
 	defer unlock()
 	rw, err := library.OpenCatalog(catalogPath(root))
@@ -426,7 +438,7 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 		return Received{}, err
 	}
 	defer rw.Close()
-	folder := library.Folder{Root: dir, Items: []library.Item{{Path: file}}}
+	folder := library.Folder{Root: dir, Items: []library.Item{{Path: file, Hash: known}}}
 	opt := library.Options{Profile: phone.Profile, SeparateMessaging: true, Account: library.LocalSource + phone.Name}
 	// Picked: a phone's every photo comes in, a screenshot too, which a
 	// card's look would set apart.

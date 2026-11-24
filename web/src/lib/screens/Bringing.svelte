@@ -4,7 +4,7 @@
 <script lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
-	import { app, jobsKnown, resumeJob, shownJob } from '#lib/app.svelte.js';
+	import { app, jobsKnown, resumeJob, shownJob, personOfAccount } from '#lib/app.svelte.js';
 	import { getLatest, getTakeouts, stopJob, type GridPhoto, type Takeout } from '#lib/api.js';
 	import { onMount } from 'svelte';
 	import { bytes, clock, day, roughly } from '#lib/format.js';
@@ -136,7 +136,7 @@
 			<p class="lead">{job.error ? failure(job) : lead}</p>
 			<!-- A stop with no name of its own: Google's or the network's words, as they came. -->
 			{#if job.error && !job.problem}<p class="cause">{job.error}</p>{/if}
-			{#if email}<span class="who"><Avatar account={{ id: shown.account, name: email, email, shown: true }} />{email}</span>{/if}
+			{#if email}<span class="who"><Avatar account={{ id: shown.account, name: email, email, shown: true }} index={personOfAccount(shown.account)} />{email}</span>{/if}
 			{#if notOffered && job.offered?.length}
 				<div class="chips">
 					{#each [...job.offered].sort((a, b) => b - a) as y (y)}

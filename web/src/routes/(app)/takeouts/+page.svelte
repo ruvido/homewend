@@ -12,7 +12,7 @@
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
 	import ContextMenu, { folderItems, type MenuItem } from '#lib/components/ContextMenu.svelte';
-	import { app, signIn, sidebarOf, signInAgain, signingInAgain, startFailure, startJob } from '#lib/app.svelte.js';
+	import { app, signIn, sidebarOf, signInAgain, signingInAgain, startFailure, startJob, personOfAccount } from '#lib/app.svelte.js';
 	import { ApiError, folderOf, getTakeouts, readContents, type Takeout } from '#lib/api.js';
 	import { bytes, clock, day } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
@@ -176,9 +176,9 @@
 
 	{#if accounts.length > 1}
 		<div class="tabs">
-			{#each accounts as a, i (a.id)}
+			{#each accounts as a (a.id)}
 				<button class:on={account === a.id} onclick={() => (account = a.id)}>
-					<Avatar account={a} index={i} />{a.name}
+					<Avatar account={a} index={personOfAccount(a.id)} />{a.name}
 				</button>
 			{/each}
 		</div>

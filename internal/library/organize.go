@@ -107,6 +107,8 @@ type Item struct {
 	Sidecar string
 	// Shared: the sidecar is another photo's. This one's own may still arrive.
 	Shared bool
+	// Hash is its content, when it was just read: "" to read it.
+	Hash string
 	// Again: deleted from its library and asked back. It is filed as new, not
 	// taken for a move left halfway.
 	Again bool
@@ -147,9 +149,12 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 	for i, item := range items {
 		emit.Emit(progress.Event{Stage: progress.Place, N: i + 1, Of: len(items), Name: filepath.Base(item.Path)})
 
-		hash, err := hashOf(item.Path)
-		if err != nil {
-			return result, err
+		hash := item.Hash
+		if hash == "" {
+			var err error
+			if hash, err = hashOf(item.Path); err != nil {
+				return result, err
+			}
 		}
 
 		key := Key{hash, opt.Profile}

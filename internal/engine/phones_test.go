@@ -188,7 +188,7 @@ func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return len(list)
+		return len(list.Photos)
 	}
 	if grid, archive, trash := count(""), count(ViewArchive), count(ViewTrash); grid != 0 || archive != 1 || trash != 1 {
 		t.Errorf("grid %d archive %d trash %d, want 0 1 1", grid, archive, trash)

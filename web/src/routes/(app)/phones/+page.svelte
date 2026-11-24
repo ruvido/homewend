@@ -13,7 +13,7 @@
 	import Avatar from '#lib/components/Avatar.svelte';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
-	import { app } from '#lib/app.svelte.js';
+	import { app, personOf } from '#lib/app.svelte.js';
 	import { ApiError, getPhones, startPairing, stopPairing, unpair, type Phone } from '#lib/api.js';
 	import { clock, day } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
@@ -138,7 +138,7 @@
 			<p class="muted">{text.whosePhoneLead}</p>
 			<div class="who">
 				{#each app.overview?.profiles ?? [] as p (p)}
-					<button onclick={() => whose(p)}><Avatar account={{ id: p, name: p, email: '', shown: true }} /><b>{p}</b></button>
+					<button onclick={() => whose(p)}><Avatar account={{ id: p, name: p, email: '', shown: true }} index={personOf(p)} /><b>{p}</b></button>
 				{/each}
 				<button onclick={() => whose('')}><span class="glyph"><Icon name="person-plus" size={16} /></span><b>{text.someoneElse}</b></button>
 			</div>
