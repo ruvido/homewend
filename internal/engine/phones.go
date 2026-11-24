@@ -331,7 +331,7 @@ func MarkOf(phone Phone, state library.State, hashes []string, on bool) ([]strin
 	for i, h := range hashes {
 		keys[i] = library.Key{Hash: h, Profile: phone.Profile}
 	}
-	c, err := openHere()
+	_, c, err := openHere(library.OpenCatalog)
 	if err != nil || c == nil {
 		return []string{}, err
 	}

@@ -41,7 +41,7 @@ var ErrEmptyLibrary = errors.New("the library has nothing in it yet")
 
 // openMarks is openHere, or ErrEmptyLibrary.
 func openMarks() (*library.Catalog, error) {
-	c, err := openHere()
+	_, c, err := openHere(library.OpenCatalog)
 	if err == nil && c == nil {
 		err = ErrEmptyLibrary
 	}

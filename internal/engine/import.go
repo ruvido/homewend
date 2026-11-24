@@ -161,13 +161,9 @@ func (e FolderGoneError) Error() string { return e.Dir + " was taken out before 
 // lookAtLibrary opens the chosen library's catalog to read it, or nil when
 // no library was chosen or nothing is in it yet.
 func lookAtLibrary() (root string, catalog *library.Catalog, err error) {
-	root, err = LibraryHere()
+	root, catalog, err = openHere(library.OpenCatalogReadOnly)
 	if errors.Is(err, ErrNoLibrary) {
 		return "", nil, nil
 	}
-	if err != nil {
-		return "", nil, err
-	}
-	catalog, err = openAt(root, library.OpenCatalogReadOnly)
 	return root, catalog, err
 }

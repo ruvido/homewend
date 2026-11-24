@@ -184,13 +184,20 @@ func openAt(root string, open func(string) (*library.Catalog, error)) (*library.
 	return open(catalogPath(root))
 }
 
-// openHere is openAt of the chosen library, which is there (LibraryHere).
-func openHere() (*library.Catalog, error) {
+// openHere is openAt of the chosen library, which is there (LibraryHere): one
+// taken out as it is opened is gone, not one with nothing in it.
+func openHere(open func(string) (*library.Catalog, error)) (string, *library.Catalog, error) {
 	root, err := LibraryHere()
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return openAt(root, library.OpenCatalog)
+	c, err := openAt(root, open)
+	if c == nil {
+		if _, gone := LibraryHere(); gone != nil {
+			return "", nil, gone
+		}
+	}
+	return root, c, err
 }
 
 // The views of the library besides the grid, a year and an album.

@@ -144,6 +144,7 @@ func TestAQuestionIsHeldUntilAHeart(t *testing.T) {
 		t.Fatalf("%v %s", err, out)
 	}
 	answer(t, "another process's heart", rons, true, 5*time.Second)
+	held(t, 1) // the look his leaving asks for is over: on Windows an open catalog stays where it is
 	// The disk taken out while ann's waits.
 	if err := os.Rename(root, root+"-away"); err != nil {
 		t.Fatal(err)
@@ -313,5 +314,25 @@ func TestAQuestionOfALockedCatalog(t *testing.T) {
 	}
 	if err := os.Rename(root+"-away", root); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A disk taken out between the look for the library and the catalog's opening
+// is away: the library is not one with nothing in it, nor the error another.
+func TestADiskTakenOutAsItIsOpened(t *testing.T) {
+	root, _, _, _, _ := twoPhones(t)
+	for what, fails := range map[string]error{"none there": nil, "not opened": errors.New("unable to open database file")} {
+		_, c, err := openHere(func(string) (*library.Catalog, error) {
+			if err := os.Rename(root, root+"-away"); err != nil {
+				t.Fatal(err)
+			}
+			return nil, fails
+		})
+		if c != nil || !errors.As(err, new(LibraryGoneError)) {
+			t.Errorf("%s: %v", what, err)
+		}
+		if err := os.Rename(root+"-away", root); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
