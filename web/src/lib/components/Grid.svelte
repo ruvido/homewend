@@ -24,6 +24,7 @@
 </script>
 
 <script lang="ts">
+	import Avatar from './Avatar.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import { tick, untrack, type Snippet } from 'svelte';
 	import { pathOf, turned, type GridPhoto } from '#lib/api.js';
@@ -103,6 +104,16 @@
 		if (onselect && (selecting || e.shiftKey || (e.target as Element).closest('.pick'))) onselect(i, e.shiftKey);
 		else onopen?.(i);
 	}
+
+	// The libraries among the photos, and the contents two of them show: their
+	// tiles say whose each is (W1). One library has none.
+	const libraries = $derived([...new Set(photos.map((p) => p.profile))].sort());
+	const shared = $derived.by(() => {
+		const once = new Set<string>();
+		const twice = new Set<string>();
+		if (libraries.length > 1) for (const p of photos) (once.has(p.hash) ? twice : once).add(p.hash);
+		return twice;
+	});
 
 	const cols = $derived(Math.max(1, Math.floor((width + GAP) / (MIN_TILE + GAP))));
 	const tile = $derived(width > 0 ? (width - GAP * (cols - 1)) / cols : MIN_TILE);
@@ -262,6 +273,7 @@
 								use:shown
 							/>
 							{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
+							{#if shared.has(p.hash)}<span class="whose"><Avatar account={{ id: p.profile, name: p.profile, email: p.profile, shown: true }} index={libraries.indexOf(p.profile)} size={20} /></span>{/if}
 							{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
 							<!-- Only where it can be seen: a tile is as little as it can be. -->
 							{#if onselect && (selecting || over === p.id)}
@@ -349,6 +361,14 @@
 		bottom: var(--space-6);
 		color: var(--on-photo);
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+	}
+	.whose {
+		position: absolute;
+		right: var(--space-6);
+		bottom: var(--space-6);
+	}
+	.video:has(+ .whose) {
+		right: calc(2 * var(--space-6) + var(--space-20));
 	}
 	/* Picking (K1): the circle shows on a tile under the pointer, on every
 	   tile once one is picked; a picked one shrinks in an accent frame. */
