@@ -104,17 +104,19 @@
 		}
 	}
 	const turned = (turns: Map<string, number>) => (list = list.map((p) => (turns.has(p.hash) ? { ...p, turn: turns.get(p.hash) } : p)));
-	// A heart shows at once, and is taken back if it could not be kept.
-	async function favorite(hash: string, on: boolean) {
+	// A heart shows at once, and is taken back if it could not be kept. One
+	// after another: two quick clicks end as the last.
+	let hearts: Promise<unknown> = Promise.resolve();
+	function favorite(hash: string, on: boolean) {
 		const show = (favorite: boolean) => (list = list.map((p) => (p.hash === hash ? { ...p, favorite } : p)));
 		markFailed = '';
 		show(on);
-		try {
-			await mark([hash], 'favorite', on);
-		} catch {
-			show(!on);
-			markFailed = text.markFailed;
-		}
+		hearts = hearts
+			.then(() => mark([hash], 'favorite', on))
+			.catch(() => {
+				show(!on);
+				if (open !== null && photos[open]?.hash === hash) markFailed = text.markFailed;
+			});
 	}
 	// Archive and Delete (Q1, Q6), Unarchive for photos all archived (Q4,
 	// and in an album); in the Trash, Restore (Q5). The photos not on the

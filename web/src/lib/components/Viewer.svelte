@@ -7,7 +7,7 @@
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { pane, swap } from '#lib/motion.js';
-	import { getAbout, pathOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout } from '#lib/api.js';
+	import { getAbout, getFile, pathOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
@@ -100,6 +100,7 @@
 		// Another photo: fitted again.
 		if (p?.hash !== zoomed?.hash) zoomed = null;
 		if (p?.hash !== asked?.hash) asked = null;
+		if (p?.hash !== beat) beat = '';
 	});
 	function zoomIn(e: MouseEvent) {
 		if (!fitted || !p) return;
@@ -166,6 +167,17 @@
 	const beside = $derived(about ? [...about.albums, ...from].map((x) => ` · ${x}`).join('') : '');
 	// Info, open on the right (V2): it stays open from photo to photo.
 	let info = $state(false);
+	// What its file says: read only while Info shows it, of this photo alone.
+	let file = $state<PhotoFile | null>(null);
+	$effect(() => {
+		const hash = p?.hash;
+		file = null;
+		if (!hash || !info || p?.missing) return;
+		let left = false;
+		getFile(hash).then((f) => left || (file = f)).catch(() => {});
+		return () => (left = true);
+	});
+	const pixels = $derived(file?.width ? (side ? text.infoPixels(file.height, file.width) : text.infoPixels(file.width, file.height)) + ' · ' : '');
 	// Where its file was, whole, when it is gone: the person looks there.
 	let wasAt = $state('');
 	$effect(() => {
@@ -195,6 +207,8 @@
 			if (e.key === 'Escape') dating = takingOut = false;
 			return;
 		}
+		// On a button, Space presses it.
+		if (e.key === ' ' && (e.target as Element).closest?.('button')) return;
 		// Space closes it, as it closes Quick Look.
 		if (e.key === 'Escape' || e.key === ' ') {
 			e.preventDefault();
@@ -308,8 +322,8 @@
 								</dd>
 							</div>
 							{#if about}
-								<div><dt>{text.infoSize}</dt><dd>{about.width ? text.infoPixels(about.width, about.height) + ' · ' : ''}{bytes(about.bytes)}</dd></div>
-								{#if !video}<div><dt>{text.infoCamera}</dt><dd>{about.camera || '—'}{#if !about.camera}<small>{text.infoNoCamera}</small>{/if}</dd></div>{/if}
+								<div><dt>{text.infoSize}</dt><dd>{pixels}{bytes(about.bytes)}</dd></div>
+								{#if file && !p.video}<div in:swap><dt>{text.infoCamera}</dt><dd>{file.camera || '—'}{#if !file.camera}<small>{text.infoNoCamera}</small>{/if}</dd></div>{/if}
 								{#if from.length}<div><dt>{text.infoFrom}</dt><dd>{from.join(', ')}</dd></div>{/if}
 								<div><dt>{text.infoFile}</dt><dd>{p.name}<small>{about.path.slice(0, about.path.lastIndexOf('/') + 1)}</small></dd></div>
 							{/if}
@@ -378,6 +392,8 @@
 		/* The photo takes the whole window, titlebar included. */
 		inset: 0;
 		z-index: 30;
+		/* Over the titlebar, whose drag would take its buttons' clicks. */
+		-webkit-app-region: no-drag;
 		display: flex;
 		flex-direction: column;
 		background: #0b0c10;
@@ -389,8 +405,7 @@
 		gap: 16px;
 		padding: 12px 16px;
 		/* Clear of the window buttons the system draws, at the top left on a
-		   Mac, at the top right elsewhere. Esc closes it: a button of ours
-		   there sat under the Mac's own. */
+		   Mac, at the top right elsewhere: the arrow comes after them. */
 		padding-left: calc(env(titlebar-area-x, 0px) + 16px);
 		padding-right: calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + 16px);
 	}
@@ -515,11 +530,6 @@
 	@keyframes beat {
 		50% {
 			scale: 1.3;
-		}
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.heart.beat :global(svg) {
-			animation: none;
 		}
 	}
 	.body {

@@ -568,16 +568,35 @@ type PhotoAbout struct {
 	Dated library.DateSource `json:"dated"`
 	Bytes int64              `json:"bytes"`
 	Path  string             `json:"path"` // in the library
-	// Its pixels, and the camera it says took it; 0 and "" when not known.
+}
+
+// PhotoFile is what a photo's file says of itself: its pixels, 0 when not
+// known, and the camera that took it, "" when it does not say.
+type PhotoFile struct {
 	Width  int    `json:"width"`
 	Height int    `json:"height"`
 	Camera string `json:"camera"`
 }
 
+// FileOf reads them from the file of hash: asked only when they are shown.
+func FileOf(hash string) (PhotoFile, error) {
+	path, err := Original(hash)
+	if err == nil {
+		_, err = os.Stat(path)
+	}
+	if err != nil {
+		return PhotoFile{}, err
+	}
+	var f PhotoFile
+	f.Width, f.Height = thumb.Dimensions(path)
+	f.Camera = library.CameraOf(path)
+	return f, nil
+}
+
 // About is what the viewer says of a photo: its albums, where it came from,
 // its date's source, its size and its place.
 func About(hash string) (PhotoAbout, error) {
-	c, root, err := openLibrary()
+	c, _, err := openLibrary()
 	if err != nil || c == nil {
 		return PhotoAbout{Albums: []string{}, Accounts: []string{}, Local: []string{}}, err
 	}
@@ -596,12 +615,6 @@ func About(hash string) (PhotoAbout, error) {
 		return about, err
 	}
 	p, err := c.Photo(hash)
-	if err != nil {
-		return about, err
-	}
 	about.Dated, about.Bytes, about.Path = p.Source, p.Bytes, p.Path
-	file := filepath.Join(root, filepath.FromSlash(p.Path))
-	about.Width, about.Height = thumb.Dimensions(file)
-	about.Camera = library.CameraOf(file)
-	return about, nil
+	return about, err
 }

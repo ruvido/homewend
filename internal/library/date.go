@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/abema/go-mp4"
 	"github.com/gen2brain/heic"
@@ -202,8 +204,7 @@ func cameraDate(path string) (time.Time, DateSource, bool) {
 		when, ok := videoDate(path)
 		return when, FromVideo, ok
 	}
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".heic" || ext == ".heif" {
+	if IsHEIC(path) {
 		if when, ok := heicDate(path); ok {
 			return when, FromEXIF, true
 		}
@@ -218,9 +219,18 @@ func cameraDate(path string) (time.Time, DateSource, bool) {
 // box points at, not a block near the start as in a JPEG: the decoder the
 // thumbnails use already finds it.
 func heicDate(path string) (when time.Time, ok bool) {
+	exif := heicExif(path)
+	if exif == nil {
+		return time.Time{}, false
+	}
+	return cameraClock(exif.DateTimeOriginal)
+}
+
+// heicExif is the EXIF of the HEIC at path, or nil.
+func heicExif(path string) (exif *heic.Exif) {
 	file, err := os.Open(path)
 	if err != nil {
-		return time.Time{}, false
+		return nil
 	}
 	defer file.Close()
 	// The decoder trusts the sizes a file declares: a damaged one can make it
@@ -228,14 +238,19 @@ func heicDate(path string) (when time.Time, ok bool) {
 	// One damaged photo on a card has no date; it does not stop the rest.
 	defer func() {
 		if recover() != nil {
-			when, ok = time.Time{}, false
+			exif = nil
 		}
 	}()
-	exif, err := heic.DecodeExif(file)
-	if err != nil {
-		return time.Time{}, false
+	if exif, err = heic.DecodeExif(file); err != nil {
+		return nil
 	}
-	return cameraClock(exif.DateTimeOriginal)
+	return exif
+}
+
+// IsHEIC says whether the photo at path is a HEIC, by its name.
+func IsHEIC(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return ext == ".heic" || ext == ".heif"
 }
 
 // videoDate reads the creation time in an MP4's or a MOV's movie header. It
@@ -403,9 +418,13 @@ func readTag(data []byte, tiff, ifd int, want uint16, order binary.ByteOrder) (s
 		if tag != want || kind != 2 || count == 0 { // 2 = ASCII
 			return false
 		}
-		valueAt := tiff + int(order.Uint32(data[at+8:at+12]))
+		// Four bytes or fewer are in the entry itself.
+		valueAt := at + 8
+		if count > 4 {
+			valueAt = tiff + int(order.Uint32(data[at+8:at+12]))
+		}
 		end := valueAt + int(count)
-		if valueAt < 0 || end > len(data) {
+		if valueAt < 0 || end < valueAt || end > len(data) {
 			return true
 		}
 		found, ok = string(data[valueAt:end]), true
@@ -534,20 +553,32 @@ func exifThumbnail(path string) []byte {
 // CameraOf is the camera that took the photo at path, "FUJIFILM X-T3": the
 // make and the model its EXIF names, the make once; "" when it does not say.
 func CameraOf(path string) string {
-	head, tiff, order, ok := exifHead(path)
-	if !ok {
-		return ""
+	var maker, model string
+	if IsHEIC(path) {
+		if exif := heicExif(path); exif != nil {
+			maker, model = exif.Make, exif.Model
+		}
+	} else if head, tiff, order, ok := exifHead(path); ok {
+		ifd0 := int(order.Uint32(head[tiff+4 : tiff+8]))
+		maker, _ = readTag(head, tiff, ifd0, 0x010f, order)
+		model, _ = readTag(head, tiff, ifd0, 0x0110, order)
 	}
-	ifd0 := int(order.Uint32(head[tiff+4 : tiff+8]))
-	read := func(tag uint16) string {
-		s, _ := readTag(head, tiff, ifd0, tag, order)
-		return strings.TrimSpace(strings.TrimRight(s, "\x00"))
-	}
-	maker, model := read(0x010f), read(0x0110)
+	maker, model = printed(maker), printed(model)
 	if len(model) >= len(maker) && strings.EqualFold(model[:len(maker)], maker) {
 		return model
 	}
 	return strings.TrimSpace(maker + " " + model)
+}
+
+// printed is an EXIF text to its first NUL, without what cannot be shown.
+func printed(s string) string {
+	s, _, _ = strings.Cut(s, "\x00")
+	return strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r == utf8.RuneError || !unicode.IsPrint(r) {
+			return -1
+		}
+		return r
+	}, s))
 }
 
 // Orientation is the EXIF orientation of a JPEG or TIFF, 1 to 8: how the

@@ -102,19 +102,28 @@ func Make(ctx context.Context, src, dst string, size int) (err error) {
 }
 
 // Dimensions are the pixels of the photo at path as it is shown, turned as
-// its EXIF says; 0 for what no decoder here reads, a video included.
+// its EXIF says; 0 for what no decoder here reads, a video included, or does
+// not survive.
 func Dimensions(path string) (w, h int) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, 0
 	}
 	defer f.Close()
-	var c image.Config
-	if ext := strings.ToLower(filepath.Ext(path)); ext == ".heic" || ext == ".heif" {
-		c, err = heic.DecodeConfig(f)
-	} else {
-		c, _, err = image.DecodeConfig(f)
+	defer func() {
+		if recover() != nil {
+			w, h = 0, 0
+		}
+	}()
+	// The decoder of a HEIC turns it already.
+	if library.IsHEIC(path) {
+		c, err := heic.DecodeConfig(f)
+		if err != nil {
+			return 0, 0
+		}
+		return c.Width, c.Height
 	}
+	c, _, err := image.DecodeConfig(f)
 	if err != nil {
 		return 0, 0
 	}
@@ -153,7 +162,7 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 	if img := embedded(f, src, size); img != nil {
 		return img, nil
 	}
-	if ext == ".heic" || ext == ".heif" {
+	if library.IsHEIC(src) {
 		return heic.Decode(f)
 	}
 	img, _, err := image.Decode(f)

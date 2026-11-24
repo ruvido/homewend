@@ -199,6 +199,10 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		a, err := engine.About(r.PathValue("hash"))
 		reply(w, a, err)
 	})
+	mux.HandleFunc("GET /api/file/{hash}", func(w http.ResponseWriter, r *http.Request) {
+		f, err := engine.FileOf(r.PathValue("hash"))
+		reply(w, f, err)
+	})
 	// A thumbnail never changes: it is named by the photo's content.
 	mux.HandleFunc("GET /api/thumb/{hash}", func(w http.ResponseWriter, r *http.Request) {
 		path, err := engine.Thumbnail(r.Context(), r.PathValue("hash"))

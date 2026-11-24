@@ -218,13 +218,17 @@ export interface PhotoAbout {
 	bytes: number;
 	/** In the library. */
 	path: string;
-	/** Its pixels, and the camera it says took it; 0 and '' when not known. */
+}
+export const getAbout = (hash: string) =>
+	call<PhotoAbout>('GET', `/api/about/${hash}`);
+
+/** What a photo's file says of itself: its pixels, 0 when not known; its camera, '' when it does not say. */
+export interface PhotoFile {
 	width: number;
 	height: number;
 	camera: string;
 }
-export const getAbout = (hash: string) =>
-	call<PhotoAbout>('GET', `/api/about/${hash}`);
+export const getFile = (hash: string) => call<PhotoFile>('GET', `/api/file/${hash}`);
 
 export const readContents = (account: string, exportId: string) =>
 	call<{ years: string[] }>('POST', `/api/takeouts/contents?${q({ account, export: exportId })}`);
