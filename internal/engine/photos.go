@@ -171,11 +171,25 @@ func openLibrary() (*library.Catalog, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	if _, err := os.Stat(catalogPath(root)); errors.Is(err, fs.ErrNotExist) {
-		return nil, root, nil
-	}
-	c, err := library.OpenCatalog(catalogPath(root))
+	c, err := openAt(root)
 	return c, root, err
+}
+
+// openAt opens the catalog of the library at root, nil when nothing is in it.
+func openAt(root string) (*library.Catalog, error) {
+	if _, err := os.Stat(catalogPath(root)); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return library.OpenCatalog(catalogPath(root))
+}
+
+// openHere is openAt of the chosen library, which is there (LibraryHere).
+func openHere() (*library.Catalog, error) {
+	root, err := LibraryHere()
+	if err != nil {
+		return nil, err
+	}
+	return openAt(root)
 }
 
 // The views of the library besides the grid, a year and an album.
@@ -430,9 +444,9 @@ func TakeOutMissing(one *library.Key, keepOut bool) (int, error) {
 }
 
 // Mark sets state on photos, or clears it, and says which are in their
-// library.
+// library. With the library away none is said to be.
 func Mark(state library.State, photos []library.Key, on bool) ([]library.Key, error) {
-	c, _, err := openLibrary()
+	c, err := openHere()
 	if err != nil || c == nil {
 		return []library.Key{}, err
 	}
