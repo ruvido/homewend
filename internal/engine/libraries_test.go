@@ -153,7 +153,7 @@ func TestWhatOneDoesToAPhotoIsNotDoneToTheOthers(t *testing.T) {
 	if back, err := ReceivePhoto(context.Background(), ron, hash, "IMG_1.JPG", 14, unread{}); err != nil || !back.Out {
 		t.Errorf("deleted, sent again by ron: %+v %v", back, err)
 	}
-	if path, _, err := pictureOf(library.Key{Hash: hash, Profile: "ron"}); err != nil || path != filepath.Join(root, "ann", "2020", "05", "IMG_1.JPG") {
+	if path, _, err := pictureOf(library.Key{Hash: hash, Profile: "ron"}, os.Stat); err != nil || path != filepath.Join(root, "ann", "2020", "05", "IMG_1.JPG") {
 		t.Errorf("the picture is made from %s %v", path, err)
 	}
 	if _, err := lookForMissing(root); err != nil {

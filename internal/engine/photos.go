@@ -524,7 +524,7 @@ var thumbSlots = make(chan struct{}, max(1, runtime.NumCPU()-1))
 // Thumbnail returns the file of a photo's thumbnail, making it the first time;
 // kept says it is the content's, which never changes.
 func Thumbnail(ctx context.Context, k library.Key) (file string, kept bool, err error) {
-	return cached(ctx, "thumbs", thumb.Size, k.Hash, func() (string, string, error) { return pictureOf(k) })
+	return cached(ctx, "thumbs", thumb.Size, k.Hash, func() (string, string, error) { return pictureOf(k, os.Stat) })
 }
 
 // Preview is the picture the viewer shows a photo of the library with, at
@@ -534,17 +534,17 @@ func Thumbnail(ctx context.Context, k library.Key) (file string, kept bool, err 
 // shortcut: no limit on the cache's size (about 0.5–1 MB a photo looked at),
 // prune by age when a library's previews grow past a few GB.
 func Preview(ctx context.Context, k library.Key) (file string, kept bool, err error) {
-	return cached(ctx, "previews", thumb.PreviewSize, k.Hash, func() (string, string, error) { return pictureOf(k) })
+	return cached(ctx, "previews", thumb.PreviewSize, k.Hash, func() (string, string, error) { return pictureOf(k, os.Stat) })
 }
 
 // pictureOf is the file a photo's picture is made from: its own, or else
 // another library's, that is still the photo, by its size. With none, its own
 // as it is now, and version, the name its picture is kept by: another
 // program's edit of one library's file is not the content's picture, which
-// every library is shown.
+// every library is shown. stat looks at a file.
 // shortcut: an edit that leaves the size as it was is not seen; reading the
 // file to know would be reading each original once more.
-func pictureOf(k library.Key) (file, version string, err error) {
+func pictureOf(k library.Key, stat func(string) (fs.FileInfo, error)) (file, version string, err error) {
 	c, root, err := openLibrary()
 	if err != nil {
 		return "", "", err
@@ -563,19 +563,24 @@ func pictureOf(k library.Key) (file, version string, err error) {
 	}
 	for _, p := range copies {
 		at := filepath.Join(root, filepath.FromSlash(p.Path))
-		info, err := os.Stat(at)
+		info, err := stat(at)
 		switch {
 		case err != nil:
 		case info.Size() == p.Bytes:
 			return at, "", nil
 		case p.Key() == k:
-			file, version = at, fmt.Sprintf("%s-%x-%x", k.Hash, info.Size(), info.ModTime().UnixNano())
+			file, version = at, versionOf(k.Hash, info)
 		}
 	}
 	if file == "" {
 		return "", "", fs.ErrNotExist
 	}
 	return file, version, nil
+}
+
+// versionOf names a file that is not the content of hash any more.
+func versionOf(hash string, info fs.FileInfo) string {
+	return fmt.Sprintf("%s-%x-%x", hash, info.Size(), info.ModTime().UnixNano())
 }
 
 // picturesDir is where the cache keeps the pictures of kind dir.
@@ -741,10 +746,14 @@ func FileOf(k library.Key) (PhotoFile, error) {
 	if err != nil {
 		return PhotoFile{}, err
 	}
+	return fileAt(path), nil
+}
+
+func fileAt(path string) PhotoFile {
 	var f PhotoFile
 	f.Width, f.Height = thumb.Dimensions(path)
 	f.Camera = library.CameraOf(path)
-	return f, nil
+	return f
 }
 
 // About is what the viewer says of a photo: its albums, where it came from,

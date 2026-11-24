@@ -182,6 +182,11 @@ func Pairing() bool {
 	return pairing.code != "" && time.Now().Before(pairing.until)
 }
 
+// seenEvery is how often a phone that keeps asking is noted seen.
+const seenEvery = 10 * time.Second
+
+var errSeen = errors.New("seen just now")
+
 // PhoneOf is the phone with this token, and notes it seen.
 func PhoneOf(token string) (Phone, error) {
 	want := hashText(token)
@@ -193,10 +198,18 @@ func PhoneOf(token string) (Phone, error) {
 		if i < 0 {
 			return ErrNoPhone
 		}
-		p.Phones[i].Seen = time.Now()
 		phone = p.Phones[i]
+		// A phone asks for thousands of small copies in a row: the file is
+		// not written for each.
+		if time.Since(phone.Seen).Abs() < seenEvery {
+			return errSeen
+		}
+		p.Phones[i].Seen = time.Now()
 		return nil
 	})
+	if errors.Is(err, errSeen) {
+		err = nil
+	}
 	return phone, err
 }
 
