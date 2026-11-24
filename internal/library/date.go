@@ -428,6 +428,51 @@ func readTagOffset(data []byte, tiff, ifd int, want uint16, order binary.ByteOrd
 
 const tagOrientation = 0x0112
 
+// EmbeddedThumbnail is the small JPEG a camera writes in a photo's EXIF, or
+// nil: in IFD1, where tags 0x0201 and 0x0202 say where it begins and how
+// long it is (the EXIF standard, JPEGInterchangeFormat).
+func EmbeddedThumbnail(path string) []byte {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	// The EXIF segment is 64 KB at most, after the few bytes before it.
+	head := make([]byte, 1<<17)
+	n, _ := io.ReadFull(file, head)
+	head = head[:n]
+	tiff, order, ok := exifHeader(head)
+	if !ok || tiff+8 > len(head) {
+		return nil
+	}
+	ifd0 := tiff + int(order.Uint32(head[tiff+4:tiff+8]))
+	if ifd0 < tiff || ifd0+2 > len(head) {
+		return nil
+	}
+	next := ifd0 + 2 + 12*int(order.Uint16(head[ifd0:ifd0+2]))
+	if next+4 > len(head) {
+		return nil
+	}
+	ifd1 := int(order.Uint32(head[next : next+4]))
+	if ifd1 == 0 {
+		return nil
+	}
+	var at, size int
+	eachEntry(head, tiff, ifd1, order, func(tag, kind uint16, count uint32, entry int) bool {
+		switch tag {
+		case 0x0201:
+			at = tiff + int(order.Uint32(head[entry+8:entry+12]))
+		case 0x0202:
+			size = int(order.Uint32(head[entry+8 : entry+12]))
+		}
+		return false
+	})
+	if at <= tiff || size <= 0 || size > len(head) || at > len(head)-size {
+		return nil
+	}
+	return head[at : at+size]
+}
+
 // Orientation is the EXIF orientation of a JPEG or TIFF, 1 to 8: how the
 // pixels must be turned to be seen upright. 1, as is, when there is none.
 func Orientation(path string) int {

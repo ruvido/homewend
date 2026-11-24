@@ -19,6 +19,7 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,6 +90,9 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 		return nil, err
 	}
 	defer f.Close()
+	if img := embedded(f, src, size); img != nil {
+		return img, nil
+	}
 	if ext == ".heic" || ext == ".heif" {
 		return heic.Decode(f)
 	}
@@ -97,6 +101,35 @@ func decode(ctx context.Context, src string, size int) (image.Image, error) {
 		return nil, fmt.Errorf("%w: %s", ErrNoDecoder, ext)
 	}
 	return img, err
+}
+
+// embedded is the thumbnail the camera wrote in the JPEG f, when it is as
+// large as asked and of the photo's shape: a photo cropped or turned since by
+// a program that left it behind is another. It is read in 5 ms where decoding
+// 12 MP takes 350; the 453 large enough in a real library were all the photo.
+// shortcut: an edit that kept the shape and left the old thumbnail shows the
+// photo as it was, in the grid only; decode the photo if one is ever met.
+func embedded(f io.ReadSeeker, src string, size int) image.Image {
+	if size > Size {
+		return nil
+	}
+	small, err := jpeg.Decode(bytes.NewReader(library.EmbeddedThumbnail(src)))
+	if err != nil {
+		return nil
+	}
+	whole, err := jpeg.DecodeConfig(f)
+	if _, back := f.Seek(0, io.SeekStart); err != nil || back != nil {
+		return nil
+	}
+	b := small.Bounds()
+	if max(b.Dx(), b.Dy()) < size {
+		return nil
+	}
+	// Within two of its own pixels: cameras round.
+	if off := b.Dx()*whole.Height - b.Dy()*whole.Width; max(off, -off) > 2*max(whole.Width, whole.Height) {
+		return nil
+	}
+	return small
 }
 
 // frame is a video's first frame, already at size, from ffmpeg.
