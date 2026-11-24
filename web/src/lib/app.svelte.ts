@@ -19,7 +19,8 @@ import {
 	type Card,
 	type JobState,
 	type Overview,
-	type Settings
+	type Settings,
+	type Thumbs
 } from './api.js';
 import type { Sidebar, YearState } from './library.js';
 import { chooseUrl } from './places.js';
@@ -41,6 +42,8 @@ export const app = $state<{
 	/** Grows each time the library changed (getChanges), whoever changed it:
 	 *  a screen that shows the library reads it again. */
 	libraryMoved: number;
+	/** Thumbnails being made in the background, when they take a while. */
+	thumbs: Thumbs | null;
 }>({
 	settings: {},
 	overview: null,
@@ -50,7 +53,8 @@ export const app = $state<{
 	update: '',
 	updating: false,
 	picked: {},
-	libraryMoved: 0
+	libraryMoved: 0,
+	thumbs: null
 });
 
 function measure(account: string, j: JobState) {
@@ -86,6 +90,7 @@ export function watchCards(): () => void {
 export function watchJobs(): () => void {
 	let wasRunning = false;
 	let changes: string | undefined;
+	let wasMaking = false;
 	const tick = async () => {
 		const accounts = app.overview?.accounts ?? [];
 		// An account signed out has no download left to ask about or show.
@@ -109,7 +114,12 @@ export function watchJobs(): () => void {
 		// Photos arrive from a download, a card, a phone: the counts follow
 		// the catalog, whoever wrote it. A job's end changes its takeouts too.
 		const running = Object.values(app.jobs).some((j) => j.running);
-		const now = await getChanges().then((c) => c.changes).catch(() => changes);
+		const got = await getChanges().catch(() => null);
+		const now = got ? got.changes : changes;
+		// Said from the second time on: a few thumbnails are done by then.
+		const making = !!got && got.thumbs.done < got.thumbs.of;
+		app.thumbs = making && wasMaking ? got.thumbs : null;
+		wasMaking = making;
 		const moved = changes !== undefined && now !== changes;
 		changes = now;
 		if (moved) app.libraryMoved++;

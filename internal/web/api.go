@@ -58,10 +58,11 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		o, err := engine.LibraryOverview(s)
 		reply(w, o, err)
 	})
-	// Cheap to ask every second: the page reads the overview again when it moves.
+	// Cheap to ask every second: the page reads the overview again when it
+	// moves. The thumbnails being made go with it.
 	mux.HandleFunc("GET /api/changes", func(w http.ResponseWriter, r *http.Request) {
 		n, err := engine.LibraryChanges()
-		reply(w, map[string]string{"changes": n}, err)
+		reply(w, map[string]any{"changes": n, "thumbs": engine.ThumbsMade()}, err)
 	})
 	// Sign-in happens in the system browser; the request waits for it. With
 	// no account named it signs in a new one.

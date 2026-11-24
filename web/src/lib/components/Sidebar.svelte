@@ -7,8 +7,9 @@
 	import Avatar from './Avatar.svelte';
 	import ContextMenu, { folderItems } from './ContextMenu.svelte';
 	import { ejectCard, folderOf, type Card } from '#lib/api.js';
-	import { cards as cardList, lookCards, watchCards } from '#lib/app.svelte.js';
+	import { app, cards as cardList, lookCards, watchCards } from '#lib/app.svelte.js';
 	import { Opener } from '#lib/menu.svelte.js';
+	import { reveal } from '#lib/motion.js';
 	import { text } from '#lib/strings.js';
 	import { FOLD, samePlace, type Place, type Sidebar } from '#lib/library.js';
 
@@ -229,6 +230,13 @@
 	</div>
 
 	<div class="pinned">
+		{#if app.thumbs}
+			<!-- U1: work in the background, quiet, on every page. -->
+			<div class="work" in:reveal out:reveal={{ leaving: true }} role="progressbar" aria-label={text.thumbnails} aria-valuemin={0} aria-valuenow={app.thumbs.done} aria-valuemax={app.thumbs.of} title={rail ? text.thumbnails : undefined}>
+				<span class="label">{text.thumbnails}<i>{text.ofTotal(app.thumbs.done, app.thumbs.of)}</i></span>
+				<div class="track"><b style:width="{(app.thumbs.done / app.thumbs.of) * 100}%"></b></div>
+			</div>
+		{/if}
 		<button
 			class="row"
 			class:selected={is({ kind: 'phones' })}
@@ -451,6 +459,37 @@
 		flex-direction: column;
 		gap: 4px;
 		border-top: 1px solid var(--line);
+	}
+
+	.work {
+		padding: var(--space-4) var(--space-12) var(--space-12);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-6);
+		color: var(--muted);
+		font-size: var(--text-subheadline);
+	}
+	.work .label {
+		display: flex;
+		justify-content: space-between;
+	}
+	.work i {
+		font-style: normal;
+		color: var(--faint);
+		font-variant-numeric: tabular-nums;
+	}
+	.track {
+		height: var(--space-2);
+		border-radius: var(--radius-full);
+		background: var(--field);
+		overflow: hidden;
+	}
+	.track b {
+		display: block;
+		height: 100%;
+		border-radius: var(--radius-full);
+		background: var(--accent);
+		transition: width var(--motion-ambient) var(--ease-out);
 	}
 
 	/* The rail: the same rows, labels hidden, so nothing moves between the two. */

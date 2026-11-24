@@ -84,6 +84,9 @@ func (s *Server) KeepJobs() error {
 	return nil
 }
 
+// KeepThumbnails makes the library's thumbnails while the server runs.
+func (s *Server) KeepThumbnails() { go engine.KeepThumbnails(s.ctx) }
+
 // ListenPhones opens the phones' listener; without it the window runs, and
 // pairing says why.
 func (s *Server) ListenPhones() error {

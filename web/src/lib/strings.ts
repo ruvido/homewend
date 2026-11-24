@@ -196,6 +196,8 @@ export const text = {
 
 	takeoutsTitle: 'Takeouts',
 	phones: 'Phones',
+	thumbnails: 'Thumbnails',
+	ofTotal: (n: number, of: number) => `${n.toLocaleString('en')} of ${of.toLocaleString('en')}`,
 	addPhone: 'Add a phone',
 	whosePhone: 'Whose phone is it?',
 	whosePhoneLead: 'Its photos go into their library.',

@@ -29,6 +29,7 @@ func ui(args []string) int {
 	}
 	fmt.Println(srv.URL)
 	srv.KeepJobs()
+	srv.KeepThumbnails()
 	if err := srv.ListenPhones(); err != nil {
 		log.Printf("phones: no listener: %v", err)
 	}
