@@ -6,12 +6,19 @@ package library
 import (
 	"bytes"
 	"cmp"
+	"context"
+	"crypto/md5"
 	"crypto/sha256"
-	"database/sql"
+	"database/sql/driver"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"maps"
+	"math/bits"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,7 +57,11 @@ type listed struct {
 	Turn     int      `json:"turn"`
 	Archived bool     `json:"archived"`
 	Albums   []string `json:"albums"`
-	albums   []string // their names
+	// As the catalog has them; the albums by name.
+	id, taken    int64
+	dated        bool
+	turnArchived int // turn × 2, and 1 archived
+	albums       []string
 }
 
 // undatedMonth is the month of the photos whose date nobody knows, and
@@ -60,69 +71,164 @@ const (
 	monthLayout  = "2006-01"
 )
 
-func (p listed) month() string {
-	if p.Taken == "" {
-		return undatedMonth
-	}
-	return p.Taken[:len(monthLayout)]
-}
-
-// Listing is the listing of profile's library.
-func (c *Catalog) Listing(profile string) (Listing, error) {
+// Listing is the listing of profile's library, and the hashes of the photos
+// in it. Each photo is read once and kept by none: a month's tag is the sum
+// of its photos' digests, in any order.
+func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 	l := Listing{Months: []ListedMonth{}, Albums: []ListedAlbum{}}
-	photos, shelf, err := c.listed(profile, "", nil)
+	s, err := c.Shelf(profile)
 	if err != nil {
-		return l, err
+		return l, nil, err
 	}
-	l.Shelf = shelf
-	albums := map[string]*ListedAlbum{}
-	var answer bytes.Buffer
-	for len(photos) > 0 {
-		month, n := photos[0].month(), 1
-		for n < len(photos) && photos[n].month() == month {
-			n++
+	l.Shelf = s.ID
+	of, err := c.albumsOf(`SELECT album, group_concat(photo) FROM album_members GROUP BY album`)
+	if err != nil {
+		return l, nil, err
+	}
+	months, albums, hashes := map[int]*monthSum{}, map[string]*albumSum{}, map[Hash]struct{}{}
+	// Its month, 0 with no date, and its sum: the photo before is often of it.
+	month, sum := -1, (*monthSum)(nil)
+	err = c.eachListed(profile, "", nil, func(p listed) {
+		p.albums = of[p.id]
+		in := 0
+		if p.dated {
+			year, m, _ := p.at().Date()
+			in = year*12 + int(m)
 		}
-		for _, p := range photos[:n] {
-			for i, name := range p.albums {
-				// The newest come first.
-				if albums[name] == nil {
-					albums[name] = &ListedAlbum{ID: p.Albums[i], Name: name, Cover: p.Hash}
-				}
-				albums[name].Count++
+		if in != month {
+			month = in
+			if sum = months[in]; sum == nil {
+				sum = &monthSum{name: p.month()}
+				months[in] = sum
 			}
 		}
-		answer.Reset()
-		if err := writeListed(&answer, photos[:n]); err != nil {
-			return l, err
+		sum.add(p)
+		var h Hash
+		if n, err := hex.Decode(h[:], []byte(p.Hash)); n == len(h) && err == nil {
+			hashes[h] = struct{}{}
 		}
-		l.Months = append(l.Months, ListedMonth{month, n, tagOf(answer.Bytes())})
-		photos = photos[n:]
+		for _, name := range p.albums {
+			a := albums[name]
+			if a == nil {
+				a = &albumSum{cover: p}
+				albums[name] = a
+			}
+			a.n++
+			if p.newer(a.cover) < 0 {
+				a.cover = p
+			}
+		}
+	})
+	if err != nil {
+		return l, nil, err
 	}
-	for _, a := range albums {
-		l.Albums = append(l.Albums, *a)
+	for _, m := range slices.Backward(slices.Sorted(maps.Keys(months))) {
+		if m != 0 {
+			l.Months = append(l.Months, months[m].month())
+		}
 	}
-	slices.SortFunc(l.Albums, func(a, b ListedAlbum) int { return cmp.Compare(a.Name, b.Name) })
-	return l, nil
+	if none := months[0]; none != nil {
+		l.Months = append(l.Months, none.month())
+	}
+	for _, name := range slices.Sorted(maps.Keys(albums)) {
+		l.Albums = append(l.Albums, ListedAlbum{albumID(s.ID, name), name, albums[name].n, albums[name].cover.Hash})
+	}
+	return l, hashes, nil
+}
+
+// Hash is a photo's, as bytes.
+type Hash [sha256.Size]byte
+
+type albumSum struct {
+	n     int
+	cover listed
+}
+
+// monthSum adds up a month's photos: md5, a third of SHA-256's time where no
+// processor does it, tells a change and guards nothing.
+type monthSum struct {
+	name   string
+	n      int
+	hi, lo uint64
+	line   []byte
+}
+
+func (m *monthSum) add(p listed) {
+	b := append(m.line[:0], p.Hash...)
+	b = append(b, p.Type...)
+	for _, n := range []int64{p.taken, int64(p.turnArchived), p.Bytes, int64(len(p.albums)), int64(len(p.Type))} {
+		b = binary.BigEndian.AppendUint64(b, uint64(n))
+	}
+	for _, name := range p.albums {
+		b = append(append(b, name...), 0)
+	}
+	m.line = append(b, p.Name...)
+	sum := md5.Sum(m.line)
+	var carry uint64
+	m.lo, carry = bits.Add64(m.lo, binary.BigEndian.Uint64(sum[8:]), 0)
+	m.hi, _ = bits.Add64(m.hi, binary.BigEndian.Uint64(sum[:8]), carry)
+	m.n++
+}
+
+func (m *monthSum) month() ListedMonth {
+	return ListedMonth{m.name, m.n, fmt.Sprintf("%016x%016x", m.hi, m.lo)}
 }
 
 // Month is a month of profile's library: its photos, newest first, as JSON,
-// and their tag, the listing's; no photos when it has none.
+// and their tag, the listing's; no photos when it has none. The catalog may be
+// written between its queries: the listing then moves again.
 func (c *Catalog) Month(profile, month string) (tag string, photos []byte, err error) {
-	where, args := "taken IS NULL", []any{}
+	where, args := "taken IS NULL", []any{profile}
 	if month != undatedMonth {
 		from, err := time.Parse(monthLayout, month)
 		if err != nil {
 			return "", nil, nil
 		}
-		where, args = "taken >= ? AND taken < ?", []any{from.Unix(), from.AddDate(0, 1, 0).Unix()}
+		where, args = "taken >= ? AND taken < ?", []any{profile, from.Unix(), from.AddDate(0, 1, 0).Unix()}
 	}
-	list, _, err := c.listed(profile, where, args)
+	s, err := c.Shelf(profile)
+	if err != nil {
+		return "", nil, err
+	}
+	of, err := c.albumsOf(`SELECT album, group_concat(photo) FROM album_members
+		WHERE photo IN (SELECT id FROM library_photos WHERE profile = ? AND `+where+`) GROUP BY album`, args...)
+	if err != nil {
+		return "", nil, err
+	}
+	var list []listed
+	sum := monthSum{name: month}
+	err = c.eachListed(profile, " AND "+where, args[1:], func(p listed) {
+		p.albums, p.Albums = of[p.id], []string{}
+		for _, name := range p.albums {
+			p.Albums = append(p.Albums, albumID(s.ID, name))
+		}
+		p.Turn, p.Archived = p.turnArchived/2, p.turnArchived%2 == 1
+		if p.dated {
+			p.Taken = p.at().Format("2006-01-02T15:04:05")
+		}
+		sum.add(p)
+		list = append(list, p)
+	})
 	if err != nil || len(list) == 0 {
 		return "", nil, err
 	}
+	slices.SortFunc(list, listed.newer)
 	var answer bytes.Buffer
-	err = writeListed(&answer, list)
-	return tagOf(answer.Bytes()), answer.Bytes(), err
+	out := json.NewEncoder(&answer)
+	for i, p := range list {
+		answer.WriteByte("[,"[min(i, 1)])
+		if err := out.Encode(p); err != nil {
+			return "", nil, err
+		}
+	}
+	answer.WriteByte(']')
+	return sum.month().Tag, answer.Bytes(), nil
+}
+
+// Tag is the listing's, a digest of its JSON, which it is with.
+func (l Listing) Tag() (tag string, answer []byte, err error) {
+	answer, err = json.Marshal(l)
+	return tagOf(answer), answer, err
 }
 
 // tagOf is a digest of an answer.
@@ -131,86 +237,121 @@ func tagOf(answer []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// Tag is the listing's, as its JSON is.
-func (l Listing) Tag() (tag string, answer []byte, err error) {
-	answer, err = json.Marshal(l)
-	return tagOf(answer), answer, err
-}
+// albumID names an album of the shelf.
+func albumID(shelf, name string) string { return tagOf([]byte(shelf + "/" + name)) }
 
-func writeListed(into *bytes.Buffer, photos []listed) error {
-	out := json.NewEncoder(into)
-	for i, p := range photos {
-		into.WriteByte("[,"[min(i, 1)])
-		if err := out.Encode(p); err != nil {
-			return err
-		}
-	}
-	into.WriteByte(']')
-	return nil
-}
-
-// listed are the photos of profile's library that a list has, archived ones
-// too, newest first and by hash, and the library's shelf: all, or those of
-// where. The catalog may be written between its queries: the listing then
-// moves again.
-func (c *Catalog) listed(profile, where string, args []any) (photos []listed, shelf string, err error) {
-	s, err := c.Shelf(profile)
+// albumsOf are the albums of each photo by its id, by name, from a query of
+// each album and its photos' ids with a comma between: a row an album, where
+// a row a photo takes as long as the photos.
+func (c *Catalog) albumsOf(query string, args ...any) (map[int64][]string, error) {
+	rows, err := c.db.Query(query+` ORDER BY album`, args...)
 	if err != nil {
-		return nil, "", err
-	}
-	from := ` FROM library_photos WHERE profile = ? AND NOT ` + away
-	if where != "" {
-		from += " AND " + where
-	}
-	args = append([]any{profile}, args...)
-	rows, err := c.db.Query(`SELECT id, hash, taken, name, bytes, turn, archived`+from, args...)
-	if err != nil {
-		return nil, "", fmt.Errorf("reading the catalog: %w", err)
+		return nil, fmt.Errorf("reading the catalog: %w", err)
 	}
 	defer rows.Close()
-	place := map[int64]int{}
+	of := map[int64][]string{}
 	for rows.Next() {
-		var id int64
-		var taken sql.NullInt64
-		p := listed{Albums: []string{}}
-		if err := rows.Scan(&id, &p.Hash, &taken, &p.Name, &p.Bytes, &p.Turn, &p.Archived); err != nil {
-			return nil, "", err
+		var album, photos string
+		if err := rows.Scan(&album, &photos); err != nil {
+			return nil, err
 		}
-		if taken.Valid {
-			p.Taken = time.Unix(taken.Int64, 0).UTC().Format("2006-01-02T15:04:05")
+		for one := range strings.SplitSeq(photos, ",") {
+			id, err := strconv.ParseInt(one, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			of[id] = append(of[id], album)
 		}
-		p.Type = TypeOf(p.Name)
-		place[id] = len(photos)
-		photos = append(photos, p)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, "", err
-	}
-	rows.Close()
-	members, err := c.db.Query(`SELECT photo, album FROM album_members WHERE photo IN (SELECT id`+from+`) ORDER BY album`, args...)
+	return of, rows.Err()
+}
+
+// eachListed reads the photos of profile's library a list has, archived ones
+// too, as they lie. It asks the driver itself: database/sql's Scan takes as
+// long again (100,000, 24/11).
+func (c *Catalog) eachListed(profile, where string, args []any, each func(listed)) error {
+	ctx := context.Background()
+	conn, err := c.db.Conn(ctx)
 	if err != nil {
-		return nil, "", fmt.Errorf("reading the catalog: %w", err)
+		return fmt.Errorf("reading the catalog: %w", err)
 	}
-	defer members.Close()
-	ids := map[string]string{}
-	for members.Next() {
-		var id int64
-		var album string
-		if err := members.Scan(&id, &album); err != nil {
-			return nil, "", err
+	defer conn.Close()
+	return conn.Raw(func(d any) error {
+		named := []driver.NamedValue{{Ordinal: 1, Value: profile}}
+		for i, a := range args {
+			named = append(named, driver.NamedValue{Ordinal: i + 2, Value: a})
 		}
-		if ids[album] == "" {
-			ids[album] = tagOf([]byte(s.ID + "/" + album))
+		rows, err := d.(driver.QueryerContext).QueryContext(ctx, `SELECT id, hash, taken, name, bytes, turn * 2 + archived
+			FROM library_photos WHERE profile = ? AND NOT `+away+where, named)
+		if err != nil {
+			return fmt.Errorf("reading the catalog: %w", err)
 		}
-		if i, in := place[id]; in {
-			photos[i].Albums, photos[i].albums = append(photos[i].Albums, ids[album]), append(photos[i].albums, album)
+		defer rows.Close()
+		row := make([]driver.Value, len(rows.Columns()))
+		for {
+			if err := rows.Next(row); err == io.EOF {
+				return nil
+			} else if err != nil {
+				return fmt.Errorf("reading the catalog: %w", err)
+			}
+			var p listed
+			p.id, _ = row[0].(int64)
+			p.Hash, _ = row[1].(string)
+			p.taken, p.dated = row[2].(int64)
+			p.Name, _ = row[3].(string)
+			p.Bytes, _ = row[4].(int64)
+			both, _ := row[5].(int64)
+			p.turnArchived, p.Type = int(both), TypeOf(p.Name)
+			each(p)
 		}
-	}
-	// No date is "", after every date.
-	slices.SortFunc(photos, func(a, b listed) int {
-		return cmp.Or(strings.Compare(b.Taken, a.Taken), strings.Compare(a.Hash, b.Hash))
 	})
-	return photos, s.ID, members.Err()
+}
+
+func (p listed) at() time.Time { return time.Unix(p.taken, 0).UTC() }
+
+func (p listed) month() string {
+	if !p.dated {
+		return undatedMonth
+	}
+	return p.at().Format(monthLayout)
+}
+
+// newer orders photos newest first, those with no date last, then by hash.
+func (p listed) newer(q listed) int {
+	switch {
+	case p.dated && !q.dated:
+		return -1
+	case q.dated && !p.dated:
+		return 1
+	}
+	return cmp.Or(cmp.Compare(q.taken, p.taken), cmp.Compare(p.Hash, q.Hash))
+}
+
+// Written is the catalog as of its last write: the same one, nothing was written.
+type Written struct {
+	Path, Changes string
+	writes        uint32
+}
+
+// Written is the catalog's now. Its count of writes is SQLite's own
+// (sqlite.org/fileformat2.html, 1.3.4), read through SQLite, as everything of
+// the file (openCatalog): two writes the disk's clock shows as one are two.
+func (c *Catalog) Written() (Written, error) {
+	s := Written{Path: c.path, Changes: Changes(c.path)}
+	var head []byte
+	err := c.db.QueryRow(`SELECT data FROM sqlite_dbpage WHERE pgno = 1`).Scan(&head)
+	if err != nil || len(head) < 28 {
+		return s, fmt.Errorf("reading the catalog: %w", cmp.Or(err, io.ErrUnexpectedEOF))
+	}
+	s.writes = binary.BigEndian.Uint32(head[24:])
+	return s, nil
+}
+
+// Next is whether s is before with one write more and no other. In WAL mode,
+// where writes are not counted so, it is not known.
+func (s Written) Next(before Written) bool {
+	return s.Path == before.Path && s.writes == before.writes+1 &&
+		strings.Count(s.Changes, ";") == 1 && strings.Count(before.Changes, ";") == 1
 }
 
 // Here is the photo k, unless its library has it not, or deleted: in the

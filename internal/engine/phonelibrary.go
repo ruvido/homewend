@@ -5,11 +5,13 @@ package engine
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -53,18 +55,46 @@ var (
 	making  = turns{n: 2} // a phone's pictures
 	// All the phones' together, "": the window is left a slot, where there are two.
 	allMaking = turns{n: max(1, cap(thumbSlots)-1)}
-	lists     sync.Map // profile → *phoneList
-	settling  = 2 * time.Second
+	lists     sync.Map // profile → *atomic.Pointer[phoneList]
 )
 
-// phoneList is the last listing made of a profile's library, and the state
-// of the library it is of.
+// phoneList is the last listing made of a profile's library, and the state of
+// the catalog it is of; hashes are the photos in it. It is not changed: a new
+// one takes its place.
 type phoneList struct {
-	changes string
-	first   time.Time // when that state was first seen
-	settled bool
-	tag     string
-	answer  []byte
+	state  library.Written
+	tag    string
+	answer []byte
+	hashes map[library.Hash]struct{}
+}
+
+func listOfProfile(profile string) *atomic.Pointer[phoneList] {
+	l, _ := lists.LoadOrStore(profile, new(atomic.Pointer[phoneList]))
+	return l.(*atomic.Pointer[phoneList])
+}
+
+// heartsSet is set, a write to c of hearts alone: what was listed before it is
+// still so after it, when nothing else was written meanwhile.
+func heartsSet(c *library.Catalog, set func() error) error {
+	before, err := c.Written()
+	if err != nil {
+		return set()
+	}
+	if err := set(); err != nil {
+		return err
+	}
+	if after, err := c.Written(); err == nil && after.Next(before) {
+		lists.Range(func(_, of any) bool {
+			kept := of.(*atomic.Pointer[phoneList])
+			if l := kept.Load(); l != nil && l.state == before {
+				now := *l
+				now.state = after
+				kept.CompareAndSwap(l, &now)
+			}
+			return true
+		})
+	}
+	return nil
 }
 
 // openForPhone is the chosen library and its catalog, to read, which the
@@ -93,44 +123,54 @@ func orAway(err error) error {
 // PhoneList is the listing of phone's library and its tag, worked out once
 // for each state of the library, whoever asks.
 func PhoneList(ctx context.Context, phone Phone) (tag string, answer []byte, err error) {
-	root, err := LibraryHere()
-	if err != nil {
-		return "", nil, err
-	}
 	end, err := listing.take(ctx, phone.Profile)
 	if err != nil {
 		return "", nil, err
 	}
 	defer end()
-	kept, _ := lists.LoadOrStore(phone.Profile, &phoneList{})
-	l := kept.(*phoneList)
-	// Read before the catalog is: what is written meanwhile is another state.
-	now, changes := time.Now(), root+"\x00"+library.Changes(catalogPath(root))
-	if l.changes != changes {
-		l.first = now
-	} else if l.settled {
-		return l.tag, l.answer, nil
-	}
-	// A disk that keeps times by the second, two on FAT, shows two writes of
-	// one as one state: it is believed once none can be of the same time, by
-	// the file's clock or, that one ahead, by ours.
-	info, err := os.Stat(catalogPath(root))
-	settled := now.Sub(l.first) > settling || err == nil && now.Sub(info.ModTime()) > settling
-	at, c, err := openForPhone()
+	_, c, err := openForPhone()
 	if err != nil {
 		return "", nil, err
 	}
 	defer c.Close()
-	list, err := c.Listing(phone.Profile)
+	// Read before the photos are: what is written meanwhile is another state.
+	state, err := c.Written()
 	if err != nil {
 		return "", nil, orAway(err)
 	}
-	tag, answer, err = list.Tag()
-	// Another library chosen meanwhile is listed at the next question.
-	if err == nil && at == root {
-		*l = phoneList{changes: changes, first: l.first, settled: settled, tag: tag, answer: answer}
+	kept := listOfProfile(phone.Profile)
+	if l := kept.Load(); l != nil && l.state == state {
+		return l.tag, l.answer, nil
+	}
+	list, hashes, err := c.Listing(phone.Profile)
+	if err != nil {
+		return "", nil, orAway(err)
+	}
+	if tag, answer, err = list.Tag(); err == nil {
+		kept.Store(&phoneList{state, tag, answer, hashes})
 	}
 	return tag, answer, err
+}
+
+// listedHere is whether the photo is in the last listing of phone's library,
+// which is as it was then, and the library: a small copy of one listed is
+// given without the catalog.
+// shortcut: by the files' times alone; a photo deleted within a tick of the
+// disk's clock after another write is given until the library is listed.
+func listedHere(phone Phone, hash string) (root string, here bool, err error) {
+	root, err = LibraryHere()
+	if err != nil {
+		return "", false, err
+	}
+	l := listOfProfile(phone.Profile).Load()
+	var h library.Hash
+	if l == nil || l.state.Path != catalogPath(root) || l.state.Changes != library.Changes(l.state.Path) {
+		return root, false, nil
+	}
+	if _, err := hex.Decode(h[:], []byte(hash)); err == nil {
+		_, here = l.hashes[h]
+	}
+	return root, here, nil
 }
 
 // PhoneMonth is a month of phone's library, its photos as JSON. Done, when
@@ -225,7 +265,10 @@ func PhonePreview(ctx context.Context, phone Phone, hash string) (file string, k
 }
 
 func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) (file string, kept bool, err error) {
-	root, p, err := phonePhoto(phone, hash)
+	root, here, err := listedHere(phone, hash)
+	if err == nil && !here {
+		root, _, err = phonePhoto(phone, hash)
+	}
 	if err != nil {
 		return "", false, err
 	}
@@ -237,7 +280,7 @@ func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) 
 			return "", "", err
 		}
 		end = done
-		return pictureOf(p.Key(), func(path string) (fs.FileInfo, error) {
+		return pictureOf(library.Key{Hash: hash, Profile: phone.Profile}, func(path string) (fs.FileInfo, error) {
 			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				return nil, err

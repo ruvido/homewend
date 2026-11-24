@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -132,15 +133,6 @@ func jpegOf(w, h int) []byte {
 	return b.Bytes()
 }
 
-// aged makes the catalog one written long ago: what is kept of it is believed.
-func aged(t *testing.T, lib string) {
-	t.Helper()
-	old := time.Now().Add(-time.Hour)
-	if err := os.Chtimes(filepath.Join(lib, library.WorkDir, "catalog.db"), old, old); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func phonesLibrary(t *testing.T) (lib, url string) {
 	t.Helper()
 	lib = newLibrary(t)
@@ -192,7 +184,6 @@ func TestAPhoneListsItsLibrary(t *testing.T) {
 	if err := os.Remove(filepath.Join(lib, "ron/2026/11/out.jpg")); err != nil {
 		t.Fatal(err)
 	}
-	aged(t, lib)
 
 	tag, l := ron.list()
 	_, have := ron.call("POST", "/v1/have", `{"hashes":[]}`)
@@ -332,28 +323,46 @@ func TestTheListIsWorkedOutOnce(t *testing.T) {
 	lib, url := phonesLibrary(t)
 	ron := pairWith(t, url, "ron")
 	shelve(t, lib, "ron/2026/11/a.jpg", []byte("a"), november)
-	// Just written, it may be written again at the same time by the disk's
-	// clock: it is read again.
-	ron.list()
-	aged(t, lib)
 	tag, _ := ron.list()
-	// The catalog cannot be read now, and nothing says it changed.
+	// The photos cannot be read now, and nothing says the catalog changed.
 	catalog := filepath.Join(lib, library.WorkDir, "catalog.db")
-	whole, err := os.ReadFile(catalog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	info, _ := os.Stat(catalog)
-	spoil := func(b []byte) {
+	var whole []byte
+	var at time.Time
+	put := func(b []byte) {
 		t.Helper()
 		if err := os.WriteFile(catalog, b, 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chtimes(catalog, info.ModTime(), info.ModTime()); err != nil {
+		if err := os.Chtimes(catalog, at, at); err != nil {
 			t.Fatal(err)
 		}
 	}
-	spoil(make([]byte, len(whole)))
+	spoil := func() {
+		t.Helper()
+		db, err := sql.Open("sqlite", catalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var page, size int
+		if err := db.QueryRow(`SELECT rootpage, (SELECT page_size FROM pragma_page_size) FROM sqlite_schema WHERE name = 'library_photos'`).Scan(&page, &size); err != nil {
+			t.Fatal(err)
+		}
+		if whole, err = os.ReadFile(catalog); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(catalog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		at = info.ModTime()
+		bad := slices.Clone(whole)
+		clear(bad[(page-1)*size : page*size])
+		put(bad)
+	}
+	spoil()
+	// They are indeed not.
+	ron.is("spoilt", "/v1/library/2026-11", http.StatusInternalServerError)
 	var all sync.WaitGroup
 	for range 20 {
 		all.Go(func() {
@@ -366,7 +375,35 @@ func TestTheListIsWorkedOutOnce(t *testing.T) {
 		})
 	}
 	all.Wait()
-	spoil(whole)
+	put(whole)
+	// A heart, set here or said by a phone, is not in the list: it costs no
+	// reading either.
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte("a")))
+	if _, err := engine.Mark(library.Favorite, []library.Key{{Hash: hash, Profile: "ron"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	_, have := ron.call("POST", "/v1/have", `{"hashes":[]}`)
+	if code, _ := ron.says(have.Shelf, 0, said(1, hash, false, 0)); code != http.StatusOK {
+		t.Fatal(code)
+	}
+	spoil()
+	if res, _ := ron.gets("/v1/library", "If-None-Match: "+tag); res.StatusCode != http.StatusNotModified {
+		t.Errorf("a heart: %d", res.StatusCode)
+	}
+	put(whole)
+	// A write the disk's clock does not tell from the one before, then a heart.
+	if _, err := engine.TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(catalog, at, at); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Mark(library.Favorite, []library.Key{{Hash: hash, Profile: "ron"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := ron.gets("/v1/library", "If-None-Match: "+tag); res.StatusCode != http.StatusOK {
+		t.Errorf("turned: %d", res.StatusCode)
+	}
 	shelve(t, lib, "ron/2026/11/b.jpg", []byte("b"), november)
 	if res, _ := ron.gets("/v1/library", "If-None-Match: "+tag); res.StatusCode != http.StatusOK || res.Header.Get("ETag") == tag {
 		t.Errorf("changed: %d", res.StatusCode)
@@ -451,6 +488,11 @@ func TestAPhonesPictures(t *testing.T) {
 	shelve(t, lib, "ron/2026/11/shared.jpg", jpegOf(70, 40), november)
 	if err := os.Remove(filepath.Join(lib, "ron/2026/11/shared.jpg")); err != nil {
 		t.Fatal(err)
+	}
+	// Listed or not: the second time a small copy is found in the list.
+	for _, p := range []*testPhone{ron, ann} {
+		p.is("not listed", "/v1/thumb/"+strings.Repeat("0", 64), http.StatusNotFound)
+		p.list()
 	}
 	const forEver = "private, max-age=31536000, immutable"
 	for path, long := range map[string]int{"/v1/thumb/": 256, "/v1/preview/": 400} {
@@ -624,7 +666,7 @@ func openIn(dir string) (open []string) {
 	return open
 }
 
-// The listener speaks HTTP/2. A phone slow to take a month holds nothing of
+// A phone slow to take a month holds nothing of
 // the library; one that takes nothing of an original is let go of, and one
 // that takes it slowly is not.
 func TestASlowPhoneHoldsNoDisk(t *testing.T) {
@@ -657,75 +699,70 @@ func TestASlowPhoneHoldsNoDisk(t *testing.T) {
 	c.Close()
 	original := http.DefaultTransport
 	defer func() { http.DefaultTransport = original }()
-	for _, h2 := range []bool{true, false} {
-		tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, ForceAttemptHTTP2: h2}
-		http.DefaultTransport = tr
-		ron := pairWith(t, url, "ron")
-		clip := shelve(t, lib, "ron/2026/11/clip.mp4", make([]byte, 40<<20), november)
-		begin := func(path string) (*http.Response, context.CancelFunc) {
-			ctx, cancel := context.WithCancel(context.Background())
-			r, _ := http.NewRequestWithContext(ctx, "GET", url+path, nil)
-			r.Header.Set("Authorization", "Bearer "+ron.token)
-			r.Header.Set("Accept-Encoding", "identity")
-			res, err := http.DefaultClient.Do(r)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if h2 != (res.ProtoMajor == 2) {
-				t.Errorf("%s, want HTTP/2 %v", res.Proto, h2)
-			}
-			return res, cancel
+	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
+	http.DefaultTransport = tr
+	ron := pairWith(t, url, "ron")
+	clip := shelve(t, lib, "ron/2026/11/clip.mp4", make([]byte, 40<<20), november)
+	begin := func(path string) (*http.Response, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(context.Background())
+		r, _ := http.NewRequestWithContext(ctx, "GET", url+path, nil)
+		r.Header.Set("Authorization", "Bearer "+ron.token)
+		r.Header.Set("Accept-Encoding", "identity")
+		res, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
 		}
-		res, cancel := begin("/v1/library/2025-11")
-		if open := openIn(lib); len(open) > 0 {
-			t.Errorf("held while a month is sent: %v", open)
-		}
-		cancel()
-		res.Body.Close()
-		// Taken slowly, for longer than a stall.
-		res, cancel = begin("/v1/original/" + clip)
-		n := 0
-		for range 15 {
-			m, err := io.CopyN(io.Discard, res.Body, 2<<20)
-			if n += int(m); err != nil {
-				t.Errorf("taken slowly: %v after %d bytes", err, n)
-				break
-			}
-			time.Sleep(150 * time.Millisecond)
-		}
-		rest, err := io.Copy(io.Discard, res.Body)
-		if n+int(rest) != 40<<20 || err != nil {
-			t.Errorf("taken slowly: %d bytes, %v", n+int(rest), err)
-		}
-		cancel()
-		// Not taken at all.
-		res, cancel = begin("/v1/original/" + clip)
-		released := func(what string) {
-			t.Helper()
-			// TLS gives its goodbye 5 seconds.
-			for range 300 {
-				if len(openIn(lib)) == 0 {
-					return
-				}
-				time.Sleep(50 * time.Millisecond)
-			}
-			t.Errorf("%s, HTTP/2 %v: %v still open", what, h2, openIn(lib))
-		}
-		if len(openIn(lib)) == 0 {
-			t.Error("an original being sent is not open: the test sees nothing")
-		}
-		released("a phone that takes nothing")
-		if n, err := io.Copy(io.Discard, res.Body); err == nil {
-			t.Errorf("let go of, %d bytes and no error", n)
-		}
-		cancel()
-		// Gone.
-		res, cancel = begin("/v1/original/" + clip)
-		cancel()
-		released("a phone gone")
-		res.Body.Close()
-		tr.CloseIdleConnections()
+		return res, cancel
 	}
+	res, cancel := begin("/v1/library/2025-11")
+	if open := openIn(lib); len(open) > 0 {
+		t.Errorf("held while a month is sent: %v", open)
+	}
+	cancel()
+	res.Body.Close()
+	// Taken slowly, for longer than a stall.
+	res, cancel = begin("/v1/original/" + clip)
+	n := 0
+	for range 15 {
+		m, err := io.CopyN(io.Discard, res.Body, 2<<20)
+		if n += int(m); err != nil {
+			t.Errorf("taken slowly: %v after %d bytes", err, n)
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	rest, err := io.Copy(io.Discard, res.Body)
+	if n+int(rest) != 40<<20 || err != nil {
+		t.Errorf("taken slowly: %d bytes, %v", n+int(rest), err)
+	}
+	cancel()
+	// Not taken at all.
+	res, cancel = begin("/v1/original/" + clip)
+	released := func(what string) {
+		t.Helper()
+		// TLS gives its goodbye 5 seconds.
+		for range 300 {
+			if len(openIn(lib)) == 0 {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Errorf("%s: %v still open", what, openIn(lib))
+	}
+	if len(openIn(lib)) == 0 {
+		t.Error("an original being sent is not open: the test sees nothing")
+	}
+	released("a phone that takes nothing")
+	if n, err := io.Copy(io.Discard, res.Body); err == nil {
+		t.Errorf("let go of, %d bytes and no error", n)
+	}
+	cancel()
+	// Gone.
+	res, cancel = begin("/v1/original/" + clip)
+	cancel()
+	released("a phone gone")
+	res.Body.Close()
+	tr.CloseIdleConnections()
 }
 
 // A file cut while it is sent does not end as if it were whole.

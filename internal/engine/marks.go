@@ -28,7 +28,16 @@ func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 		return MarksAnswer{}, err
 	}
 	defer c.Close()
-	a, err := c.Marks(phone.Profile, q, then)
+	var a library.MarkAnswer
+	answer := func() error {
+		a, err = c.Marks(phone.Profile, q, then)
+		return err
+	}
+	if len(q.Marks) > 0 {
+		err = heartsSet(c, answer)
+	} else {
+		err = answer()
+	}
 	if len(a.Said) > 0 {
 		lookNow()
 	}
