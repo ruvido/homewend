@@ -22,8 +22,8 @@
 
 	// The engine lists the newest first: what is new joins the line oldest first.
 	$effect(() => {
-		const fresh = photos.filter((p) => !seen.has(p.hash)).reverse();
-		for (const p of fresh) seen.add(p.hash);
+		const fresh = photos.filter((p) => !seen.has(p.id)).reverse();
+		for (const p of fresh) seen.add(p.id);
 		waiting = [...waiting, ...fresh];
 		// The tiles are written, not followed: only new photos run this again.
 		untrack(fill);
@@ -50,7 +50,7 @@
 	});
 
 	let loaded = $state(new Set<string>());
-	const shown = (hash: string) => (loaded = new Set(loaded).add(hash));
+	const shown = (id: string) => (loaded = new Set(loaded).add(id));
 </script>
 
 <div class="strip">
@@ -63,11 +63,11 @@
 			<div class="tile">
 				{#if t.was}<img src="/api/thumb/{t.was.hash}" alt="" style:transform={turned(t.was)} />{/if}
 				{#if t.now}
-					{#key t.now.hash}
-						<img src="/api/thumb/{t.now.hash}" alt={t.now.name} style:transform={turned(t.now)} class:in={loaded.has(t.now.hash)} onload={() => shown(t.now!.hash)} />
+					{#key t.now.id}
+						<img src="/api/thumb/{t.now.hash}" alt={t.now.name} style:transform={turned(t.now)} class:in={loaded.has(t.now.id)} onload={() => shown(t.now!.id)} />
 					{/key}
 				{/if}
-				{#if !t.now || (!t.was && !loaded.has(t.now.hash))}<span class="spin"><Icon name="arrow-repeat" size={16} /></span>{/if}
+				{#if !t.now || (!t.was && !loaded.has(t.now.id))}<span class="spin"><Icon name="arrow-repeat" size={16} /></span>{/if}
 			</div>
 		{/each}
 	</div>

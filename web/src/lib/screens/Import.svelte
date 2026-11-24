@@ -468,7 +468,6 @@
 					{text.into} <b>{im.profile || profile}</b>{text.byTheirDate}
 					<!-- A camera whose clock was reset: its photos given their day before the copy. -->
 					{#if redates.length > 0}{text.datesGiven(redates.reduce((n, r) => n + r.names.length, 0))}
-						{#if plan.not_redated > 0}<span class="warnText">{text.notRedated(plan.not_redated)}</span>{/if}
 					{/if}
 					<button class="link" onclick={() => (dating = true)}>{text.anyDatesWrong}</button>
 				</p>
@@ -842,9 +841,6 @@
 	.link {
 		color: var(--accent);
 		font-weight: 600;
-	}
-	.warnText {
-		color: var(--warn);
 	}
 	.tag {
 		padding: 2px 8px;

@@ -26,7 +26,7 @@
 		busy = true;
 		failed = '';
 		try {
-			await giveDates(photos.map((p) => p.hash), when + ':00Z');
+			await giveDates(photos, when + ':00Z');
 			await refresh();
 			onclose(true);
 		} catch (e) {

@@ -9,16 +9,16 @@
 	// them the browser keeps decoded. Raised if going back further ever shows.
 	const KEPT = 1000;
 	const kept = new Map<string, HTMLImageElement>();
-	function keep(hash: string, src: string) {
+	function keep(src: string) {
 		// One of its own: the tile's would hold the whole tile with it.
-		const img = kept.get(hash) ?? Object.assign(new Image(), { src });
-		kept.delete(hash);
-		kept.set(hash, img);
+		const img = kept.get(src) ?? Object.assign(new Image(), { src });
+		kept.delete(src);
+		kept.set(src, img);
 		if (kept.size > KEPT) kept.delete(kept.keys().next().value!);
 	}
 	// Said once, as the tile comes: one loading now fades in to the end.
-	function shown(img: HTMLImageElement, hash: string) {
-		if (kept.has(hash)) img.classList.add('in', 'known');
+	function shown(img: HTMLImageElement) {
+		if (kept.has(img.src)) img.classList.add('in', 'known');
 		else img.decoding = 'async';
 	}
 </script>
@@ -76,13 +76,14 @@
 	const opener = new Opener<{ path: string }>();
 	function context(e: MouseEvent) {
 		const on = (e.target as Element).closest<HTMLElement>('.tile');
-		if (on) opener.open(e, () => pathOf(on.dataset.hash!), on);
+		const p = photoAt(e);
+		if (on && p) opener.open(e, () => pathOf(p), on);
 	}
 	// Dragged out of the window, a photo is its file, handed to the system's
 	// drag as the file manager hands one: the original goes where it is dropped.
-	function drag(e: DragEvent, hash: string) {
+	function drag(e: DragEvent, p: GridPhoto) {
 		e.preventDefault();
-		pathOf(hash).then(({ path }) => window.shell?.dragFile(path), () => {});
+		pathOf(p).then(({ path }) => window.shell?.dragFile(path), () => {});
 	}
 
 	// The tile under the pointer.
@@ -90,11 +91,15 @@
 	const selecting = $derived(!!selected && selected.size > 0);
 	// A click opens the photo; on its circle, or while picking, or with
 	// Shift, it picks it instead.
-	const hashAt = (e: Event) => (e.target as Element).closest<HTMLElement>('.tile')?.dataset.hash ?? '';
+	const idAt = (e: Event) => (e.target as Element).closest<HTMLElement>('.tile')?.dataset.id ?? '';
+	const photoAt = (e: Event) => {
+		const id = idAt(e);
+		return id ? photos.find((p) => p.id === id) : undefined;
+	};
 	function click(e: MouseEvent) {
-		const hash = hashAt(e);
-		if (!hash) return;
-		const i = photos.findIndex((p) => p.hash === hash);
+		const id = idAt(e);
+		if (!id) return;
+		const i = photos.findIndex((p) => p.id === id);
 		if (onselect && (selecting || e.shiftKey || (e.target as Element).closest('.pick'))) onselect(i, e.shiftKey);
 		else onopen?.(i);
 	}
@@ -178,17 +183,17 @@
 				if (scroller) scroller.scrollTop = 0;
 				return;
 			}
-			if (reading || was.length === 0 || now === was || was.every((p, i) => now[i]?.hash === p.hash)) return;
-			const known = new Set(was.map((p) => p.hash));
-			arrived = new Set(now.filter((p) => !known.has(p.hash)).map((p) => p.hash));
+			if (reading || was.length === 0 || now === was || was.every((p, i) => now[i]?.id === p.id)) return;
+			const known = new Set(was.map((p) => p.id));
+			arrived = new Set(now.filter((p) => !known.has(p.id)).map((p) => p.id));
 			if (!scroller || scroller.scrollTop === 0) return;
 			const top = scroller.scrollTop - headerHeight;
 			const row = drawn.rows.find((r) => r.kind === 'photos' && r.top + tile > top);
 			if (row?.kind !== 'photos') return;
-			const hash = row.items[0].hash;
+			const id = row.items[0].id;
 			const offset = row.top - top;
 			tick().then(() => {
-				const moved = layout.rows.find((r) => r.kind === 'photos' && r.items.some((p) => p.hash === hash));
+				const moved = layout.rows.find((r) => r.kind === 'photos' && r.items.some((p) => p.id === id));
 				if (moved) scroller.scrollTop = moved.top - offset + headerHeight;
 			});
 		});
@@ -214,18 +219,21 @@
 		style:height="{layout.total}px"
 		style:--cols={cols}
 		style:--tile="{tile}px"
-		onpointerover={(e) => (over = hashAt(e))}
+		onpointerover={(e) => (over = idAt(e))}
 		onpointerleave={(e) => {
 			// A finger leaves before its click: the circle stays to be hit.
 			if (e.pointerType !== 'touch') over = '';
 		}}
 		onclick={click}
 		oncontextmenu={context}
-		ondragstart={(e) => hashAt(e) && drag(e, hashAt(e))}
+		ondragstart={(e) => {
+			const p = photoAt(e);
+			if (p) drag(e, p);
+		}}
 		onloadcapture={(e) => {
 			const img = e.target as HTMLImageElement;
 			img.classList.add('in');
-			keep(hashAt(e), img.src);
+			keep(img.src);
 		}}
 	>
 		{#each visible as row (row.top)}
@@ -239,25 +247,25 @@
 		{#each visible as row (row.top)}
 			{#if row.kind === 'photos'}
 				<div class="row" style:transform="translateY({row.top}px)">
-					{#each row.items as p (p.hash)}
+					{#each row.items as p (p.id)}
 						<button
 							class="tile"
-							class:on={selected?.has(p.hash)}
-							class:arrived={arrived.has(p.hash)}
-							data-hash={p.hash}
+							class:on={selected?.has(p.id)}
+							class:arrived={arrived.has(p.id)}
+							data-id={p.id}
 							draggable={!!window.shell}
 						>
 							<img
 								src="/api/thumb/{p.hash}"
 								alt={p.name}
 								style:transform={turned(p)}
-								use:shown={p.hash}
+								use:shown
 							/>
 							{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
 							{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
 							<!-- Only where it can be seen: a tile is as little as it can be. -->
-							{#if onselect && (selecting || over === p.hash)}
-								<span class="pick" in:swap>{#if selected?.has(p.hash)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
+							{#if onselect && (selecting || over === p.id)}
+								<span class="pick" in:swap>{#if selected?.has(p.id)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
 							{/if}
 						</button>
 					{/each}

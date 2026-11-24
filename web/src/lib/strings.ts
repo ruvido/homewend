@@ -338,7 +338,6 @@ export const text = {
 	useThisDate: 'Use this date',
 	cancel: 'Cancel',
 	datesGiven: (n: number) => `${count(n, 'photo')} with a date you gave.`,
-	notRedated: (n: number) => `${count(n, 'is', 'are')} filed in another profile: their date is given from there.`,
 	// The lead when nothing new comes in, by how the engine says it ends: of
 	// the look; of the copy where its words differ. An end with no words is
 	// a type error.

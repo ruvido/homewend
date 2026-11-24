@@ -58,7 +58,7 @@
 	let takingOut = $state(false);
 	let reload = $state(0);
 
-	// The photos picked (K1), by hash; the last one picked, for Shift.
+	// The photos picked (K1), by id; the last one picked, for Shift.
 	let selected = $state(new Set<string>());
 	let anchor = -1;
 	let dating = $state(false);
@@ -82,19 +82,19 @@
 	function select(i: number, range: boolean) {
 		const next = new Set(selected);
 		if (range && anchor >= 0) {
-			for (let k = Math.min(anchor, i); k <= Math.max(anchor, i); k++) next.add(photos[k].hash);
-		} else if (!next.delete(photos[i].hash)) next.add(photos[i].hash);
+			for (let k = Math.min(anchor, i); k <= Math.max(anchor, i); k++) next.add(photos[k].id);
+		} else if (!next.delete(photos[i].id)) next.add(photos[i].id);
 		anchor = i;
 		selected = next;
 	}
-	const picked = $derived(photos.filter((p) => selected.has(p.hash)));
+	const picked = $derived(photos.filter((p) => selected.has(p.id)));
 	async function turnPicked() {
 		// Shown a few times a second: each showing lays the whole grid out.
 		const turns = new Map<string, number>();
 		let shownAt = 0;
 		try {
 			for (const p of picked) {
-				turns.set(p.hash, (await turnLeft(p.hash)).turn);
+				turns.set(p.id, (await turnLeft(p)).turn);
 				if (performance.now() - shownAt < 200) continue;
 				turned(turns);
 				shownAt = performance.now();
@@ -103,19 +103,19 @@
 			turned(turns);
 		}
 	}
-	const turned = (turns: Map<string, number>) => (list = list.map((p) => (turns.has(p.hash) ? { ...p, turn: turns.get(p.hash) } : p)));
+	const turned = (turns: Map<string, number>) => (list = list.map((p) => (turns.has(p.id) ? { ...p, turn: turns.get(p.id) } : p)));
 	// A heart shows at once, and is taken back if it could not be kept. One
 	// after another: two quick clicks end as the last.
 	let hearts: Promise<unknown> = Promise.resolve();
-	function favorite(hash: string, on: boolean) {
-		const show = (favorite: boolean) => (list = list.map((p) => (p.hash === hash ? { ...p, favorite } : p)));
+	function favorite(photo: GridPhoto, on: boolean) {
+		const show = (favorite: boolean) => (list = list.map((p) => (p.id === photo.id ? { ...p, favorite } : p)));
 		markFailed = '';
 		show(on);
 		hearts = hearts
-			.then(() => mark([hash], 'favorite', on))
+			.then(() => mark([photo], 'favorite', on))
 			.catch(() => {
 				show(!on);
-				if (open !== null && photos[open]?.hash === hash) markFailed = text.markFailed;
+				if (open !== null && photos[open]?.id === photo.id) markFailed = text.markFailed;
 			});
 	}
 	// Archive and Delete (Q1, Q6), Unarchive for photos all archived (Q4,
@@ -131,13 +131,13 @@
 	const editable = $derived(place.kind !== 'archive' && place.kind !== 'trash');
 	// A photo archived, deleted or back leaves this list (an album keeps
 	// the archived): the list is loaded again, the viewer closed.
-	let asking = $state<{ act: MarkAct; hashes: string[] } | null>(null);
+	let asking = $state.raw<{ act: MarkAct; photos: GridPhoto[] } | null>(null);
 	let markFailed = $state('');
-	async function act(a: MarkAct, hashes: string[]) {
-		if (a.ask && !asking) return void (asking = { act: a, hashes });
+	async function act(a: MarkAct, on: GridPhoto[]) {
+		if (a.ask && !asking) return void (asking = { act: a, photos: on });
 		markFailed = '';
 		try {
-			await mark(hashes, a.state, a.on);
+			await mark(on, a.state, a.on);
 		} catch {
 			markFailed = text.markFailed;
 			return;
@@ -152,7 +152,7 @@
 	function key(e: KeyboardEvent) {
 		if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
 			e.preventDefault();
-			selected = new Set(photos.map((p) => p.hash));
+			selected = new Set(photos.map((p) => p.id));
 			return;
 		}
 		if (e.key !== 'Escape') return;
@@ -247,7 +247,7 @@
 						? { noDate: true }
 						: { year: p.label }
 					: p.kind === 'album'
-						? { album: p.name }
+						? { album: p.name, account: p.account }
 						: isView(p.kind)
 							? { view: p.kind }
 							: {};
@@ -266,7 +266,7 @@
 				const now = performance.now();
 				restUntil = now + REST * (now - began);
 				// The photo in the viewer, found again in the new list.
-				const viewing = open !== null ? photos[open]?.hash : undefined;
+				const viewing = open !== null ? photos[open]?.id : undefined;
 				list = got;
 				if (viewing && !reopen) reopen = viewing;
 			} catch {
@@ -281,7 +281,7 @@
 			reading = false;
 			if (stale) ((stale = false), moved());
 			if (reopen) {
-				const i = photos.findIndex((x) => x.hash === reopen);
+				const i = photos.findIndex((x) => x.id === reopen);
 				open = i >= 0 ? i : null;
 				reopen = null;
 			}
@@ -309,7 +309,7 @@
 				<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
 			{/if}
 			{#each actsOf(picked) as a (a.label)}
-				<SecondaryButton small onclick={() => act(a, picked.map((p) => p.hash))}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>
+				<SecondaryButton small onclick={() => act(a, picked)}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>
 			{/each}
 		</div>
 	{/if}
@@ -345,15 +345,15 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, hash) => act(a, [hash])} onturned={(hash, turn) => turned(new Map([[hash, turn]]))} onfavorite={favorite} ontakenout={() => reload++} ondated={(hash) => ((reopen = hash), (open = null), reload++)} />
+	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, p) => act(a, [p])} onturned={(id, turn) => turned(new Map([[id, turn]]))} onfavorite={favorite} ontakenout={() => reload++} ondated={(id) => ((reopen = id), (open = null), reload++)} />
 	{#if asking}
 		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
-		<Dialog title={text.trashAsk(asking.hashes.length)}>
+		<Dialog title={text.trashAsk(asking.photos.length)}>
 			<p>{text.trashAskLead}</p>
 			{#if markFailed}<p class="failed">{markFailed}</p>{/if}
 			{#snippet actions()}
 				<SecondaryButton onclick={() => (asking = null)}>{text.cancel}</SecondaryButton>
-				<PrimaryButton danger onclick={() => asking && act(asking.act, asking.hashes)}>{text.moveToTrash}</PrimaryButton>
+				<PrimaryButton danger onclick={() => asking && act(asking.act, asking.photos)}>{text.moveToTrash}</PrimaryButton>
 			{/snippet}
 		</Dialog>
 	{/if}

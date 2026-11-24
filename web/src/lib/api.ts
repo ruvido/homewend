@@ -75,8 +75,18 @@ export type Thumbs = { done: number; of: number };
 export const login = (account?: string) =>
 	call<AccountInfo>('POST', '/api/login' + (account ? `?account=${encodeURIComponent(account)}` : ''));
 
-export interface GridPhoto {
+/** A photo of one library: its content, and whose library it is in. The same
+ *  content in two libraries is two photos. */
+export interface PhotoKey {
 	hash: string;
+	profile: string;
+}
+const keyOf = ({ hash, profile }: PhotoKey): PhotoKey => ({ hash, profile });
+const of = (p: PhotoKey) => `${p.hash}?${q({ profile: p.profile })}`;
+
+export interface GridPhoto extends PhotoKey {
+	/** Its library and its content in one: what a list and a selection know it by. */
+	id: string;
 	name: string;
 	taken?: string;
 	/** How much of taken is a guess: Google's folder gave the year, the file's name the day or the time. */
@@ -94,14 +104,21 @@ export interface GridPhoto {
 	origin?: 'whatsapp' | 'telegram' | 'signal' | 'instagram' | 'app' | 'screenshot';
 }
 
-export function getPhotos(q: { year?: string; album?: string; noDate?: boolean; view?: View; /** The first of them; all when not given. */ limit?: number }) {
+// Each photo's id, put together once as it comes.
+const withIds = (list: GridPhoto[]) => {
+	for (const p of list) p.id = `${p.profile}/${p.hash}`;
+	return list;
+};
+
+export function getPhotos(q: { year?: string; album?: string; /** The album's, "" when not known. */ account?: string; noDate?: boolean; view?: View; /** The first of them; all when not given. */ limit?: number }) {
 	const p = new URLSearchParams();
 	if (q.limit) p.set('limit', String(q.limit));
 	if (q.year) p.set('year', q.year);
 	if (q.album) p.set('album', q.album);
+	if (q.account) p.set('account', q.account);
 	if (q.noDate) p.set('nodate', '1');
 	if (q.view) p.set('view', q.view);
-	return call<GridPhoto[]>('GET', `/api/photos?${p}`);
+	return call<GridPhoto[]>('GET', `/api/photos?${p}`).then(withIds);
 }
 
 /** What a photo's owner sets on it, from the selection's bar or the viewer:
@@ -110,8 +127,8 @@ export type MarkState = 'archived' | 'trashed' | 'favorite';
 export type MarkAct = { icon: IconName; label: string; state: MarkState; on: boolean; ask?: boolean };
 
 /** Photos archived, put in the Trash or given a heart (on), or brought back. */
-export const mark = (hashes: string[], state: MarkState, on: boolean) =>
-	call<{ marked: number }>('POST', '/api/mark', { hashes, state, on });
+export const mark = (photos: PhotoKey[], state: MarkState, on: boolean) =>
+	call<{ marked: number }>('POST', '/api/mark', { photos: photos.map(keyOf), state, on });
 
 export interface JobState {
 	running: boolean;
@@ -165,9 +182,9 @@ export const startPairing = (profile: string) => call<{ qr: string }>('POST', '/
 export const stopPairing = () => call<null>('DELETE', '/api/phones/pair');
 export const unpair = (id: string) => call<null>('DELETE', `/api/phones/${encodeURIComponent(id)}`);
 export const getLibrary = () => call<{ dir: string; free: number }>('GET', '/api/library');
-/** Takes out of the library the photo of hash whose file is gone, or with none every one; keepOut keeps them out of the imports. */
-export const takeOutMissing = (hash: string | undefined, keepOut: boolean) =>
-	call<{ taken: number }>('POST', '/api/missing/out', { hash, keep_out: keepOut });
+/** Takes out of its library the photo whose file is gone, or with none every one; keepOut keeps them out of the imports. */
+export const takeOutMissing = (photo: PhotoKey | undefined, keepOut: boolean) =>
+	call<{ taken: number }>('POST', '/api/missing/out', { photo: photo && keyOf(photo), keep_out: keepOut });
 export const putLibrary = (dir: string) => call<{ dir: string }>('PUT', '/api/library', { dir });
 export const startGet = (o: { account: string; year?: number; export?: string; fresh?: boolean; again?: boolean }) =>
 	call<JobState>(
@@ -196,7 +213,7 @@ export const getTakeouts = (account: string) => call<Takeout[]>('GET', `/api/tak
 export const logout = (account: string) => call<object>('POST', `/api/logout?${q({ account })}`);
 export const getVersion = () => call<{ version: string }>('GET', '/api/about');
 
-export const pathOf = (hash: string) => call<{ path: string }>('GET', `/api/path/${hash}`);
+export const pathOf = (p: PhotoKey) => call<{ path: string }>('GET', `/api/path/${of(p)}`);
 
 export const folderOf = (o: { account?: string; profile?: string; year?: string; album?: string; noDate?: boolean }) =>
 	call<{ path: string }>(
@@ -204,9 +221,9 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 		`/api/folder?${q({ account: o.account, profile: o.profile, year: o.year, album: o.album, nodate: o.noDate ? '1' : undefined })}`
 	);
 
-export const getLatest = () => call<GridPhoto[]>('GET', '/api/latest');
-export const giveDates = (hashes: string[], when: string) => call<{ moved: number }>('POST', '/api/dates', { hashes, when });
-export const turnLeft = (hash: string) => call<{ turn: number }>('POST', `/api/turn/${hash}`);
+export const getLatest = () => call<GridPhoto[]>('GET', '/api/latest').then(withIds);
+export const giveDates = (photos: PhotoKey[], when: string) => call<{ moved: number }>('POST', '/api/dates', { photos: photos.map(keyOf), when });
+export const turnLeft = (p: PhotoKey) => call<{ turn: number }>('POST', `/api/turn/${of(p)}`);
 /** A square picture turned as the person turned the photo. */
 export const turned = (p: { turn?: number }) => (p.turn ? `rotate(${-90 * p.turn}deg)` : undefined);
 export interface PhotoAbout {
@@ -219,8 +236,8 @@ export interface PhotoAbout {
 	/** In the library. */
 	path: string;
 }
-export const getAbout = (hash: string) =>
-	call<PhotoAbout>('GET', `/api/about/${hash}`);
+export const getAbout = (p: PhotoKey) =>
+	call<PhotoAbout>('GET', `/api/about/${of(p)}`);
 
 /** What a photo's file says of itself: its pixels, 0 when not known; its camera, '' when it does not say. */
 export interface PhotoFile {
@@ -228,7 +245,7 @@ export interface PhotoFile {
 	height: number;
 	camera: string;
 }
-export const getFile = (hash: string) => call<PhotoFile>('GET', `/api/file/${hash}`);
+export const getFile = (p: PhotoKey) => call<PhotoFile>('GET', `/api/file/${of(p)}`);
 
 export const readContents = (account: string, exportId: string) =>
 	call<{ years: string[] }>('POST', `/api/takeouts/contents?${q({ account, export: exportId })}`);
@@ -289,7 +306,6 @@ export interface Counts {
 	twins: number;
 	/** Moved to a date given; given one but filed in another profile. */
 	redated: number;
-	not_redated: number;
 	/** Deleted from the library: left out, and brought back; those left out by path, and how many more. */
 	deleted: number;
 	brought_back: number;

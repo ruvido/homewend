@@ -3,14 +3,14 @@
 <!-- Taking photos whose file is gone out of the library: a clean-up, so a
      card that still has them brings them in again, unless kept out. -->
 <script lang="ts">
-	import { ApiError, takeOutMissing } from '#lib/api.js';
+	import { ApiError, takeOutMissing, type PhotoKey } from '#lib/api.js';
 	import { refresh } from '#lib/app.svelte.js';
 	import { text } from '#lib/strings.js';
 	import PrimaryButton from './PrimaryButton.svelte';
 	import SecondaryButton from './SecondaryButton.svelte';
 	import Dialog from './Dialog.svelte';
 
-	let { count, hash, onclose }: { count: number; hash?: string; onclose: (taken: boolean) => void } = $props();
+	let { count, photo, onclose }: { count: number; photo?: PhotoKey; onclose: (taken: boolean) => void } = $props();
 	let keepOut = $state(false);
 	let busy = $state(false);
 	let failed = $state('');
@@ -19,7 +19,7 @@
 		busy = true;
 		failed = '';
 		try {
-			await takeOutMissing(hash, keepOut);
+			await takeOutMissing(photo, keepOut);
 			await refresh();
 			onclose(true);
 		} catch (e) {

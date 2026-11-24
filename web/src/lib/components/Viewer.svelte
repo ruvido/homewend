@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- B7: one photo, over the grid. ← and → move, Esc or Space closes; a click zooms in. -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import AppBadge from './AppBadge.svelte';
 	import TakeOut from './TakeOut.svelte';
@@ -36,13 +37,13 @@
 		held?: boolean;
 		/** What went wrong with the last act. */
 		failed?: string;
-		onact?: (a: MarkAct, hash: string) => void;
+		onact?: (a: MarkAct, p: GridPhoto) => void;
 		/** Turned: how many quarter turns it has now. */
-		onturned?: (hash: string, turn: number) => void;
+		onturned?: (id: string, turn: number) => void;
 		/** Given a heart, or not any more. */
-		onfavorite?: (hash: string, on: boolean) => void;
+		onfavorite?: (p: GridPhoto, on: boolean) => void;
 		ontakenout?: () => void;
-		ondated?: (hash: string) => void;
+		ondated?: (id: string) => void;
 	} = $props();
 	let takingOut = $state(false);
 	// The photo just given a heart: its bounce, not at every favorite passed.
@@ -52,7 +53,7 @@
 
 	const p = $derived(index === null ? null : photos[index]);
 	// What is asked about it is asked once: a heart or a turn makes another p.
-	const hash = $derived(p?.hash);
+	const id = $derived(p?.id);
 	const missing = $derived(p?.missing);
 	// What Chromium shows by itself: zoomed in, the original; anything else
 	// (HEIC, a raw file) is zoomed in on its preview.
@@ -92,18 +93,18 @@
 		if (!p) return;
 		const photo = p;
 		zoomed = asked = null;
-		onturned?.(photo.hash, (await turnLeft(photo.hash)).turn);
+		onturned?.(photo.id, (await turnLeft(photo)).turn);
 	}
 	let pan = $state<HTMLDivElement>();
-	let asked = $state<{ hash: string; fx: number; fy: number } | null>(null);
+	let asked = $state<{ id: string; fx: number; fy: number } | null>(null);
 	// w × h the picture as shown, turned; iw × ih the picture itself.
-	let zoomed = $state<{ hash: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
+	let zoomed = $state<{ id: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
 	const zoomSrc = $derived(p ? `/api/${image ? 'original' : 'preview'}/${p.hash}` : '');
 	$effect(() => {
 		// Another photo: fitted again.
-		if (p?.hash !== zoomed?.hash) zoomed = null;
-		if (p?.hash !== asked?.hash) asked = null;
-		if (p?.hash !== beat) beat = '';
+		if (id !== zoomed?.id) zoomed = null;
+		if (id !== asked?.id) asked = null;
+		if (id !== beat) beat = '';
 	});
 	function zoomIn(e: MouseEvent) {
 		if (!fitted || !p) return;
@@ -115,7 +116,7 @@
 		const fx = (e.clientX - r.left - (r.width - w) / 2) / w;
 		const fy = (e.clientY - r.top - (r.height - h) / 2) / h;
 		if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return;
-		asked = { hash: p.hash, fx, fy };
+		asked = { id: p.id, fx, fy };
 	}
 	function loaded(e: Event) {
 		if (!asked) return;
@@ -174,28 +175,30 @@
 	let file = $state<PhotoFile | null>(null);
 	$effect(() => {
 		file = null;
-		if (!hash || !info || missing) return;
+		const of = untrack(() => p);
+		if (!id || !of || !info || missing) return;
 		let left = false;
-		getFile(hash).then((f) => left || (file = f)).catch(() => {});
+		getFile(of).then((f) => left || (file = f)).catch(() => {});
 		return () => (left = true);
 	});
 	const pixels = $derived(file?.width ? (side ? text.infoPixels(file.height, file.width) : text.infoPixels(file.width, file.height)) + ' · ' : '');
 	// Where its file was, whole, when it is gone: the person looks there.
 	let wasAt = $state('');
 	$effect(() => {
-		const of = hash;
+		const at = id;
+		const of = untrack(() => p);
 		wasAt = '';
-		if (of && missing)
+		if (!of) return;
+		if (missing)
 			pathOf(of).then((r) => {
-				if (hash === of) wasAt = r.path;
+				if (id === at) wasAt = r.path;
 			});
-		if (of)
-			getAbout(of).then((a) => {
-				if (hash !== of) return;
-				about = a;
-			}).catch(() => {
-				if (hash === of) about = null;
-			});
+		getAbout(of).then((a) => {
+			if (id !== at) return;
+			about = a;
+		}).catch(() => {
+			if (id === at) about = null;
+		});
 	});
 
 	const move = (d: number) => {
@@ -243,11 +246,11 @@
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
 				{/if}
 				{#each actsOf([p]) as a (a.label)}
-					<button class="pill" onclick={(e) => (e.currentTarget.blur(), onact?.(a, p.hash))}><Icon name={a.icon} size={14} />{a.label}</button>
+					<button class="pill" onclick={(e) => (e.currentTarget.blur(), onact?.(a, p))}><Icon name={a.icon} size={14} />{a.label}</button>
 				{/each}
 			{/if}
 			{#if editable && !p.missing}
-				<button class="pill icon heart" class:beat={beat === p.hash && p.favorite} aria-label={text.favorite} title={text.favorite} aria-pressed={!!p.favorite} onclick={(e) => (e.currentTarget.blur(), (beat = p.hash), onfavorite?.(p.hash, !p.favorite))}>
+				<button class="pill icon heart" class:beat={beat === p.id && p.favorite} aria-label={text.favorite} title={text.favorite} aria-pressed={!!p.favorite} onclick={(e) => (e.currentTarget.blur(), (beat = p.id), onfavorite?.(p, !p.favorite))}>
 					<Icon name={p.favorite ? 'heart-fill' : 'heart'} size={16} />
 				</button>
 			{/if}
@@ -256,7 +259,7 @@
 		<div class="body">
 			<div class="main">
 				<div class="stage" bind:clientWidth={stageW} bind:clientHeight={stageH}>
-					{#key p.hash}
+					{#key p.id}
 						{#if p.missing}
 							<!-- Its file is gone: what is left is its thumbnail, faded. -->
 							<img class="gone" src="/api/thumb/{p.hash}" alt={p.name} />
@@ -288,11 +291,11 @@
 							<img
 								style={fit}
 								class="full"
-								class:ready={ready === p.hash}
+								class:ready={ready === p.id}
 								src="/api/preview/{p.hash}"
 								alt=""
 								bind:this={fitted}
-								onload={() => (ready = p!.hash)}
+								onload={() => (ready = p!.id)}
 								onclick={zoomIn}
 							/>
 							{#if asked}
@@ -340,14 +343,14 @@
 			photos={[p]}
 			onclose={(moved) => {
 				dating = false;
-				if (moved) ondated?.(p.hash);
+				if (moved) ondated?.(p.id);
 			}}
 		/>
 	{/if}
 	{#if takingOut}
 		<TakeOut
 			count={1}
-			hash={p.hash}
+			photo={p}
 			onclose={(taken) => {
 				takingOut = false;
 				if (taken) {
