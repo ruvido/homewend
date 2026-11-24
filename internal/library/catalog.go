@@ -5,8 +5,8 @@ package library
 
 import (
 	"cmp"
-	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -59,17 +59,26 @@ func (c Capture) Kind() DateKind {
 	}
 }
 
-// Photo is one picture as the library knows it.
+// Key names one photo of one library: its content, and whose library it is
+// in, the profile. The same content in two libraries is two photos, each
+// with a place, a date and a state of its own; on the disk its bytes are there once.
+type Key struct {
+	Hash    string `json:"hash"`
+	Profile string `json:"profile"`
+}
+
+// Photo is one picture as a library knows it.
 type Photo struct {
-	Hash   string
-	Path   string // relative to the library root, so the library can be moved
-	Name   string
-	Bytes  int64
-	Taken  time.Time
-	Source DateSource
-	Kind   DateKind
-	Origin Origin
-	Albums []string
+	Hash    string
+	Profile string
+	Path    string // relative to the library root, so the library can be moved
+	Name    string
+	Bytes   int64
+	Taken   time.Time
+	Source  DateSource
+	Kind    DateKind
+	Origin  Origin
+	Albums  []string
 	// Turn is how many quarter turns anticlockwise the person gave it: kept
 	// here, the file is never changed.
 	Turn     int
@@ -77,8 +86,11 @@ type Photo struct {
 	Favorite bool
 }
 
+// Key is the photo's.
+func (p Photo) Key() Key { return Key{p.Hash, p.Profile} }
+
 // photoColumns are what scanPhotos reads, in its order.
-const photoColumns = `hash, path, name, bytes, taken, source, kind, origin, turn, archived, favorite`
+const photoColumns = `hash, profile, path, name, bytes, taken, source, kind, origin, turn, archived, favorite`
 
 // Catalog is the index the interface reads: what there is, where it is, and
 // what can be said about it.
@@ -90,41 +102,58 @@ const photoColumns = `hash, path, name, bytes, taken, source, kind, origin, turn
 type Catalog struct{ db *sql.DB }
 
 const schema = `
-CREATE TABLE IF NOT EXISTS photos (
-  hash    TEXT PRIMARY KEY,
+-- One row for each photo of each library: the same content in two libraries
+-- is two rows. Its id is what the other tables name it by.
+CREATE TABLE library_photos (
+  id      INTEGER PRIMARY KEY,
+  hash    TEXT NOT NULL,
+  profile TEXT NOT NULL,    -- whose library; '' before profiles
   path    TEXT NOT NULL,
   name    TEXT NOT NULL,
   bytes   INTEGER NOT NULL,
   taken   INTEGER,          -- unix seconds, NULL when nothing is known
   source  TEXT NOT NULL,
   kind    TEXT NOT NULL,
-  origin  TEXT NOT NULL
+  origin  TEXT NOT NULL,
+  -- Taken out of the library and kept out of the imports: out of every list,
+  -- still known, so that an import leaves it out as deleted.
+  out     INTEGER NOT NULL DEFAULT 0,
+  -- Turned by the person, in quarter turns; archived: out of the grid and the
+  -- years, still in its albums, still backed up; in the Trash: out of every
+  -- list and every import until restored; given a heart.
+  turn     INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
+  trashed  INTEGER NOT NULL DEFAULT 0,
+  favorite INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (hash, profile)
 );
-CREATE TABLE IF NOT EXISTS album_members (
+CREATE TABLE album_members (
   album TEXT NOT NULL,
-  hash  TEXT NOT NULL REFERENCES photos(hash),
-  PRIMARY KEY (album, hash)
-);
+  photo INTEGER NOT NULL REFERENCES library_photos(id),
+  PRIMARY KEY (album, photo)
+) WITHOUT ROWID;
 -- Where a photo came from: its sources, "<service>/<address>" for an
 -- account ("google/ron@example.com"), "local/<folder>" for an import. A photo
--- that came from two is one photo with two; a photo recorded before sources
+-- that came to one library from two is one photo with two; a photo recorded before sources
 -- were kept has none, and is shown with every account.
-CREATE TABLE IF NOT EXISTS owners (
+CREATE TABLE owners (
   account TEXT NOT NULL,
-  hash    TEXT NOT NULL,
-  PRIMARY KEY (account, hash)
-);
-CREATE TABLE IF NOT EXISTS album_owners (
+  photo   INTEGER NOT NULL REFERENCES library_photos(id),
+  PRIMARY KEY (account, photo)
+) WITHOUT ROWID;
+CREATE TABLE album_owners (
   account TEXT NOT NULL,
   album   TEXT NOT NULL,
-  PRIMARY KEY (account, album)
-);
+  profile TEXT NOT NULL,
+  PRIMARY KEY (account, album, profile)
+) WITHOUT ROWID;
 -- The grid is always "newest first, maybe filtered": one index carries it.
-CREATE INDEX IF NOT EXISTS photos_by_page   ON photos(taken DESC, name);
--- Of older catalogs, read by nothing.
-DROP INDEX IF EXISTS photos_by_time;
-DROP INDEX IF EXISTS photos_by_origin;
-CREATE INDEX IF NOT EXISTS photos_by_path   ON photos(path);
+CREATE INDEX photos_by_page ON library_photos(taken DESC, name);
+CREATE INDEX photos_by_path ON library_photos(path);
+-- A program from before libraries stops here: it cannot index a view as it
+-- opens, nor read a photo from this one. It would change the state
+-- of a photo in every library that has it.
+CREATE VIEW photos AS SELECT 'this library needs a newer Homewend' AS message;
 `
 
 // away is the SQL that says a photo is not in the library's lists: deleted
@@ -214,122 +243,11 @@ func OpenCatalog(path string) (*Catalog, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
-	if _, err := db.Exec(schema); err != nil {
+	if err := upgrade(db, path); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("preparing the catalog: %w", err)
-	}
-	// A photo taken out of the library and kept out of the imports: out of
-	// every list, still known, so that an import leaves it out as deleted.
-	// Added to a catalog from before; a second process finds it there.
-	if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN out INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-		db.Close()
-		return nil, fmt.Errorf("preparing the catalog: %w", err)
-	}
-	// A photo turned by the person, in quarter turns; one archived: out of
-	// the grid and the years, still in its albums, still backed up; one in
-	// the Trash: out of every list and every import until restored; one given
-	// a heart. Added the same way.
-	for _, column := range []string{"turn", string(Archived), string(Trashed), string(Favorite)} {
-		if _, err := db.Exec(`ALTER TABLE photos ADD COLUMN ` + column + ` INTEGER NOT NULL DEFAULT 0`); err != nil && !strings.Contains(err.Error(), "duplicate column") {
-			db.Close()
-			return nil, fmt.Errorf("preparing the catalog: %w", err)
-		}
-	}
-	// A catalog from before sources named their service kept bare Google
-	// addresses. Looked for first: an opening that has nothing to write does
-	// not wait for those who write.
-	for _, table := range []string{"owners", "album_owners"} {
-		var bare bool
-		err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM ` + table + ` WHERE instr(account, '/') = 0)`).Scan(&bare)
-		if err == nil && bare {
-			_, err = db.Exec(`UPDATE OR IGNORE ` + table + ` SET account = 'google/' || account WHERE instr(account, '/') = 0`)
-		}
-		if err != nil {
-			db.Close()
-			return nil, fmt.Errorf("naming the catalog's sources: %w", err)
-		}
-	}
-	if err := clockDates(db, path); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("turning the catalog's dates into clocks: %w", err)
 	}
 	return &Catalog{db: db}, nil
-}
-
-// clocksSince is the catalog's user_version from which every date in it is
-// a clock. Before, Google's dates were kept as instants in UTC while the
-// camera's were clocks, and the grid, which reads a clock, showed a photo
-// from Takeout one or two hours off, near midnight on the wrong day.
-const clocksSince = 1
-
-// clockDates turns the instants an older catalog kept for Google's dates
-// into the clocks of this computer's zone, the one the photos were filed
-// by, once: a copy of the catalog as it was is kept beside it first.
-//
-// The window opens the catalog for several requests at once, and a command
-// in a terminal may too: the turn is made under the write lock, taken at
-// the start (BEGIN IMMEDIATE), and the version read again under it, so one
-// of them turns the dates and the others find it done. A deferred
-// transaction would read, then fail to write on a snapshot grown old.
-func clockDates(db *sql.DB, path string) error {
-	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= clocksSince {
-		return err
-	}
-	ctx := context.Background()
-	backup, err := keepBefore(db, path)
-	if err != nil {
-		return err
-	}
-	if backup != "" {
-		defer os.Remove(backup) // left only when it was not needed
-	}
-	conn, err := db.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
-		return err
-	}
-	done := false
-	defer func() {
-		if !done {
-			conn.ExecContext(ctx, `ROLLBACK`)
-		}
-	}()
-	if err := conn.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&version); err != nil || version >= clocksSince {
-		return err
-	}
-	// The copy taken before the lock is of the catalog as it still is: no
-	// one turned the dates since, or the version would say so. One kept by
-	// an earlier run that stopped halfway is as good, and stays.
-	if backup != "" && !exists(path+".before-clocks") {
-		if err := os.Rename(backup, path+".before-clocks"); err != nil {
-			return err
-		}
-	}
-	// One statement, run inside SQLite: a library of a hundred thousand
-	// photos turned row by row from here held the lock for seconds, longer
-	// than the others wait for it. The zone's offset changes a few times a
-	// year; each span between two changes is one branch of the CASE.
-	var first, last sql.NullInt64
-	if err := conn.QueryRowContext(ctx, `SELECT MIN(taken), MAX(taken) FROM photos WHERE source = ? AND taken IS NOT NULL`, string(FromSidecar)).Scan(&first, &last); err != nil {
-		return err
-	}
-	if first.Valid {
-		if _, err := conn.ExecContext(ctx, `UPDATE photos SET taken = taken + `+offsets(first.Int64, last.Int64, time.Local)+` WHERE source = ? AND taken IS NOT NULL`, string(FromSidecar)); err != nil {
-			return err
-		}
-	}
-	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, clocksSince)); err != nil {
-		return err
-	}
-	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
-		return err
-	}
-	done = true
-	return nil
 }
 
 // offsets is an SQL expression of taken, an instant in Unix seconds between
@@ -367,32 +285,6 @@ func offsets(first, last int64, zone *time.Location) string {
 	}
 }
 
-// keepBefore copies the catalog, when it has dates to turn and no copy is
-// kept yet, into a file of its own beside it: "" when none is needed. Each
-// opening writes its own, so two never write the same file, and a copy cut
-// short (a crash, a full disk) is never the one kept.
-func keepBefore(db *sql.DB, path string) (string, error) {
-	if exists(path + ".before-clocks") {
-		return "", nil
-	}
-	var n int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM photos WHERE source = ? AND taken IS NOT NULL`, string(FromSidecar)).Scan(&n); err != nil || n == 0 {
-		return "", err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".before-clocks-*")
-	if err != nil {
-		return "", err
-	}
-	f.Close()
-	// VACUUM INTO writes into an empty file, and reads one snapshot of the
-	// catalog: a copy as it was at one moment.
-	if _, err := db.Exec(`VACUUM INTO ?`, f.Name()); err != nil {
-		os.Remove(f.Name())
-		return "", err
-	}
-	return f.Name(), nil
-}
-
 // OpenCatalogReadOnly opens the index at path to look at it: no schema, no
 // migration, nothing written. A look before an import changes nothing in the
 // library, and a library on a read-only share can still be looked at.
@@ -401,20 +293,31 @@ func keepBefore(db *sql.DB, path string) (string, error) {
 // is first undone, as SQLite asks of whoever opens next, and a catalog an
 // older version left in WAL mode leaves it: hence mode=rw, which reads alone
 // where nothing can be written. There a catalog in WAL mode is read as it
-// lies, if its -wal holds nothing; what cannot be read whole is refused.
+// lies, if its -wal holds nothing; what cannot be read whole is refused. One
+// an older version made is first brought up to date, and refused where it
+// cannot be.
 func OpenCatalogReadOnly(path string) (*Catalog, error) {
 	db, err := openCatalog(path, "mode=rw&"+waiting+"&_pragma=query_only(1)")
 	if err != nil {
 		return nil, fmt.Errorf("opening the catalog: %w", err)
 	}
 	var version int
-	err = db.QueryRow(`PRAGMA schema_version`).Scan(&version) // the first look at the file
+	err = db.QueryRow(`PRAGMA user_version`).Scan(&version) // the first look at the file
 	var e *sqlite.Error
 	if fi, serr := os.Stat(path + "-wal"); errors.As(err, &e) && (e.Code()&0xff == sqlite3.SQLITE_CANTOPEN || e.Code() == sqlite3.SQLITE_READONLY_DIRECTORY) && (serr != nil || fi.Size() == 0) {
 		db.Close()
 		if db, err = sql.Open("sqlite", catalogDSN(path, "mode=ro&immutable=1")); err == nil {
-			err = db.Ping()
+			err = db.QueryRow(`PRAGMA user_version`).Scan(&version)
 		}
+	}
+	if err == nil && version < librariesSince {
+		db.Close()
+		c, err := OpenCatalog(path)
+		if err != nil {
+			return nil, err
+		}
+		c.Close()
+		return OpenCatalogReadOnly(path)
 	}
 	if err != nil {
 		db.Close()
@@ -434,46 +337,47 @@ func (c *Catalog) Put(photo Photo, sources ...string) error {
 	if !photo.Taken.IsZero() {
 		taken = photo.Taken.Unix()
 	}
-	tx, err := c.db.Begin()
-	if err != nil {
-		return fmt.Errorf("recording %s: %w", photo.Name, err)
-	}
-	defer tx.Rollback()
-	_, err = tx.Exec(
-		`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(hash) DO UPDATE SET
-		   path=excluded.path, name=excluded.name, bytes=excluded.bytes,
-		   taken=excluded.taken, source=excluded.source, kind=excluded.kind,
-		   origin=excluded.origin`,
-		photo.Hash, photo.Path, photo.Name, photo.Bytes, taken,
-		string(photo.Source), string(photo.Kind), string(photo.Origin))
-	if err != nil {
-		return fmt.Errorf("recording %s: %w", photo.Name, err)
-	}
-	for _, album := range photo.Albums {
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO album_members (album, hash) VALUES (?, ?)`,
-			album, photo.Hash); err != nil {
-			return fmt.Errorf("adding %s to %s: %w", photo.Name, album, err)
-		}
-	}
-	for _, source := range sources {
-		if err := addOwner(tx, photo.Hash, source); err != nil {
+	err := c.inTx(func(tx *sql.Tx) error {
+		var id int64
+		err := tx.QueryRow(
+			`INSERT INTO library_photos (hash, profile, path, name, bytes, taken, source, kind, origin)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(hash, profile) DO UPDATE SET
+			   path=excluded.path, name=excluded.name, bytes=excluded.bytes,
+			   taken=excluded.taken, source=excluded.source, kind=excluded.kind,
+			   origin=excluded.origin, out=0
+			 RETURNING id`,
+			photo.Hash, photo.Profile, photo.Path, photo.Name, photo.Bytes, taken,
+			string(photo.Source), string(photo.Kind), string(photo.Origin)).Scan(&id)
+		if err != nil {
 			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		for _, album := range photo.Albums {
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO album_members (album, photo) VALUES (?, ?)`, album, id); err != nil {
+				return err
+			}
+		}
+		for _, source := range sources {
+			if source == "" {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO owners (account, photo) VALUES (?, ?)`, source, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("recording %s: %w", photo.Name, err)
 	}
 	return nil
 }
 
-// PathOf returns where the photo with this hash lives, relative to the library
-// root, and whether the catalog knows it at all.
-func (c *Catalog) PathOf(hash string) (string, bool, error) {
+// PathOf returns where the photo lives, relative to the library root, and
+// whether the catalog knows it at all.
+func (c *Catalog) PathOf(k Key) (string, bool, error) {
 	var path string
-	err := c.db.QueryRow(`SELECT path FROM photos WHERE hash = ?`, hash).Scan(&path)
+	err := c.db.QueryRow(`SELECT path FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&path)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}
@@ -483,10 +387,33 @@ func (c *Catalog) PathOf(hash string) (string, bool, error) {
 	return path, true, nil
 }
 
-// PathTaken reports whether some photo is recorded at this relative path.
-func (c *Catalog) PathTaken(path string) (bool, error) {
+// Paths are where the content of hash lives, one for each library that has it.
+func (c *Catalog) Paths(hash string) ([]string, error) {
+	return texts(c.db.Query(`SELECT path FROM library_photos WHERE hash = ?`, hash))
+}
+
+// texts are the rows of a query of one text column, none being an empty list.
+func texts(rows *sql.Rows, err error) ([]string, error) {
+	if err != nil {
+		return nil, fmt.Errorf("reading the catalog: %w", err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// PathTaken reports whether a photo other than k is recorded at this relative
+// path.
+func (c *Catalog) PathTaken(path string, k Key) (bool, error) {
 	var n int
-	if err := c.db.QueryRow(`SELECT COUNT(*) FROM photos WHERE path = ?`, path).Scan(&n); err != nil {
+	if err := c.db.QueryRow(`SELECT COUNT(*) FROM library_photos WHERE path = ? AND (hash, profile) <> (?, ?)`, path, k.Hash, k.Profile).Scan(&n); err != nil {
 		return false, fmt.Errorf("reading the catalog: %w", err)
 	}
 	return n > 0, nil
@@ -495,12 +422,12 @@ func (c *Catalog) PathTaken(path string) (bool, error) {
 // addAlbum records that a photo belongs to an album, and the album to the
 // account it came from. Separate from Put because a photo is placed once and
 // may join several albums afterwards.
-func (c *Catalog) addAlbum(album, hash, account string) error {
+func (c *Catalog) addAlbum(album string, k Key, account string) error {
 	_, err := c.db.Exec(
-		`INSERT OR IGNORE INTO album_members (album, hash) VALUES (?, ?)`, album, hash)
+		`INSERT OR IGNORE INTO album_members (album, photo) SELECT ?, id FROM library_photos WHERE hash = ? AND profile = ?`, album, k.Hash, k.Profile)
 	if err == nil && account != "" {
 		_, err = c.db.Exec(
-			`INSERT OR IGNORE INTO album_owners (account, album) VALUES (?, ?)`, account, album)
+			`INSERT OR IGNORE INTO album_owners (account, album, profile) VALUES (?, ?, ?)`, account, album, k.Profile)
 	}
 	if err != nil {
 		return fmt.Errorf("adding a photo to %s: %w", album, err)
@@ -508,17 +435,13 @@ func (c *Catalog) addAlbum(album, hash, account string) error {
 	return nil
 }
 
-// addOwner records that a photo came from an account. A photo already in the
+// addOwner records that a photo came from an account. A photo already in its
 // library gets one more owner when another account's export holds it too.
-func (c *Catalog) addOwner(hash, account string) error { return addOwner(c.db, hash, account) }
-
-func addOwner(db interface {
-	Exec(query string, args ...any) (sql.Result, error)
-}, hash, account string) error {
+func (c *Catalog) addOwner(k Key, account string) error {
 	if account == "" {
 		return nil
 	}
-	_, err := db.Exec(`INSERT OR IGNORE INTO owners (account, hash) VALUES (?, ?)`, account, hash)
+	_, err := c.db.Exec(`INSERT OR IGNORE INTO owners (account, photo) SELECT ?, id FROM library_photos WHERE hash = ? AND profile = ?`, account, k.Hash, k.Profile)
 	return err
 }
 
@@ -534,10 +457,10 @@ func ownedBy(accounts []string) (string, []any) {
 	if accounts == nil {
 		return "", nil
 	}
-	clause := "(hash NOT IN (SELECT hash FROM owners) OR hash IN (SELECT hash FROM owners WHERE account LIKE '" + LocalSource + "%')"
+	clause := "(id NOT IN (SELECT photo FROM owners) OR id IN (SELECT photo FROM owners WHERE account LIKE '" + LocalSource + "%')"
 	var args []any
 	if len(accounts) > 0 {
-		clause += " OR hash IN (SELECT hash FROM owners WHERE account IN (?" + strings.Repeat(",?", len(accounts)-1) + "))"
+		clause += " OR id IN (SELECT photo FROM owners WHERE account IN (?" + strings.Repeat(",?", len(accounts)-1) + "))"
 		for _, a := range accounts {
 			args = append(args, a)
 		}
@@ -547,19 +470,19 @@ func ownedBy(accounts []string) (string, []any) {
 
 // Filter is what the interface asks for: a page of the grid, narrowed.
 type Filter struct {
-	Album  string
-	Year   string
-	NoDate bool // only the photos whose date nobody knows
+	// Album, as AlbumOf's library has it: the account it came from, "" when
+	// not known.
+	Album, AlbumOf string
+	Year           string
+	NoDate         bool // only the photos whose date nobody knows
 	// Archived keeps only the archived photos; Grid leaves them out, as the
 	// main grid and its years do; Trashed keeps only those in the Trash,
 	// which are otherwise in no list.
 	Archived, Grid, Trashed bool
-	// Profile keeps the photos filed in this profile's folder.
+	// Profile keeps the photos of this profile's library.
 	Profile string
-	// Hashes keeps only these photos; nil is all, empty is none.
-	// shortcut: one SQL variable each, SQLite takes 32,766; fine for the
-	// photos not on the disk, a temporary table if a list ever grows past.
-	Hashes []string
+	// Only keeps only these photos; nil is all, empty is none.
+	Only []Key
 	// Accounts keeps the photos of these accounts, by address; nil is all.
 	Accounts []string
 	Limit    int // the first of them; 0 is all
@@ -567,7 +490,7 @@ type Filter struct {
 
 // Page returns photos newest first, narrowed by the filter.
 func (c *Catalog) Page(f Filter) ([]Photo, error) {
-	query, args := f.where(`SELECT ` + photoColumns + ` FROM photos`)
+	query, args := f.where(`SELECT ` + photoColumns + ` FROM library_photos`)
 	// A few are found by the index, in its order; all of them are read as
 	// they lie and sorted here, three times as fast (100,000, 23/11).
 	if f.Limit > 0 {
@@ -595,21 +518,37 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 
 // BytesByKind is how many bytes the library's files take, by what they are
 // (kindOf: "video", "raw", "" for a photo), from the sizes the catalog
-// keeps: those in the Trash too, their files still there.
+// keeps: those in the Trash too, their files still there. A photo of two
+// libraries is one file.
 // shortcut: every row is read on each call, milliseconds for 100,000
 // photos; a sum kept by kind when measured slow.
 func (c *Catalog) BytesByKind() (map[string]int64, error) {
-	rows, err := c.db.Query(`SELECT name, bytes FROM photos WHERE out = 0`)
+	// More than one library has these: looked for in the index alone.
+	shared, err := texts(c.db.Query(`SELECT hash FROM library_photos GROUP BY hash HAVING COUNT(*) > 1`))
+	if err != nil {
+		return nil, err
+	}
+	counted := make(map[string]bool, len(shared)) // false until its bytes are in
+	for _, hash := range shared {
+		counted[hash] = false
+	}
+	rows, err := c.db.Query(`SELECT hash, name, bytes FROM library_photos WHERE out = 0`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	by := map[string]int64{}
 	for rows.Next() {
-		var name string
+		var hash, name string
 		var n int64
-		if err := rows.Scan(&name, &n); err != nil {
+		if err := rows.Scan(&hash, &name, &n); err != nil {
 			return nil, err
+		}
+		if in, two := counted[hash]; two {
+			if in {
+				continue
+			}
+			counted[hash] = true
 		}
 		by[kindOf(name)] += n
 	}
@@ -618,7 +557,7 @@ func (c *Catalog) BytesByKind() (map[string]int64, error) {
 
 // Count is how many photos the filter keeps, its Limit aside.
 func (c *Catalog) Count(f Filter) (int, error) {
-	query, args := f.where(`SELECT COUNT(*) FROM photos`)
+	query, args := f.where(`SELECT COUNT(*) FROM library_photos`)
 	var n int
 	err := c.db.QueryRow(query, args...).Scan(&n)
 	return n, err
@@ -633,8 +572,8 @@ func (f Filter) where(query string) (string, []any) {
 	var args []any
 	if f.Album != "" {
 		where = append(where,
-			"hash IN (SELECT hash FROM album_members WHERE album = ?)")
-		args = append(args, f.Album)
+			"id IN (SELECT m.photo"+albumRows+" WHERE m.album = ? AND COALESCE(o.account, '') = ?)")
+		args = append(args, f.Album, f.AlbumOf)
 	}
 	if f.Year != "" {
 		// Compared as text on purpose: an unknown date must not silently match
@@ -651,16 +590,14 @@ func (f Filter) where(query string) (string, []any) {
 		where = append(where, "archived = 0")
 	}
 	if f.Profile != "" {
-		// "<profile>/" up to "<profile>0", '0' coming right after '/': every
-		// path in its folder, by the bytes (LIKE would ignore the case).
-		where = append(where, "path >= ? AND path < ?")
-		args = append(args, f.Profile+"/", f.Profile+"0")
+		where = append(where, "profile = ?")
+		args = append(args, f.Profile)
 	}
-	if f.Hashes != nil {
-		where = append(where, "hash IN (NULL"+strings.Repeat(",?", len(f.Hashes))+")")
-		for _, h := range f.Hashes {
-			args = append(args, h)
-		}
+	if f.Only != nil {
+		// One variable for them all: SQLite takes 32,766.
+		list, _ := json.Marshal(f.Only)
+		where = append(where, "(hash, profile) IN (SELECT value ->> 'hash', value ->> 'profile' FROM json_each(?))")
+		args = append(args, string(list))
 	}
 	if clause, more := ownedBy(f.Accounts); clause != "" {
 		where = append(where, clause)
@@ -678,14 +615,14 @@ func (f Filter) where(query string) (string, []any) {
 }
 
 // Photo is the record of one photo.
-func (c *Catalog) Photo(hash string) (Photo, error) {
-	rows, err := c.db.Query(`SELECT `+photoColumns+` FROM photos WHERE hash = ?`, hash)
+func (c *Catalog) Photo(k Key) (Photo, error) {
+	rows, err := c.db.Query(`SELECT `+photoColumns+` FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile)
 	if err != nil {
 		return Photo{}, fmt.Errorf("reading the catalog: %w", err)
 	}
 	photos, err := scanPhotos(rows)
 	if err != nil || len(photos) == 0 {
-		return Photo{}, fmt.Errorf("reading the catalog: no photo %s: %v", hash, err)
+		return Photo{}, fmt.Errorf("reading the catalog: no photo %s of %q: %v", k.Hash, k.Profile, err)
 	}
 	return photos[0], nil
 }
@@ -703,7 +640,7 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 		var photo Photo
 		var taken sql.NullInt64
 		var source, kind, origin string
-		if err := rows.Scan(&photo.Hash, &photo.Path, &photo.Name, &photo.Bytes,
+		if err := rows.Scan(&photo.Hash, &photo.Profile, &photo.Path, &photo.Name, &photo.Bytes,
 			&taken, &source, &kind, &origin, &photo.Turn, &photo.Archived, &photo.Favorite); err != nil {
 			return nil, err
 		}
@@ -716,31 +653,10 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 	return photos, rows.Err()
 }
 
-// AlbumNames lists the albums, with how many photos each holds.
-func (c *Catalog) AlbumNames() (map[string]int, error) {
-	rows, err := c.db.Query(
-		`SELECT album, COUNT(*) FROM album_members WHERE hash NOT IN (SELECT hash FROM photos WHERE ` + away + `) GROUP BY album ORDER BY album`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	counts := map[string]int{}
-	for rows.Next() {
-		var album string
-		var n int
-		if err := rows.Scan(&album, &n); err != nil {
-			return nil, err
-		}
-		counts[album] = n
-	}
-	return counts, rows.Err()
-}
-
 // CountsByYear is how many photos each year holds, and under "" those whose
 // date nobody knows.
 func (c *Catalog) CountsByYear(accounts []string) (map[string]int, error) {
-	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM photos WHERE NOT ` + away + ` AND archived = 0`
+	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM library_photos WHERE NOT ` + away + ` AND archived = 0`
 	clause, args := ownedBy(accounts)
 	if clause != "" {
 		query += " AND " + clause
@@ -765,7 +681,7 @@ func (c *Catalog) CountsByYear(accounts []string) (map[string]int, error) {
 
 // CountsByOwner is how many photos each account brought, by address.
 func (c *Catalog) CountsByOwner() (map[string]int, error) {
-	rows, err := c.db.Query(`SELECT account, COUNT(*) FROM owners WHERE hash NOT IN (SELECT hash FROM photos WHERE ` + away + `) GROUP BY account`)
+	rows, err := c.db.Query(`SELECT account, COUNT(*) FROM owners WHERE photo NOT IN (SELECT id FROM library_photos WHERE ` + away + `) GROUP BY account`)
 	if err != nil {
 		return nil, err
 	}
@@ -785,7 +701,7 @@ func (c *Catalog) CountsByOwner() (map[string]int, error) {
 // Latest are the photos recorded last, newest first: the first to arrive in
 // a download are the last of these once it is over, the latest while it runs.
 func (c *Catalog) Latest(n int) ([]Photo, error) {
-	rows, err := c.db.Query(`SELECT hash, name, turn FROM photos WHERE NOT `+away+` ORDER BY rowid DESC LIMIT ?`, n)
+	rows, err := c.db.Query(`SELECT hash, profile, name, turn FROM library_photos WHERE NOT `+away+` ORDER BY id DESC LIMIT ?`, n)
 	if err != nil {
 		return nil, err
 	}
@@ -793,7 +709,7 @@ func (c *Catalog) Latest(n int) ([]Photo, error) {
 	var out []Photo
 	for rows.Next() {
 		var p Photo
-		if err := rows.Scan(&p.Hash, &p.Name, &p.Turn); err != nil {
+		if err := rows.Scan(&p.Hash, &p.Profile, &p.Name, &p.Turn); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -810,38 +726,33 @@ const (
 	Favorite State = "favorite"
 )
 
-// Mark sets state on the photos of hashes filed in profile's folder, or
-// clears it, and says which those were: a photo of another profile, or not
-// in the library, is left as it is.
-func (c *Catalog) Mark(state State, hashes []string, profile string, on bool) ([]string, error) {
-	tx, err := c.db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	done := []string{}
-	for _, h := range hashes {
-		var path string
-		err := tx.QueryRow(`SELECT path FROM photos WHERE hash = ? AND out = 0`, h).Scan(&path)
-		if errors.Is(err, sql.ErrNoRows) || err == nil && !filedIn(path, profile) {
-			continue
+// Mark sets state on photos, or clears it, and says which those were: one
+// not in its library is left out, and the same photo in another library is
+// left as it is.
+func (c *Catalog) Mark(state State, photos []Key, on bool) ([]Key, error) {
+	done := []Key{}
+	err := c.inTx(func(tx *sql.Tx) error {
+		for _, k := range photos {
+			res, err := tx.Exec(`UPDATE library_photos SET `+string(state)+` = ? WHERE hash = ? AND profile = ? AND out = 0`, on, k.Hash, k.Profile)
+			if err != nil {
+				return err
+			}
+			if n, err := res.RowsAffected(); err != nil {
+				return err
+			} else if n > 0 {
+				done = append(done, k)
+			}
 		}
-		if err != nil {
-			return nil, err
-		}
-		if _, err := tx.Exec(`UPDATE photos SET `+string(state)+` = ? WHERE hash = ?`, on, h); err != nil {
-			return nil, err
-		}
-		done = append(done, h)
-	}
-	return done, tx.Commit()
+		return nil
+	})
+	return done, err
 }
 
-// TurnLeft gives the photo of hash a quarter turn more, anticlockwise, and
-// says how many it has now; fs.ErrNotExist for a hash the catalog lacks.
-func (c *Catalog) TurnLeft(hash string) (int, error) {
+// TurnLeft gives a photo a quarter turn more, anticlockwise, and says how
+// many it has now; fs.ErrNotExist for one the catalog lacks.
+func (c *Catalog) TurnLeft(k Key) (int, error) {
 	var turn int
-	err := c.db.QueryRow(`UPDATE photos SET turn = (turn + 1) % 4 WHERE hash = ? RETURNING turn`, hash).Scan(&turn)
+	err := c.db.QueryRow(`UPDATE library_photos SET turn = (turn + 1) % 4 WHERE hash = ? AND profile = ? RETURNING turn`, k.Hash, k.Profile).Scan(&turn)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fs.ErrNotExist
 	}
@@ -849,27 +760,12 @@ func (c *Catalog) TurnLeft(hash string) (int, error) {
 }
 
 // About says which albums a photo is in and which accounts it came from.
-func (c *Catalog) About(hash string) (albums, accounts []string, err error) {
-	read := func(query string) ([]string, error) {
-		rows, err := c.db.Query(query, hash)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
-		out := []string{}
-		for rows.Next() {
-			var v string
-			if err := rows.Scan(&v); err != nil {
-				return nil, err
-			}
-			out = append(out, v)
-		}
-		return out, rows.Err()
-	}
-	if albums, err = read(`SELECT album FROM album_members WHERE hash = ? ORDER BY album`); err != nil {
+func (c *Catalog) About(k Key) (albums, accounts []string, err error) {
+	const of = ` = (SELECT id FROM library_photos WHERE hash = ? AND profile = ?) ORDER BY 1`
+	if albums, err = texts(c.db.Query(`SELECT album FROM album_members WHERE photo`+of, k.Hash, k.Profile)); err != nil {
 		return nil, nil, err
 	}
-	accounts, err = read(`SELECT account FROM owners WHERE hash = ? ORDER BY account`)
+	accounts, err = texts(c.db.Query(`SELECT account FROM owners WHERE photo`+of, k.Hash, k.Profile))
 	return albums, accounts, err
 }
 
@@ -880,13 +776,19 @@ type AlbumCount struct {
 	Count   int
 }
 
-// AlbumsByOwner lists the albums, each under every account that brought it.
-func (c *Catalog) AlbumsByOwner() ([]AlbumCount, error) {
-	rows, err := c.db.Query(`
-		SELECT COALESCE(o.account, ''), m.album, COUNT(*)
-		FROM album_members m LEFT JOIN album_owners o ON o.album = m.album
-		WHERE m.hash NOT IN (SELECT hash FROM photos WHERE ` + away + `)
-		GROUP BY 1, 2 ORDER BY 2, 1`)
+// albumRows are the albums' photos p, each under every account o that
+// brought the album to its library.
+const albumRows = ` FROM album_members m JOIN library_photos p ON p.id = m.photo LEFT JOIN album_owners o ON o.album = m.album AND o.profile = p.profile`
+
+// AlbumsByOwner lists the albums, each under every account that brought it,
+// with the photos of the accounts shown (nil: all).
+func (c *Catalog) AlbumsByOwner(accounts []string) ([]AlbumCount, error) {
+	query := `SELECT COALESCE(o.account, ''), m.album, COUNT(*)` + albumRows + ` WHERE NOT ` + away
+	clause, args := ownedBy(accounts)
+	if clause != "" {
+		query += " AND " + clause
+	}
+	rows, err := c.db.Query(query+` GROUP BY 1, 2 ORDER BY 2, 1`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -914,7 +816,7 @@ func relativeTo(root, path string) string {
 // Gone is a photo of the catalog whose file is not in the library, and its
 // year ("" with no date).
 type Gone struct {
-	Hash string
+	Key
 	Year string
 }
 
@@ -933,14 +835,14 @@ func Missing(catalog, root string) ([]Gone, error) {
 	}
 	var all []known
 	err := with(catalog, func(c *Catalog) error {
-		rows, err := c.db.Query(`SELECT hash, path, COALESCE(strftime('%Y', taken, 'unixepoch'), ''), out FROM photos WHERE trashed = 0`)
+		rows, err := c.db.Query(`SELECT hash, profile, path, COALESCE(strftime('%Y', taken, 'unixepoch'), ''), out FROM library_photos WHERE trashed = 0`)
 		if err != nil {
 			return fmt.Errorf("reading the catalog: %w", err)
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var k known
-			if err := rows.Scan(&k.Hash, &k.path, &k.Year, &k.out); err != nil {
+			if err := rows.Scan(&k.Hash, &k.Profile, &k.path, &k.Year, &k.out); err != nil {
 				return err
 			}
 			all = append(all, k)
@@ -966,7 +868,7 @@ func Missing(catalog, root string) ([]Gone, error) {
 	err = with(catalog, func(c *Catalog) error {
 		for _, k := range gone {
 			// Given a date meanwhile, its file is at another path.
-			path, in, err := c.PathOf(k.Hash)
+			path, in, err := c.PathOf(k.Key)
 			if err != nil {
 				return err
 			}
@@ -975,7 +877,7 @@ func Missing(catalog, root string) ([]Gone, error) {
 			}
 		}
 		for _, k := range back {
-			if _, err := c.db.Exec(`UPDATE photos SET out = 0 WHERE hash = ?`, k.Hash); err != nil {
+			if _, err := c.db.Exec(`UPDATE library_photos SET out = 0 WHERE hash = ? AND profile = ?`, k.Hash, k.Profile); err != nil {
 				return err
 			}
 		}
@@ -997,52 +899,73 @@ func with(path string, do func(*Catalog) error) error {
 	return do(c)
 }
 
-// TakeOut takes photos out of the library: forgotten, so that a card that
+// TakeOut takes photos out of their libraries: forgotten, so that a card that
 // still has them brings them in again; or, keepOut, known and hidden, so
 // that an import leaves them out as deleted until brought back.
-func (c *Catalog) TakeOut(hashes []string, keepOut bool) error {
+func (c *Catalog) TakeOut(photos []Key, keepOut bool) error {
+	return c.inTx(func(tx *sql.Tx) error {
+		for _, k := range photos {
+			if err := takeOut(tx, k, keepOut); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func takeOut(tx *sql.Tx, k Key, keepOut bool) error {
+	const id = `(SELECT id FROM library_photos WHERE hash = ? AND profile = ?)`
+	queries := []string{`DELETE FROM album_members WHERE photo = ` + id, `DELETE FROM owners WHERE photo = ` + id, `DELETE FROM library_photos WHERE id = ` + id}
+	if keepOut {
+		queries = []string{`UPDATE library_photos SET out = 1 WHERE id = ` + id}
+	}
+	for _, q := range queries {
+		if _, err := tx.Exec(q, k.Hash, k.Profile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// inTx is do in one write: all of it, or nothing.
+func (c *Catalog) inTx(do func(*sql.Tx) error) error {
 	tx, err := c.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	for _, h := range hashes {
-		queries := []string{`DELETE FROM album_members WHERE hash = ?`, `DELETE FROM owners WHERE hash = ?`, `DELETE FROM photos WHERE hash = ?`}
-		if keepOut {
-			queries = []string{`UPDATE photos SET out = 1 WHERE hash = ?`}
-		}
-		for _, q := range queries {
-			if _, err := tx.Exec(q, h); err != nil {
-				return err
-			}
-		}
+	if err := do(tx); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
 
-// keptOut says whether a photo was taken out and kept out.
-func (c *Catalog) keptOut(hash string) (bool, error) {
-	var out bool
-	err := c.db.QueryRow(`SELECT out FROM photos WHERE hash = ?`, hash).Scan(&out)
-	return out, err
-}
-
-// forget drops a photo whose file is gone from the library, so that a copy
-// brought in again is placed and counted as new.
-func (c *Catalog) forget(hash string) error {
-	_, err := c.db.Exec(`DELETE FROM photos WHERE hash = ?`, hash)
-	return err
-}
-
-// setDate records a date given to a photo already in the library.
-func (c *Catalog) setDate(hash string, capture Capture) error {
-	_, err := c.db.Exec(`UPDATE photos SET taken = ?, source = ?, kind = ? WHERE hash = ?`,
-		capture.When.Unix(), string(capture.Source), string(capture.Kind()), hash)
+// setDate records a date given to a photo already in its library.
+func (c *Catalog) setDate(k Key, capture Capture) error {
+	_, err := c.db.Exec(`UPDATE library_photos SET taken = ?, source = ?, kind = ? WHERE hash = ? AND profile = ?`,
+		capture.When.Unix(), string(capture.Source), string(capture.Kind()), k.Hash, k.Profile)
 	return err
 }
 
 // setPath records that a photo is now at path, under name.
-func (c *Catalog) setPath(hash, path, name string) error {
-	_, err := c.db.Exec(`UPDATE photos SET path = ?, name = ? WHERE hash = ?`, path, name, hash)
+func (c *Catalog) setPath(k Key, path, name string) error {
+	_, err := c.db.Exec(`UPDATE library_photos SET path = ?, name = ? WHERE hash = ? AND profile = ?`, path, name, k.Hash, k.Profile)
 	return err
+}
+
+// refile records that the photo k, of no library, is of profile's, at path.
+// One that library has already is that one.
+func (c *Catalog) refile(k Key, profile, path string) error {
+	return c.inTx(func(tx *sql.Tx) error {
+		var id int64
+		err := tx.QueryRow(`UPDATE OR IGNORE library_photos SET profile = ?, path = ?, name = ? WHERE hash = ? AND profile = ? RETURNING id`,
+			profile, path, filepath.Base(path), k.Hash, k.Profile).Scan(&id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return takeOut(tx, k, false)
+		}
+		if err != nil {
+			return err
+		}
+		return ownAlbums(tx, id, k.Profile)
+	})
 }

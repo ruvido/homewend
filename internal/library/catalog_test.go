@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,11 +52,11 @@ func TestOwnersFilterThePhotos(t *testing.T) {
 	y := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
 	for _, p := range []struct{ hash, owner string }{{"a", "ann@x"}, {"b", "bo@x"}, {"c", ""}, {"d", "ann@x"}} {
 		c.Put(Photo{Hash: p.hash, Path: p.hash, Name: p.hash, Taken: y})
-		c.addOwner(p.hash, p.owner)
+		c.addOwner(Key{Hash: p.hash}, p.owner)
 	}
-	c.addOwner("d", "bo@x") // in both exports
-	c.addAlbum("Trip", "a", "ann@x")
-	c.addAlbum("Kids", "b", "bo@x")
+	c.addOwner(Key{Hash: "d"}, "bo@x") // in both exports
+	c.addAlbum("Trip", Key{Hash: "a"}, "ann@x")
+	c.addAlbum("Kids", Key{Hash: "b"}, "bo@x")
 
 	count := func(accounts []string) int {
 		got, err := c.CountsByYear(accounts)
@@ -71,7 +72,7 @@ func TestOwnersFilterThePhotos(t *testing.T) {
 	if err != nil || len(page) != 3 {
 		t.Fatalf("bo's page: %d, %v", len(page), err)
 	}
-	albums, err := c.AlbumsByOwner()
+	albums, err := c.AlbumsByOwner(nil)
 	if err != nil || len(albums) != 2 || albums[0] != (AlbumCount{"bo@x", "Kids", 1}) || albums[1] != (AlbumCount{"ann@x", "Trip", 1}) {
 		t.Fatalf("albums %+v, %v", albums, err)
 	}
@@ -86,13 +87,13 @@ func TestLatestAndAbout(t *testing.T) {
 	for _, h := range []string{"a", "b", "c"} {
 		c.Put(Photo{Hash: h, Path: h, Name: h})
 	}
-	c.addAlbum("Trip", "b", "ann@x")
-	c.addOwner("b", "ann@x")
+	c.addAlbum("Trip", Key{Hash: "b"}, "ann@x")
+	c.addOwner(Key{Hash: "b"}, "ann@x")
 	latest, err := c.Latest(2)
 	if err != nil || len(latest) != 2 || latest[0].Hash != "c" || latest[1].Hash != "b" {
 		t.Fatalf("latest %+v, %v", latest, err)
 	}
-	albums, accounts, err := c.About("b")
+	albums, accounts, err := c.About(Key{Hash: "b"})
 	if err != nil || len(albums) != 1 || albums[0] != "Trip" || len(accounts) != 1 || accounts[0] != "ann@x" {
 		t.Fatalf("about: %v %v %v", albums, accounts, err)
 	}
@@ -108,7 +109,7 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []int{1, 2, 3, 0, 1} {
-		if got, err := c.TurnLeft("a"); err != nil || got != want {
+		if got, err := c.TurnLeft(Key{Hash: "a"}); err != nil || got != want {
 			t.Fatalf("turned to %d, %v; want %d", got, err, want)
 		}
 	}
@@ -119,7 +120,7 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 	if page, err := c.Page(Filter{}); err != nil || len(page) != 1 || page[0].Turn != 1 {
 		t.Fatalf("%+v, %v: want one photo turned once", page, err)
 	}
-	if _, err := c.TurnLeft("nope"); !errors.Is(err, fs.ErrNotExist) {
+	if _, err := c.TurnLeft(Key{Hash: "nope"}); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("an unknown photo turned: %v", err)
 	}
 }
@@ -134,16 +135,16 @@ func TestAnArchivedPhoto(t *testing.T) {
 	defer c.Close()
 	taken := time.Date(2020, 5, 1, 0, 0, 0, 0, time.UTC)
 	for _, h := range []string{"a", "b"} {
-		if err := c.Put(Photo{Hash: h, Path: "ron/" + h, Name: h, Taken: taken}); err != nil {
+		if err := c.Put(Photo{Hash: h, Profile: "ron", Path: "ron/" + h, Name: h, Taken: taken}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	c.addAlbum("Trip", "a", "")
-	if done, _ := c.Mark(Archived, []string{"a"}, "ann", true); len(done) != 0 {
+	c.addAlbum("Trip", Key{"a", "ron"}, "")
+	if done, _ := c.Mark(Archived, []Key{{"a", "ann"}}, true); len(done) != 0 {
 		t.Errorf("another profile archived %v", done)
 	}
 	for range 2 { // twice: archiving is idempotent
-		if done, err := c.Mark(Archived, []string{"a", "zz"}, "ron", true); err != nil || len(done) != 1 {
+		if done, err := c.Mark(Archived, []Key{{"a", "ron"}, {"zz", "ron"}}, true); err != nil || len(done) != 1 {
 			t.Fatalf("archived %v %v, want a", done, err)
 		}
 	}
@@ -157,7 +158,7 @@ func TestAnArchivedPhoto(t *testing.T) {
 	if len(grid) != 1 || grid[0].Hash != "b" || len(album) != 1 || len(archive) != 1 || archive[0].Hash != "a" || years["2020"] != 1 {
 		t.Errorf("grid %v album %v archive %v years %v", grid, album, archive, years)
 	}
-	if done, _ := c.Mark(Archived, []string{"a"}, "ron", false); len(done) != 1 {
+	if done, _ := c.Mark(Archived, []Key{{"a", "ron"}}, false); len(done) != 1 {
 		t.Errorf("unarchived %v", done)
 	}
 	if grid, _ := c.Page(Filter{Grid: true}); len(grid) != 2 {
@@ -178,38 +179,38 @@ func TestAPhotoInTheTrash(t *testing.T) {
 	}
 	defer c.Close()
 	for _, h := range []string{"a", "b"} {
-		if err := c.Put(Photo{Hash: h, Path: "ron/" + h, Name: h}); err != nil {
+		if err := c.Put(Photo{Hash: h, Profile: "ron", Path: "ron/" + h, Name: h}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	c.addAlbum("Trip", "a", "")
-	if done, err := c.Mark(Trashed, []string{"a"}, "ron", true); err != nil || len(done) != 1 {
+	c.addAlbum("Trip", Key{"a", "ron"}, "")
+	if done, err := c.Mark(Trashed, []Key{{"a", "ron"}}, true); err != nil || len(done) != 1 {
 		t.Fatalf("trashed %v %v", done, err)
 	}
 	every, _ := c.Page(Filter{})
 	album, _ := c.Page(Filter{Album: "Trip"})
-	albums, _ := c.AlbumNames()
-	if len(every) != 1 || len(album) != 0 || albums["Trip"] != 0 {
+	albums, _ := c.AlbumsByOwner(nil)
+	if len(every) != 1 || len(album) != 0 || len(albums) != 0 {
 		t.Errorf("every %v album %v albums %v", every, album, albums)
 	}
 	// Its file is still there: in the Trash, not deleted, and not missing.
-	if h, err := Holds(c, root, "a"); err != nil || !h.Known || h.Deleted || !h.Trashed {
+	if h, err := Holds(c, root, Key{"a", "ron"}); err != nil || !h.Known || h.Deleted || !h.Trashed {
 		t.Errorf("held %+v %v, want it in the Trash", h, err)
 	}
 	// A heart is kept through the Trash, and by a second record of the photo.
-	if done, err := c.Mark(Favorite, []string{"a"}, "", true); err != nil || len(done) != 1 {
+	if done, err := c.Mark(Favorite, []Key{{"a", "ron"}}, true); err != nil || len(done) != 1 {
 		t.Fatalf("favorite %v %v", done, err)
 	}
-	if err := c.Put(Photo{Hash: "a", Path: "ron/a", Name: "a"}); err != nil {
+	if err := c.Put(Photo{Hash: "a", Profile: "ron", Path: "ron/a", Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := c.Photo("a"); err != nil || !p.Favorite {
+	if p, err := c.Photo(Key{"a", "ron"}); err != nil || !p.Favorite {
 		t.Errorf("%+v %v, want its heart", p, err)
 	}
 	if gone, _ := Missing(filepath.Join(root, "catalog.db"), root); len(gone) != 1 || gone[0].Hash != "b" {
 		t.Errorf("missing %v, want b only", gone)
 	}
-	c.Mark(Trashed, []string{"a"}, "ron", false)
+	c.Mark(Trashed, []Key{{"a", "ron"}}, false)
 	if every, _ := c.Page(Filter{}); len(every) != 2 {
 		t.Errorf("restored: %v", every)
 	}
@@ -223,7 +224,11 @@ func TestTheProfilesPhotos(t *testing.T) {
 	}
 	defer c.Close()
 	for _, p := range []string{"ron/a", "ron/2020/b", "Ron/c", "ronald/d", "ron"} {
-		if err := c.Put(Photo{Hash: p, Path: p, Name: p}); err != nil {
+		profile, _, _ := strings.Cut(p, "/")
+		if p == "ron" {
+			profile = ""
+		}
+		if err := c.Put(Photo{Hash: p, Profile: profile, Path: p, Name: p}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -245,7 +250,7 @@ func TestBytesByKind(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := c.Mark(Trashed, []string{"d"}, "", true); err != nil {
+	if _, err := c.Mark(Trashed, []Key{{"d", ""}}, true); err != nil {
 		t.Fatal(err)
 	}
 	by, err := c.BytesByKind()
@@ -287,7 +292,7 @@ func TestChangesFollowEveryWriter(t *testing.T) {
 	other.Close()
 	step("opened and read", false)
 
-	if err := c.Put(Photo{Hash: "a", Path: "ron/2026/11/a.jpg", Name: "a.jpg"}); err != nil {
+	if err := c.Put(Photo{Hash: "a", Profile: "ron", Path: "ron/2026/11/a.jpg", Name: "a.jpg"}); err != nil {
 		t.Fatal(err)
 	}
 	step("a photo put", true)
@@ -297,7 +302,7 @@ func TestChangesFollowEveryWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := other.Mark(Archived, []string{"a"}, "ron", true); err != nil {
+	if _, err := other.Mark(Archived, []Key{{"a", "ron"}}, true); err != nil {
 		t.Fatal(err)
 	}
 	other.Close()
@@ -334,6 +339,11 @@ func walMode(t *testing.T, path string) bool {
 // terminal was closed: in WAL mode, its one photo in the -wal alone, no -shm.
 func inWAL(t *testing.T) string {
 	t.Helper()
+	return leftInWAL(t, olderSchema+`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('late', '2026/08/late.jpg', 'late.jpg', 1, 1, '', '', '')`)
+}
+
+func leftInWAL(t *testing.T, make string) string {
+	t.Helper()
 	dir := t.TempDir()
 	open := filepath.Join(dir, "open.db")
 	db, err := sql.Open("sqlite", "file:"+open+"?_pragma=journal_mode(WAL)")
@@ -342,7 +352,7 @@ func inWAL(t *testing.T) string {
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(schema + `;INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('late', '2026/08/late.jpg', 'late.jpg', 1, 1, '', '', '')`); err != nil {
+	if _, err := db.Exec(make); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "catalog.db")
@@ -371,7 +381,7 @@ func TestACatalogLeftInWALIsOpened(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, known, err := c.PathOf("late"); err != nil || !known {
+			if _, known, err := c.PathOf(Key{Hash: "late"}); err != nil || !known {
 				t.Errorf("known %v, %v: the row in the -wal is lost", known, err)
 			}
 			c.Close()
@@ -477,7 +487,7 @@ func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
 			if err := c.Put(Photo{Hash: hash, Path: hash, Name: "a"}); err != nil {
 				return err
 			}
-			if _, err := c.Mark(Archived, []string{hash}, "", true); err != nil {
+			if _, err := c.Mark(Archived, []Key{{hash, ""}}, true); err != nil {
 				return err
 			}
 			time.Sleep(2 * time.Millisecond) // as between an import's files
@@ -543,7 +553,7 @@ func TestTwoProcessesWriteTheSameCatalog(t *testing.T) {
 		t.Errorf("integrity %q, %v", whole, err)
 	}
 	var n, archived int
-	if err := c.db.QueryRow(`SELECT COUNT(*), SUM(archived) FROM photos`).Scan(&n, &archived); err != nil || n != 2*each || archived != 2*each {
+	if err := c.db.QueryRow(`SELECT COUNT(*), SUM(archived) FROM library_photos`).Scan(&n, &archived); err != nil || n != 2*each || archived != 2*each {
 		t.Errorf("%d photos, %d archived, %v, want %d of each", n, archived, err, 2*each)
 	}
 }
@@ -554,21 +564,30 @@ func look(path string) error {
 		return err
 	}
 	defer c.Close()
-	_, _, err = c.PathOf("late")
+	_, _, err = c.PathOf(Key{Hash: "late"})
 	return err
 }
 
-// On a read-only share an older version's catalog can be looked at when its
-// -wal holds nothing, and is refused, not read short, when it holds rows.
+// On a read-only share a catalog in WAL mode can be looked at when its -wal
+// holds nothing, and is refused, not read short, when it holds rows. One from
+// before libraries cannot be brought up to date there, and is refused.
 func TestALookWhereNothingCanBeWritten(t *testing.T) {
 	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("a mode takes no one's writing away")
 	}
-	for name, rows := range map[string]bool{"nothing in the -wal": false, "rows in the -wal": true} {
+	now := schema + fmt.Sprintf(`INSERT INTO library_photos (hash, profile, path, name, bytes, taken, source, kind, origin) VALUES ('late', '', '2026/08/late.jpg', 'late.jpg', 1, 1, '', '', ''); PRAGMA user_version = %d`, linksSince)
+	for name, c := range map[string]struct {
+		rows, older bool
+	}{"nothing in the -wal": {}, "rows in the -wal": {rows: true}, "from before libraries": {older: true}} {
 		t.Run(name, func(t *testing.T) {
-			path := inWAL(t)
+			path := ""
+			if c.older {
+				path = inWAL(t)
+			} else {
+				path = leftInWAL(t, now)
+			}
 			dir := filepath.Dir(path)
-			if !rows {
+			if !c.rows {
 				// Its rows in the catalog, then back in WAL mode, no -wal.
 				db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode(WAL)")
 				if err != nil {
@@ -584,7 +603,7 @@ func TestALookWhereNothingCanBeWritten(t *testing.T) {
 			}
 			t.Cleanup(func() { os.Chmod(dir, 0o700) })
 			err := look(path)
-			if rows != (err != nil) {
+			if (c.rows || c.older) != (err != nil) {
 				t.Errorf("looked: %v", err)
 			}
 		})

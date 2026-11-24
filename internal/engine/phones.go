@@ -278,10 +278,13 @@ func makeCert(certFile, keyFile string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(certFile, keyFile)
 }
 
-// Have splits the hashes a phone asks about: in the library with their file
-// in place, or deleted here and kept out of every import; archived are
-// those of have archived.
-func Have(hashes []string) (have, out, archived []string, err error) {
+// Have splits the hashes phone asks about, by its own library: in it with
+// their file in place, or deleted from it and kept out of every import;
+// archived are those of have that are archived. A photo another library has
+// is in neither list: whether this one is to have it too is said by sending
+// it, with its name, and it is then not read (ReceivePhoto). A question brings
+// nothing in: the phone asks about photos it means to delete as well.
+func Have(phone Phone, hashes []string) (have, out, archived []string, err error) {
 	have, out, archived = []string{}, []string{}, []string{}
 	root, catalog, err := lookAtLibrary()
 	if err != nil || catalog == nil {
@@ -289,7 +292,7 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 	}
 	defer catalog.Close()
 	for _, h := range hashes {
-		held, err := library.Holds(catalog, root, h)
+		held, err := library.Holds(catalog, root, library.Key{Hash: h, Profile: phone.Profile})
 		if err != nil {
 			return have, out, archived, err
 		}
@@ -298,13 +301,26 @@ func Have(hashes []string) (have, out, archived []string, err error) {
 			out = append(out, h)
 		case held.Known:
 			have = append(have, h)
+			if held.Archived {
+				archived = append(archived, h)
+			}
 		}
 	}
-	page, err := catalog.Page(library.Filter{Hashes: have, Archived: true})
-	for _, p := range page {
-		archived = append(archived, p.Hash)
+	return have, out, archived, nil
+}
+
+// MarkOf is Mark on phone's photos of these hashes: no other library's.
+func MarkOf(phone Phone, state library.State, hashes []string, on bool) ([]string, error) {
+	keys := make([]library.Key, len(hashes))
+	for i, h := range hashes {
+		keys[i] = library.Key{Hash: h, Profile: phone.Profile}
 	}
-	return have, out, archived, err
+	marked, err := Mark(state, keys, on)
+	done := make([]string, len(marked))
+	for i, k := range marked {
+		done[i] = k.Hash
+	}
+	return done, err
 }
 
 // PhoneLibrary is what a phone is told of the library it backs up into:
@@ -349,14 +365,18 @@ type Received struct {
 // ReceivePhoto brings in one photo from phone: written inside the library,
 // checked against hash, imported as a card's file is, into the phone's
 // profile, then its upload removed. The bytes arrive before the library's
-// turn is taken: a slow phone does not hold up a card's import.
+// turn is taken: a slow phone does not hold up a card's import. Those another
+// library has are not read from the phone.
 func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int64, body io.Reader) (Received, error) {
 	root, catalog, err := lookAtLibrary()
 	if err != nil {
 		return Received{}, err
 	}
+	key := library.Key{Hash: hash, Profile: phone.Profile}
+	var elsewhere bool
 	if catalog != nil {
-		held, err := library.Holds(catalog, root, hash)
+		held, err := library.Holds(catalog, root, key)
+		elsewhere = held.Elsewhere
 		catalog.Close()
 		if err != nil || held.Out() {
 			return Received{Out: held.Out()}, err
@@ -368,7 +388,7 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if root == "" {
 		return Received{}, ErrNoLibrary
 	}
-	if err := fits(root, size); err != nil {
+	if err := fits(root, size); !elsewhere && err != nil {
 		return Received{}, err
 	}
 	// Busy now is said before a byte is read: a video is not sent again and
@@ -391,8 +411,10 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	}
 	defer os.RemoveAll(dir)
 	file := filepath.Join(dir, filepath.Base(filepath.Clean("/"+name)))
-	if err := receive(file, hash, body); err != nil {
-		return Received{}, err
+	if !elsewhere || !sharedInto(file, root, hash) {
+		if err := receive(file, hash, body); err != nil {
+			return Received{}, err
+		}
 	}
 	// Its bytes are here: it waits its turn rather than being sent again.
 	if unlock, err = waitLibrary(ctx, root, nil); err != nil {
@@ -417,7 +439,7 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 	if err != nil {
 		return Received{}, err
 	}
-	path, _, err := rw.PathOf(hash)
+	path, _, err := rw.PathOf(key)
 	if err != nil {
 		return Received{}, err
 	}
@@ -437,6 +459,30 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 		return nil
 	})
 	return Received{Path: path, New: true}, err
+}
+
+// sharedInto makes file a second name for the photo of hash in another
+// library, or a copy where the disk has no hard links, and says whether it
+// did: if not, the phone's bytes are the ones.
+func sharedInto(file, root, hash string) bool {
+	_, catalog, err := lookAtLibrary()
+	if err != nil || catalog == nil {
+		return false
+	}
+	defer catalog.Close()
+	from, err := library.Shared(catalog, root, hash, "")
+	if err != nil || from == "" {
+		return false
+	}
+	if os.Link(from, file) == nil {
+		return true
+	}
+	f, err := os.Open(from)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return receive(file, hash, f) == nil
 }
 
 // receive writes body to file and checks it is the photo of hash.

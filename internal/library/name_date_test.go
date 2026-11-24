@@ -100,13 +100,13 @@ func TestPhotosAlreadyInWithNoDateTakeTheOneInTheirName(t *testing.T) {
 	for i, name := range []string{"20260826_152150.jpg", "IMG_1922.jpg", "IMG-20250101-WA0003.jpg"} {
 		path := "ron/undated/" + name
 		write(t, root, path, []byte{byte(i)})
-		if err := catalog.Put(Photo{Hash: name, Path: path, Name: name, Source: NoDate, Kind: DateUnknown, Origin: OriginOther}); err != nil {
+		if err := catalog.Put(Photo{Hash: name, Profile: "ron", Path: path, Name: name, Source: NoDate, Kind: DateUnknown, Origin: OriginOther}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// Only the year, from Google's folder: the name says the month too.
 	write(t, root, "ron/2019/unknown-month/IMG_20190312_101558.jpg", []byte("folder"))
-	if err := catalog.Put(Photo{Hash: "folder", Path: "ron/2019/unknown-month/IMG_20190312_101558.jpg", Name: "IMG_20190312_101558.jpg",
+	if err := catalog.Put(Photo{Hash: "folder", Profile: "ron", Path: "ron/2019/unknown-month/IMG_20190312_101558.jpg", Name: "IMG_20190312_101558.jpg",
 		Taken: time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed, Origin: OriginCamera}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,19 +114,19 @@ func TestPhotosAlreadyInWithNoDateTakeTheOneInTheirName(t *testing.T) {
 	for _, name := range []string{"IMG-20161229-WA0010.jpg", "IMG_20211345_101558.jpg"} {
 		path := "ron/2017/unknown-month/" + name
 		write(t, root, path, []byte(name))
-		if err := catalog.Put(Photo{Hash: name, Path: path, Name: name,
+		if err := catalog.Put(Photo{Hash: name, Profile: "ron", Path: path, Name: name,
 			Taken: time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC), Source: FromFolder, Kind: DateGuessed}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// One that cannot move is said, and the others still move.
 	write(t, root, "ron/undated/20230505_101010.jpg", []byte("stuck"))
-	if err := catalog.Put(Photo{Hash: "stuck", Path: "ron/undated/20230505_101010.jpg", Name: "20230505_101010.jpg", Source: NoDate, Kind: DateUnknown}); err != nil {
+	if err := catalog.Put(Photo{Hash: "stuck", Profile: "ron", Path: "ron/undated/20230505_101010.jpg", Name: "20230505_101010.jpg", Source: NoDate, Kind: DateUnknown}); err != nil {
 		t.Fatal(err)
 	}
 	write(t, root, "ron/2023", []byte("a file where the year's folder goes"))
 	// One whose file is gone stays as it is.
-	if err := catalog.Put(Photo{Hash: "gone", Path: "ron/undated/20240101_101010.jpg", Name: "20240101_101010.jpg", Source: NoDate, Kind: DateUnknown}); err != nil {
+	if err := catalog.Put(Photo{Hash: "gone", Profile: "ron", Path: "ron/undated/20240101_101010.jpg", Name: "20240101_101010.jpg", Source: NoDate, Kind: DateUnknown}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestPhotosAlreadyInWithNoDateTakeTheOneInTheirName(t *testing.T) {
 	mustExist(t, filepath.Join(root, "ron", "2025", "01", "IMG-20250101-WA0003.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "2019", "03", "IMG_20190312_101558.jpg"))
 	mustExist(t, filepath.Join(root, "ron", "undated", "IMG_1922.jpg"))
-	if gone, err := catalog.Photo("gone"); err != nil || gone.Source != NoDate {
+	if gone, err := catalog.Photo(Key{Profile: "ron", Hash: "gone"}); err != nil || gone.Source != NoDate {
 		t.Errorf("the one whose file is gone: %s, %v", gone.Source, err)
 	}
 }

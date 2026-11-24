@@ -107,6 +107,9 @@ type Item struct {
 	Sidecar string
 	// Shared: the sidecar is another photo's. This one's own may still arrive.
 	Shared bool
+	// Again: deleted from its library and asked back. It is filed as new, not
+	// taken for a move left halfway.
+	Again bool
 }
 
 // Organize moves items into a date layout under the profile's folder, and
@@ -116,8 +119,9 @@ type Item struct {
 //	<root>/<profile>/albums/Greece 2019/IMG_1234.jpg   -> a hardlink to the file above
 //	<root>/<profile>/undated/SCAN_0003.jpg
 //
-// A photo another profile already holds is stored once: this profile gets a
-// hardlink to it, where its date says.
+// A photo another profile's library already holds is stored once: this
+// profile gets a hardlink to it, where its own date says, and a record of its
+// own.
 //
 // **Deduplication is by content, never by name.** The same photo appears under
 // its year and again under every album it belongs to, and Google sometimes
@@ -146,35 +150,21 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			return result, err
 		}
 
-		relative, known, err := catalog.PathOf(hash)
+		key := Key{hash, opt.Profile}
+		relative, known, err := catalog.PathOf(key)
 		if err != nil {
 			return result, err
 		}
 		home := filepath.Join(root, filepath.FromSlash(relative))
 		switch {
-		case known && exists(home):
+		case known && !item.Again && exists(home):
 			result.Skipped++
-			if err := catalog.addOwner(hash, opt.Account); err != nil {
+			if err := catalog.addOwner(key, opt.Account); err != nil {
 				return result, err
 			}
-			// Another profile's photo: a second name for it in this one.
-			if !filedIn(relative, opt.Profile) {
-				record, err := catalog.Photo(hash)
-				if err != nil {
-					return result, err
-				}
-				there, err := destination(home, root, record.capture(), opt, catalog)
-				if err != nil {
-					return result, err
-				}
-				if _, err := linkInto(home, there); err != nil {
-					return result, err
-				}
-				home = there
-			}
-		case known:
+		case known && !item.Again:
 			// Recorded by a run that stopped before the move.
-			if err := place(item, home, root); err != nil {
+			if _, err := place(item, hash, home, root, catalog); err != nil {
 				return result, err
 			}
 		default:
@@ -185,16 +175,17 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 				result.Undated++
 			}
 
-			home, err = destination(item.Path, root, capture, opt, catalog)
+			home, err = destination(item.Path, key, root, capture, opt, catalog)
 			if err != nil {
 				return result, err
 			}
 			size := sizeOf(item.Path)
 			record := Photo{
-				Hash:  hash,
-				Path:  relativeTo(root, home),
-				Name:  filepath.Base(home),
-				Bytes: size,
+				Hash:    hash,
+				Profile: opt.Profile,
+				Path:    relativeTo(root, home),
+				Name:    filepath.Base(home),
+				Bytes:   size,
 				// A clock, whatever the source: Google's instant in the
 				// user's zone, as its folder says.
 				Taken:  capture.Local(opt.location()),
@@ -208,11 +199,14 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			if err := catalog.Put(record, opt.Account); err != nil {
 				return result, err
 			}
-			if err := place(item, home, root); err != nil {
+			moved, err := place(item, hash, home, root, catalog)
+			if err != nil {
 				return result, err
 			}
 			result.Placed++
-			result.Bytes += size
+			if moved {
+				result.Bytes += size
+			}
 		}
 
 		// An album copy is a second name for a photo already stored, so it
@@ -227,7 +221,7 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 			} else {
 				result.Copied++
 			}
-			if err := catalog.addAlbum(item.Album, hash, opt.Account); err != nil {
+			if err := catalog.addAlbum(item.Album, key, opt.Account); err != nil {
 				return result, err
 			}
 		}
@@ -235,9 +229,9 @@ func Organize(items []Item, root string, catalog *Catalog, opt Options, emit pro
 	return result, nil
 }
 
-// destination is where a photo's date says it belongs, with a suffix when
-// another photo already holds that name.
-func destination(src, root string, capture Capture, opt Options, catalog *Catalog) (string, error) {
+// destination is where the date of the photo k, at src, says it belongs, with
+// a suffix when another photo already holds that name.
+func destination(src string, k Key, root string, capture Capture, opt Options, catalog *Catalog) (string, error) {
 	base := profileRoot(root, opt)
 	if opt.SeparateMessaging && capture.Origin.FromMessaging() {
 		base = filepath.Join(base, "messaging")
@@ -275,7 +269,7 @@ func destination(src, root string, capture Capture, opt Options, catalog *Catalo
 		if same(target, src) {
 			return target, nil
 		}
-		promised, err := catalog.PathTaken(relativeTo(root, target))
+		promised, err := catalog.PathTaken(relativeTo(root, target), k)
 		if err != nil {
 			return "", err
 		}
@@ -285,22 +279,58 @@ func destination(src, root string, capture Capture, opt Options, catalog *Catalo
 	}
 }
 
-// place moves a photo to home, and gives its sidecar the same path under the
+// place gives a photo its home, and its sidecar the same path under the
 // library's metadata folder: a second name of it, as a photo of a later part
 // may share it, out of sight but beside nothing else:
 //
 //	<root>/2019/07/IMG_1234.jpg
 //	<root>/.homewend/metadata/2019/07/IMG_1234.jpg.json
-func place(item Item, home, root string) error {
+//
+// A photo another library has is a second name for that one's file, and the
+// item is left where it was; on a disk with no hard links, and for any other,
+// the item itself is moved. It says whether it was.
+func place(item Item, hash, home, root string, catalog *Catalog) (moved bool, err error) {
 	// The sidecar first: a run stopped between the two finds the photo still
 	// to place, and not a photo in without it.
 	if item.Sidecar != "" {
 		kept := filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")
 		if err := keepSidecar(item.Sidecar, kept); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return move(item.Path, home)
+	if err := os.MkdirAll(filepath.Dir(home), 0o755); err != nil {
+		return false, err
+	}
+	// Already this photo, from a run before.
+	if exists(home) {
+		return false, nil
+	}
+	from, err := Shared(catalog, root, hash, item.Path)
+	if err != nil {
+		return false, err
+	}
+	if from != "" && os.Link(from, home) == nil {
+		return false, nil
+	}
+	return true, move(item.Path, home)
+}
+
+// Shared is a file of the library at root that holds the content of hash, in
+// whoever's folder, or "": read to be sure, as a second name is the first's
+// bytes whatever became of them. like, when not "", is a file of that content:
+// a second name of it needs no reading.
+func Shared(catalog *Catalog, root, hash, like string) (string, error) {
+	paths, err := catalog.Paths(hash)
+	for _, p := range paths {
+		file := filepath.Join(root, filepath.FromSlash(p))
+		if like != "" && linked(like, file) {
+			return file, nil
+		}
+		if got, err := hashOf(file); err == nil && got == hash {
+			return file, nil
+		}
+	}
+	return "", err
 }
 
 // keepSidecar gives a sidecar a second name, or a copy on a disk with no

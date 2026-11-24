@@ -367,7 +367,6 @@ Examples:
 	"verb date dry":        "date",
 	"row redated":          "to the date given, in a .xmp beside each",
 	"row redated dry":      "to the date given",
-	"row not redated":      "dates not given: filed in another profile, dated from there",
 	"row already":          "already in the library",
 	"row twins":            "the same photo again in the folder",
 	"row deleted":          "deleted from the library",

@@ -801,10 +801,10 @@ func importCommand(args []string) int {
 	if err != nil {
 		return out.fail(err)
 	}
-	// Whose import it would be, when that is known without asking: a date
-	// another profile holds is said as the import would say it.
+	// Whose import it would be, when that is known without asking: what is
+	// in another library is new to this one.
 	profile := w.profile
-	if profile == "" && len(redates) > 0 {
+	if profile == "" {
 		profile, _ = pickProfile(context.Background(), "", true)
 	}
 	ctx, stop := interrupted()
@@ -1119,7 +1119,6 @@ func sayImport(out *printer, w importWords, s summary) {
 		note(fmt.Sprintf(text["imported undated"], s.undated))
 	}
 	row("date", s.Redated, w.words("row redated"), nil)
-	row("skip", s.NotRedated, text["row not redated"], warnColour)
 	row("skip", s.InLibrary, text["row already"], faintColour)
 	row("skip", s.Twins, text["row twins"], faintColour)
 	row("skip", s.Deleted, text["row deleted"], faintColour)

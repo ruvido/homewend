@@ -110,7 +110,7 @@ func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
 	if gone, err := shownOf(missingIn(root), c, []string{"google/sam@example.com"}); err != nil || len(gone) != 0 {
 		t.Fatalf("%v, %v; want none gone", gone, err)
 	}
-	if page, err := c.Page(library.Filter{Hashes: hashesOf(nil)}); err != nil || len(page) != 0 {
+	if page, err := c.Page(library.Filter{Only: keysOf(nil)}); err != nil || len(page) != 0 {
 		t.Fatalf("%d photos, %v; none gone must list none", len(page), err)
 	}
 	for _, h := range []string{"sam", "bob"} {
@@ -122,7 +122,7 @@ func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, h := range []string{"sam", "bob"} {
-		if _, err := db.Exec(`INSERT INTO owners (hash, account) VALUES (?, ?)`, h, "google/"+h+"@example.com"); err != nil {
+		if _, err := db.Exec(`INSERT INTO owners (account, photo) SELECT ?, id FROM library_photos WHERE hash = ?`, "google/"+h+"@example.com", h); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -157,7 +157,7 @@ func TestTheMissingListIsThisLibrarysNow(t *testing.T) {
 	if list, err := lookForMissing(root); err != nil || len(list) != 2 {
 		t.Fatalf("%v, %v", list, err)
 	}
-	offMissing([]string{"a"})
+	offMissing([]library.Key{{Hash: "a"}})
 	if list := missingIn(root); len(list) != 1 || list[0].Hash != "b" {
 		t.Errorf("%v, want b", list)
 	}

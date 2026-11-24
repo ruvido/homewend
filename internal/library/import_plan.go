@@ -24,7 +24,6 @@ type ImportPlan struct {
 	Bytes  int64 `json:"bytes"`  // they would add to the library
 
 	// What is in already, twice, moved, deleted, unreadable; how it ends.
-	// NotRedated is counted when the profile is known.
 	Counts
 
 	// The folder's photos in groups, as they come in or stay out: its
@@ -86,8 +85,8 @@ type ImportGroup struct {
 type PlanOptions struct {
 	// What the person said, as the copy will hear it.
 	Asked
-	// Profile, when not "", is whose import it would be: a photo another
-	// profile holds is not its to date.
+	// Profile is whose import it would be: what is in is in that library.
+	// With none, what is in any of them.
 	Profile string
 	// Hashes, when not nil, keeps each file's content as read, for the
 	// next look at the same folder: one with dates given reads nothing
@@ -331,12 +330,11 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 			}
 		}
 		var held Held
-		var inLib bool // held, its file in place: a twin of it too
 		if catalog != nil {
-			if held, err = Holds(catalog, opt.Root, hash); err != nil {
+			if held, err = Holds(catalog, opt.Root, Key{hash, opt.Profile}); err != nil {
 				return plan, err
 			}
-			if inLib = held.Known && !held.Deleted; inLib {
+			if held.Known && !held.Deleted {
 				group.InLibrary++
 			}
 		}
@@ -348,19 +346,15 @@ func PlanImport(ctx context.Context, dir string, f Folder, catalog *Catalog, opt
 		if v == staysOut {
 			continue
 		}
-		// A date given moves it, a twin too, as redateInLibrary decides:
-		// one another profile holds keeps the date that profile gives.
+		// A date given moves it, a twin too.
 		if dated {
-			if inLib && !filedIn(held.Path, opt.Profile) {
-				plan.NotRedated++
-			} else {
-				plan.Redated++
-			}
+			plan.Redated++
 		}
 		if v != comesIn {
 			continue
 		}
-		if info, err := os.Stat(item.Path); err == nil {
+		// In another library, it adds a name and no bytes.
+		if info, err := os.Stat(item.Path); err == nil && !held.Elsewhere {
 			plan.Bytes += info.Size()
 		}
 		year, month := "", 0

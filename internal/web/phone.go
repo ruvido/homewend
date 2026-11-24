@@ -201,12 +201,12 @@ func phoneRoutes(l *phoneListener) http.Handler {
 	mux.Handle("POST /v1/unpair", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		phoneReply(w, struct{}{}, engine.Unpair(phone.ID, "phone"))
 	}))
-	mux.Handle("POST /v1/have", paired(func(w http.ResponseWriter, r *http.Request, _ engine.Phone) {
+	mux.Handle("POST /v1/have", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		hashes, ok := askedHashes(w, r)
 		if !ok {
 			return
 		}
-		have, out, archived, err := engine.Have(hashes)
+		have, out, archived, err := engine.Have(phone, hashes)
 		phoneReply(w, map[string][]string{"have": have, "out": out, "archived": archived}, err)
 	}))
 	// What the phone's owner sets on its photos: the call, the state, on or
@@ -227,7 +227,7 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			if !ok {
 				return
 			}
-			done, err := engine.Mark(phone.Profile, m.state, hashes, m.on)
+			done, err := engine.MarkOf(phone, m.state, hashes, m.on)
 			phoneReply(w, map[string][]string{m.reply: done}, err)
 		}))
 	}

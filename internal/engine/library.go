@@ -94,6 +94,7 @@ func LibraryOverview(s Settings) (Overview, error) {
 	if err != nil {
 		return Overview{}, err
 	}
+	findLinks(root, accounts, s)
 	o, err := overview(root, accounts, s.Hidden, s.Filled)
 	if err != nil {
 		return o, err
@@ -157,7 +158,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	if err != nil {
 		return o, err
 	}
-	albums, err := c.AlbumsByOwner()
+	albums, err := c.AlbumsByOwner(shown)
 	if err != nil {
 		return o, err
 	}

@@ -5,7 +5,6 @@ package library
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -13,7 +12,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ruvido/homewend/internal/progress"
@@ -34,17 +32,12 @@ type Imported struct {
 	Counts
 }
 
-// redate gives a photo of the library its date, and counts it given or
-// left to the profile it is filed in.
-func (done *Imported) redate(root string, catalog *Catalog, hash string, when time.Time, opt Options) error {
-	switch err := redateInLibrary(root, catalog, hash, Capture{When: when, Source: FromGiven}, opt); {
-	case errors.Is(err, ErrOthersPhoto):
-		done.NotRedated++
-	case err != nil:
+// redate gives a photo of the library its date, and counts it.
+func (done *Imported) redate(root string, catalog *Catalog, k Key, when time.Time, opt Options) error {
+	if err := redateInLibrary(root, catalog, k, Capture{When: when, Source: FromGiven}, opt); err != nil {
 		return err
-	default:
-		done.Redated++
 	}
+	done.Redated++
 	return nil
 }
 
@@ -152,7 +145,8 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			continue
 		}
 		when, dated := dates[item.Path]
-		held, err := Holds(catalog, root, hash)
+		key := Key{hash, opt.Profile}
+		held, err := Holds(catalog, root, key)
 		if err != nil {
 			return done, err
 		}
@@ -161,17 +155,9 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 			continue
 		}
 		if v == inLibrary {
-			// Already in the library. Held by another profile, it gets a
-			// name in this one too, and the card as a source: Organize is
-			// handed the library's own file for that, never the folder's,
-			// so it cannot move it. In this profile, the card is a source
-			// too: hiding the account it came from first does not hide it.
-			if !filedIn(held.Path, opt.Profile) {
-				home := filepath.Join(root, filepath.FromSlash(held.Path))
-				if _, err := Organize([]Item{{Path: home}}, root, catalog, opt, nil); err != nil {
-					return done, err
-				}
-			} else if err := catalog.addOwner(hash, opt.Account); err != nil {
+			// Already in this library, and the card is a source too: hiding
+			// the account it came from first does not hide it.
+			if err := catalog.addOwner(key, opt.Account); err != nil {
 				return done, err
 			}
 		}
@@ -180,43 +166,36 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		// first import.
 		if v != comesIn {
 			if dated {
-				if err := done.redate(root, catalog, hash, when, opt); err != nil {
+				if err := done.redate(root, catalog, key, when, opt); err != nil {
 					return done, err
 				}
 			}
 			continue
 		}
-		// Brought back, it is new, in this profile: the catalog forgets
-		// where it was. The arrivals were emptied, so it is no move left
-		// halfway either.
-		var was Photo
-		var keptOut bool
-		if held.Deleted {
-			if was, err = catalog.Photo(hash); err != nil {
-				return done, err
-			}
-			if keptOut, err = catalog.keptOut(hash); err != nil {
-				return done, err
-			}
-			if err := catalog.forget(hash); err != nil {
-				return done, err
-			}
-		}
-		capture := Capture{Source: NoDate, Origin: OriginOf("", filepath.Base(item.Path))}
+		// Brought back, it is filed as new. The arrivals were emptied, so it
+		// is no move left halfway either.
+		arrival := Item{Capture: Capture{Source: NoDate, Origin: OriginOf("", filepath.Base(item.Path))}, Again: held.Deleted}
 		if dated {
-			capture.When, capture.Source = when, FromGiven
+			arrival.Capture.When, arrival.Capture.Source = when, FromGiven
 		}
 		copying = true
-		placed, err := bringIn(item.Path, i, root, catalog, opt, how.Link, how.Fits, capture, tell)
-		if err != nil {
-			// Not in after all, it is deleted still: the next run leaves it
-			// out unless asked back again.
-			if _, in, looked := catalog.PathOf(hash); held.Deleted && !in {
-				err = errors.Join(err, looked, catalog.Put(was))
-				if keptOut {
-					err = errors.Join(err, catalog.TakeOut([]string{hash}, true))
-				}
+		// In another library, it is not copied again: its file there is
+		// given a second name, or a copy where the disk has no hard links.
+		src, link := item.Path, how.Link
+		shared := ""
+		if held.Elsewhere {
+			if shared, err = Shared(catalog, root, hash, item.Path); err != nil {
+				return done, err
 			}
+		}
+		if shared != "" {
+			src, link = shared, true
+		}
+		placed, err := bringIn(src, filepath.Base(item.Path), i, root, catalog, opt, link, how.Fits, arrival, tell)
+		if shared != "" && errors.Is(err, ErrNoLink) {
+			placed, err = bringIn(src, filepath.Base(item.Path), i, root, catalog, opt, false, how.Fits, arrival, tell)
+		}
+		if err != nil {
 			return done, err
 		}
 		done.Placed += placed.Placed
@@ -230,7 +209,7 @@ func Import(ctx context.Context, f Folder, root string, catalog *Catalog, opt Op
 		case "raw":
 			done.Raw += placed.Placed
 		}
-		filed, err := catalog.Photo(hash)
+		filed, err := catalog.Photo(key)
 		if err != nil {
 			return done, err
 		}
@@ -267,48 +246,68 @@ func kindOf(path string) string {
 	return ""
 }
 
-// Held is what the library knows of a photo: where it holds it, below its
-// root; Known, listed in the catalog; Deleted, listed and gone from the
-// disk; Trashed, in the Trash, its file still there.
+// Held is what a library knows of a photo: where it holds it, below the
+// library's folder; Known, listed in the catalog; Deleted, listed and gone
+// from the disk; Trashed, in the Trash, its file still there. Elsewhere, not
+// in this library and in another, its file there.
 type Held struct {
-	Path                    string
-	Known, Deleted, Trashed bool
+	Path                              string
+	Known, Deleted, Trashed, Archived bool
+	Elsewhere                         bool
 }
 
 // Out is whether the photo is kept out of what comes in: deleted, or in
 // the Trash.
 func (h Held) Out() bool { return h.Deleted || h.Trashed }
 
-// Holds is what the library knows of the photo of hash. A disk that answers
-// late is not a deletion. The look and the copy judge a photo here, alike.
-func Holds(catalog *Catalog, root, hash string) (Held, error) {
-	var h Held
-	err := catalog.db.QueryRow(`SELECT path, trashed FROM photos WHERE hash = ?`, hash).Scan(&h.Path, &h.Trashed)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Held{}, nil
-	}
+// Holds is what the library of k's profile knows of the photo k; with no
+// profile, what any library of them all does, one that has its file first. A
+// disk that answers late is not a deletion. The look and the copy judge a
+// photo here, alike.
+func Holds(catalog *Catalog, root string, k Key) (Held, error) {
+	rows, err := catalog.db.Query(`SELECT profile, path, trashed, archived FROM library_photos WHERE hash = ?`, k.Hash)
 	if err != nil {
 		return Held{}, fmt.Errorf("reading the catalog: %w", err)
 	}
-	h.Known = true
-	_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
-	h.Deleted = !h.Trashed && errors.Is(gone, fs.ErrNotExist)
-	return h, nil
+	defer rows.Close()
+	var all []Held
+	var profiles []string
+	for rows.Next() {
+		h := Held{Known: true}
+		var profile string
+		if err := rows.Scan(&profile, &h.Path, &h.Trashed, &h.Archived); err != nil {
+			return Held{}, err
+		}
+		all, profiles = append(all, h), append(profiles, profile)
+	}
+	if err := rows.Err(); err != nil {
+		return Held{}, fmt.Errorf("reading the catalog: %w", err)
+	}
+	rows.Close() // the disk is asked with no row open
+	var held Held
+	elsewhere := false
+	for i, h := range all {
+		_, gone := os.Lstat(filepath.Join(root, filepath.FromSlash(h.Path)))
+		missing := errors.Is(gone, fs.ErrNotExist)
+		h.Deleted = !h.Trashed && missing
+		switch {
+		case profiles[i] != k.Profile && k.Profile != "":
+			elsewhere = elsewhere || !missing
+		case !held.Known || held.Out():
+			held = h
+		}
+	}
+	held.Elsewhere = elsewhere && (!held.Known || held.Deleted)
+	return held, nil
 }
 
-// filedIn is whether a path of the library is in profile's folder, where
-// that profile gives it its date; "" is the library's top, which holds all.
-func filedIn(path, profile string) bool {
-	first, _, _ := strings.Cut(path, "/")
-	return profile == "" || first == profile
-}
-
-// bringIn copies or links one file into the arrivals and places it.
-// A capture with no date is read from the copy, the camera's own.
-func bringIn(src string, i int, root string, catalog *Catalog, opt Options, link bool, fits func(int64) error, capture Capture, copied func(int64)) (Organized, error) {
+// bringIn copies or links one file into the arrivals, under name, and places
+// it as item, which holds all but its path. A capture
+// with no date is read from the copy, the camera's own.
+func bringIn(src, name string, i int, root string, catalog *Catalog, opt Options, link bool, fits func(int64) error, item Item, copied func(int64)) (Organized, error) {
 	// A folder of its own for each file: two cameras both name a photo
 	// DSCF0001.JPG. Emptied once the file is placed.
-	arrived := filepath.Join(arrivals(root), fmt.Sprint(i), filepath.Base(src))
+	arrived := filepath.Join(arrivals(root), fmt.Sprint(i), name)
 	defer os.RemoveAll(filepath.Dir(arrived))
 	if err := os.MkdirAll(filepath.Dir(arrived), 0o755); err != nil {
 		return Organized{}, err
@@ -331,10 +330,11 @@ func bringIn(src string, i int, root string, catalog *Catalog, opt Options, link
 			return Organized{}, fmt.Errorf("copying %s: %w", src, err)
 		}
 	}
-	if capture.Source == NoDate {
-		if when, source, ok := fileDate(arrived, filepath.Base(src)); ok {
-			capture.When, capture.Source = when, source
+	item.Path = arrived
+	if item.Capture.Source == NoDate {
+		if when, source, ok := fileDate(arrived, name); ok {
+			item.Capture.When, item.Capture.Source = when, source
 		}
 	}
-	return Organize([]Item{{Path: arrived, Capture: capture}}, root, catalog, opt, nil)
+	return Organize([]Item{item}, root, catalog, opt, nil)
 }

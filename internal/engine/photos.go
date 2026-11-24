@@ -19,9 +19,10 @@ import (
 	"github.com/ruvido/homewend/internal/thumb"
 )
 
-// GridPhoto is one tile of the window's grid.
+// GridPhoto is one tile of the window's grid: a photo two libraries have is
+// two tiles.
 type GridPhoto struct {
-	Hash  string    `json:"hash"`
+	library.Key
 	Name  string    `json:"name"`
 	Taken time.Time `json:"taken,omitzero"`
 	// Guessed: how much of Taken is guessed ("year", "day", "time");
@@ -114,9 +115,9 @@ const (
 )
 
 // Photos are the grid's, newest first: all of it, a year ("" for no date),
-// an album, or a view; with a limit, the first of them.
+// an album of an account ("": not known), or a view; with a limit, the first of them.
 // Only the photos of the accounts shown are in it.
-func Photos(s Settings, year, album string, noDate bool, view string, limit int) ([]GridPhoto, error) {
+func Photos(s Settings, year, album, albumOf string, noDate bool, view string, limit int) ([]GridPhoto, error) {
 	c, root, err := openLibrary()
 	if err != nil || c == nil {
 		return []GridPhoto{}, err
@@ -140,17 +141,17 @@ func Photos(s Settings, year, album string, noDate bool, view string, limit int)
 	if err != nil {
 		return nil, err
 	}
-	isGone := map[string]bool{}
+	isGone := map[library.Key]bool{}
 	for _, g := range gone {
-		isGone[g.Hash] = true
+		isGone[g.Key] = true
 	}
-	f := library.Filter{Year: year, Album: album, NoDate: noDate, Limit: limit, Accounts: shown}
+	f := library.Filter{Year: year, Album: album, AlbumOf: albumOf, NoDate: noDate, Limit: limit, Accounts: shown}
 	// An archived photo is still in its album and still missing.
 	f.Grid = album == "" && view == ""
 	f.Archived = view == ViewArchive
 	f.Trashed = view == ViewTrash
 	if view == ViewMissing {
-		f.Hashes = hashesOf(gone)
+		f.Only = keysOf(gone)
 	}
 	page, err := c.Page(f)
 	if err != nil {
@@ -158,7 +159,7 @@ func Photos(s Settings, year, album string, noDate bool, view string, limit int)
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Hash], Turn: p.Turn, Archived: p.Archived, Favorite: p.Favorite}
+		out[i] = GridPhoto{Key: p.Key(), Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
@@ -175,7 +176,7 @@ var missing struct {
 	at      time.Time // when the last look ended; zero: none did, or look again
 	seen    bool      // a look of root ended
 	list    []library.Gone
-	taken   map[string]bool // taken off the list by hand since the look running began
+	taken   map[library.Key]bool // taken off the list by hand since the look running began
 	running bool
 	moves   int // the list changed: a part of LibraryChanges
 }
@@ -248,7 +249,7 @@ func firstMissing(root string) ([]library.Gone, error) {
 // chosen one changes nothing.
 func look(root string) ([]library.Gone, error) {
 	missing.Lock()
-	missing.taken = map[string]bool{}
+	missing.taken = map[library.Key]bool{}
 	missing.Unlock()
 	list, err := library.Missing(catalogPath(root), root)
 	if err != nil {
@@ -266,19 +267,19 @@ func look(root string) ([]library.Gone, error) {
 	return list, nil
 }
 
-func without(list []library.Gone, hashes map[string]bool) []library.Gone {
-	return slices.DeleteFunc(slices.Clone(list), func(g library.Gone) bool { return hashes[g.Hash] })
+func without(list []library.Gone, photos map[library.Key]bool) []library.Gone {
+	return slices.DeleteFunc(slices.Clone(list), func(g library.Gone) bool { return photos[g.Key] })
 }
 
-// offMissing takes hashes off the list, taken out or in the Trash.
-func offMissing(hashes []string) {
+// offMissing takes photos off the list, taken out or in the Trash.
+func offMissing(photos []library.Key) {
 	missing.Lock()
 	defer missing.Unlock()
 	if missing.taken == nil {
-		missing.taken = map[string]bool{}
+		missing.taken = map[library.Key]bool{}
 	}
-	for _, h := range hashes {
-		missing.taken[h] = true
+	for _, k := range photos {
+		missing.taken[k] = true
 	}
 	missing.list = without(missing.list, missing.taken)
 }
@@ -289,30 +290,30 @@ func shownOf(gone []library.Gone, c *library.Catalog, shown []string) ([]library
 	if shown == nil || len(gone) == 0 {
 		return gone, nil
 	}
-	page, err := c.Page(library.Filter{Hashes: hashesOf(gone), Accounts: shown})
+	page, err := c.Page(library.Filter{Only: keysOf(gone), Accounts: shown})
 	if err != nil {
 		return nil, err
 	}
-	in := map[string]bool{}
+	in := map[library.Key]bool{}
 	for _, p := range page {
-		in[p.Hash] = true
+		in[p.Key()] = true
 	}
-	return slices.DeleteFunc(slices.Clone(gone), func(g library.Gone) bool { return !in[g.Hash] }), nil
+	return slices.DeleteFunc(slices.Clone(gone), func(g library.Gone) bool { return !in[g.Key] }), nil
 }
 
-// hashesOf is never nil: to the catalog's filter nil is every photo.
-func hashesOf(gone []library.Gone) []string {
-	hashes := make([]string, 0, len(gone))
+// keysOf is never nil: to the catalog's filter nil is every photo.
+func keysOf(gone []library.Gone) []library.Key {
+	keys := make([]library.Key, 0, len(gone))
 	for _, g := range gone {
-		hashes = append(hashes, g.Hash)
+		keys = append(keys, g.Key)
 	}
-	return hashes
+	return keys
 }
 
-// TakeOutMissing takes out of the library the photo of hash whose file is
-// gone, or with hash "" every one of the accounts shown: a clean-up, so that a card that still
+// TakeOutMissing takes out of its library the photo one whose file is
+// gone, or with none every one of the accounts shown: a clean-up, so that a card that still
 // has them brings them in again, unless keepOut. It says how many.
-func TakeOutMissing(hash string, keepOut bool) (int, error) {
+func TakeOutMissing(one *library.Key, keepOut bool) (int, error) {
 	root, err := LibraryHere()
 	if err != nil {
 		return 0, err
@@ -344,28 +345,28 @@ func TakeOutMissing(hash string, keepOut bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	var hashes []string
+	var keys []library.Key
 	for _, g := range gone {
-		if hash == "" || g.Hash == hash {
-			hashes = append(hashes, g.Hash)
+		if one == nil || g.Key == *one {
+			keys = append(keys, g.Key)
 		}
 	}
-	if err := c.TakeOut(hashes, keepOut); err != nil {
+	if err := c.TakeOut(keys, keepOut); err != nil {
 		return 0, err
 	}
-	offMissing(hashes)
-	return len(hashes), nil
+	offMissing(keys)
+	return len(keys), nil
 }
 
-// Mark sets state on the photos of hashes filed in profile's folder ("":
-// any), or clears it, and says which those were.
-func Mark(profile string, state library.State, hashes []string, on bool) ([]string, error) {
+// Mark sets state on photos, or clears it, and says which are in their
+// library.
+func Mark(state library.State, photos []library.Key, on bool) ([]library.Key, error) {
 	c, _, err := openLibrary()
 	if err != nil || c == nil {
-		return []string{}, err
+		return []library.Key{}, err
 	}
 	defer c.Close()
-	done, err := c.Mark(state, hashes, profile, on)
+	done, err := c.Mark(state, photos, on)
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {
 		offMissing(done)
@@ -380,7 +381,7 @@ func Mark(profile string, state library.State, hashes []string, on bool) ([]stri
 
 // TurnLeft gives a photo of the library a quarter turn anticlockwise, kept in
 // the catalog, and says how many it has now.
-func TurnLeft(hash string) (int, error) {
+func TurnLeft(k library.Key) (int, error) {
 	c, _, err := openLibrary()
 	if err != nil {
 		return 0, err
@@ -389,13 +390,13 @@ func TurnLeft(hash string) (int, error) {
 		return 0, fs.ErrNotExist
 	}
 	defer c.Close()
-	return c.TurnLeft(hash)
+	return c.TurnLeft(k)
 }
 
 // GiveDates gives photos of the library a date chosen in the window: the
 // earliest of them when, the others keep their distance. Files move, so the
 // library is held as an import holds it. It says how many moved.
-func GiveDates(hashes []string, when time.Time) (int, error) {
+func GiveDates(photos []library.Key, when time.Time) (int, error) {
 	root, err := LibraryHere()
 	if err != nil {
 		return 0, err
@@ -413,7 +414,7 @@ func GiveDates(hashes []string, when time.Time) (int, error) {
 		return 0, fs.ErrNotExist
 	}
 	defer c.Close()
-	return library.GiveDates(root, c, hashes, when)
+	return library.GiveDates(root, c, photos, when)
 }
 
 // thumbSlots keeps thumbnails from taking every core while a grid scrolls.
@@ -474,7 +475,8 @@ func cached(ctx context.Context, dir string, size int, hash string, source func(
 	return dst, thumb.Make(ctx, src, dst, size)
 }
 
-// Original is the file of a photo in the library.
+// Original is a file with the content of hash: in whichever library still has
+// it on the disk.
 func Original(hash string) (string, error) {
 	c, root, err := openLibrary()
 	if err != nil {
@@ -484,11 +486,31 @@ func Original(hash string) (string, error) {
 		return "", fs.ErrNotExist
 	}
 	defer c.Close()
-	rel, ok, err := c.PathOf(hash)
+	paths, err := c.Paths(hash)
+	for _, p := range paths {
+		file := filepath.Join(root, filepath.FromSlash(p))
+		if _, err := os.Stat(file); err == nil {
+			return file, nil
+		}
+	}
+	return "", errors.Join(err, fs.ErrNotExist)
+}
+
+// PathOf is where a photo is on the disk, or was.
+func PathOf(k library.Key) (string, error) {
+	c, root, err := openLibrary()
+	if err != nil {
+		return "", err
+	}
+	if c == nil {
+		return "", fs.ErrNotExist
+	}
+	defer c.Close()
+	rel, ok, err := c.PathOf(k)
 	if err != nil || !ok {
 		return "", errors.Join(err, fs.ErrNotExist)
 	}
-	return filepath.Join(root, rel), nil
+	return filepath.Join(root, filepath.FromSlash(rel)), nil
 }
 
 // Folder is where a place of the library is on disk: a profile, a year, the
@@ -554,7 +576,7 @@ func Latest(n int) ([]GridPhoto, error) {
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
 	for i, p := range list {
-		out[i] = GridPhoto{Hash: p.Hash, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn}
+		out[i] = GridPhoto{Key: p.Key(), Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn}
 	}
 	return out, err
 }
@@ -578,9 +600,9 @@ type PhotoFile struct {
 	Camera string `json:"camera"`
 }
 
-// FileOf reads them from the file of hash: asked only when they are shown.
-func FileOf(hash string) (PhotoFile, error) {
-	path, err := Original(hash)
+// FileOf reads them from the photo's file: asked only when they are shown.
+func FileOf(k library.Key) (PhotoFile, error) {
+	path, err := PathOf(k)
 	if err == nil {
 		_, err = os.Stat(path)
 	}
@@ -595,7 +617,7 @@ func FileOf(hash string) (PhotoFile, error) {
 
 // About is what the viewer says of a photo: its albums, where it came from,
 // its date's source, its size and its place.
-func About(hash string) (PhotoAbout, error) {
+func About(k library.Key) (PhotoAbout, error) {
 	c, _, err := openLibrary()
 	if err != nil || c == nil {
 		return PhotoAbout{Albums: []string{}, Accounts: []string{}, Local: []string{}}, err
@@ -603,7 +625,7 @@ func About(hash string) (PhotoAbout, error) {
 	defer c.Close()
 	var sources []string
 	about := PhotoAbout{Accounts: []string{}, Local: []string{}}
-	about.Albums, sources, err = c.About(hash)
+	about.Albums, sources, err = c.About(k)
 	for _, s := range sources {
 		if name, ok := strings.CutPrefix(s, library.LocalSource); ok {
 			about.Local = append(about.Local, name)
@@ -614,7 +636,7 @@ func About(hash string) (PhotoAbout, error) {
 	if err != nil {
 		return about, err
 	}
-	p, err := c.Photo(hash)
+	p, err := c.Photo(k)
 	about.Dated, about.Bytes, about.Path = p.Source, p.Bytes, p.Path
 	return about, err
 }

@@ -102,21 +102,21 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 			reply(w, nil, err)
 			return
 		}
-		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("nodate") != "", q.Get("view"), limit)
+		list, err := engine.Photos(s, q.Get("year"), q.Get("album"), q.Get("account"), q.Get("nodate") != "", q.Get("view"), limit)
 		reply(w, list, err)
 	})
-	// The photos whose file is gone, taken out of the library: one by its
-	// hash, or all; kept out of the imports only when asked.
+	// The photos whose file is gone, taken out of the library: one, or all;
+	// kept out of the imports only when asked.
 	mux.HandleFunc("POST /api/missing/out", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Hash    string `json:"hash"`
-			KeepOut bool   `json:"keep_out"`
+			Photo   *library.Key `json:"photo"`
+			KeepOut bool         `json:"keep_out"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		n, err := engine.TakeOutMissing(body.Hash, body.KeepOut)
+		n, err := engine.TakeOutMissing(body.Photo, body.KeepOut)
 		reply(w, map[string]int{"taken": n}, err)
 	})
 	// Photos picked in the library archived or put in the Trash, or back.
@@ -124,26 +124,26 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		var body struct {
 			State  library.State `json:"state"`
 			On     bool          `json:"on"`
-			Hashes []string      `json:"hashes"`
+			Photos []library.Key `json:"photos"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Hashes) == 0 || !slices.Contains([]library.State{library.Archived, library.Trashed, library.Favorite}, body.State) {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Photos) == 0 || !slices.Contains([]library.State{library.Archived, library.Trashed, library.Favorite}, body.State) {
 			http.Error(w, "photos and archived, trashed or favorite are needed", http.StatusBadRequest)
 			return
 		}
-		done, err := engine.Mark("", body.State, body.Hashes, body.On)
+		done, err := engine.Mark(body.State, body.Photos, body.On)
 		reply(w, map[string]int{"marked": len(done)}, err)
 	})
 	// Dates given to photos picked in the library; when is a clock written as UTC.
 	mux.HandleFunc("POST /api/dates", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Hashes []string  `json:"hashes"`
-			When   time.Time `json:"when"`
+			Photos []library.Key `json:"photos"`
+			When   time.Time     `json:"when"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Hashes) == 0 || body.When.IsZero() {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Photos) == 0 || body.When.IsZero() {
 			http.Error(w, "photos and a date are needed", http.StatusBadRequest)
 			return
 		}
-		n, err := engine.GiveDates(body.Hashes, body.When)
+		n, err := engine.GiveDates(body.Photos, body.When)
 		reply(w, map[string]int{"moved": n}, err)
 	})
 	mux.HandleFunc("POST /api/cards/eject", func(w http.ResponseWriter, r *http.Request) {
@@ -188,7 +188,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, nil, engine.Unpair(r.PathValue("id"), "computer"))
 	})
 	mux.HandleFunc("POST /api/turn/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		turn, err := engine.TurnLeft(r.PathValue("hash"))
+		turn, err := engine.TurnLeft(photoOf(r))
 		reply(w, map[string]int{"turn": turn}, err)
 	})
 	mux.HandleFunc("GET /api/latest", func(w http.ResponseWriter, r *http.Request) {
@@ -196,11 +196,11 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, list, err)
 	})
 	mux.HandleFunc("GET /api/about/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		a, err := engine.About(r.PathValue("hash"))
+		a, err := engine.About(photoOf(r))
 		reply(w, a, err)
 	})
 	mux.HandleFunc("GET /api/file/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		f, err := engine.FileOf(r.PathValue("hash"))
+		f, err := engine.FileOf(photoOf(r))
 		reply(w, f, err)
 	})
 	// A thumbnail never changes: it is named by the photo's content.
@@ -232,7 +232,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 	})
 	// Where a photo is on disk, for the shell to show it in the file manager.
 	mux.HandleFunc("GET /api/path/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		path, err := engine.Original(r.PathValue("hash"))
+		path, err := engine.PathOf(photoOf(r))
 		reply(w, map[string]string{"path": path}, err)
 	})
 	mux.HandleFunc("GET /api/folder", func(w http.ResponseWriter, r *http.Request) {
@@ -403,6 +403,11 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, importing.State(), nil)
 	})
 	return mux
+}
+
+// photoOf is the photo a request is about: its hash, and whose library's.
+func photoOf(r *http.Request) library.Key {
+	return library.Key{Hash: r.PathValue("hash"), Profile: r.URL.Query().Get("profile")}
 }
 
 // askOf is what the page asks of an import, read from the request; a body

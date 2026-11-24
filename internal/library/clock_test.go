@@ -16,37 +16,23 @@ import (
 // An older catalog kept Google's dates as instants in UTC: opened, they
 // become the clock of this computer's zone, once, with a copy kept first.
 func TestAnOlderCatalogsGoogleDatesBecomeClocks(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "catalog.db")
-	catalog, err := OpenCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	instant := time.Date(2019, 12, 31, 23, 30, 0, 0, time.UTC)
-	if err := catalog.Put(Photo{Hash: "g", Path: "2019/12/a.jpg", Name: "a.jpg", Taken: instant, Source: FromSidecar}); err != nil {
-		t.Fatal(err)
-	}
-	if err := catalog.Put(Photo{Hash: "e", Path: "2019/12/b.jpg", Name: "b.jpg", Taken: instant, Source: FromEXIF}); err != nil {
-		t.Fatal(err)
-	}
-	// As before this version.
-	if _, err := catalog.db.Exec(`PRAGMA user_version = 0`); err != nil {
-		t.Fatal(err)
-	}
-	catalog.Close()
+	path := older(t, 0, fmt.Sprintf(`INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES
+		('g', '2019/12/a.jpg', 'a.jpg', 1, %[1]d, 'sidecar', '', ''), ('e', '2019/12/b.jpg', 'b.jpg', 1, %[1]d, 'exif', '', '')`, instant.Unix()))
 
 	for run := 0; run < 2; run++ {
 		catalog, err := OpenCatalog(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		google, err := catalog.Photo("g")
+		google, err := catalog.Photo(Key{Hash: "g"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if want := asClock(instant.In(time.Local)); !google.Taken.Equal(want) {
 			t.Errorf("run %d: Google's date %v, want the clock %v", run, google.Taken, want)
 		}
-		camera, err := catalog.Photo("e")
+		camera, err := catalog.Photo(Key{Hash: "e"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -55,7 +41,7 @@ func TestAnOlderCatalogsGoogleDatesBecomeClocks(t *testing.T) {
 		}
 		catalog.Close()
 	}
-	if !exists(path + ".before-clocks") {
+	if !exists(path + ".before-libraries") {
 		t.Error("no copy of the catalog as it was")
 	}
 }
@@ -89,7 +75,7 @@ func TestGooglesDateIsKeptAsItsFoldersClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	photo, err := catalog.Photo(hash)
+	photo, err := catalog.Photo(Key{Hash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,23 +98,12 @@ func TestAnOlderCatalogOpenedManyTimesAtOnceTurnsOnce(t *testing.T) {
 	time.Local = rome
 	t.Cleanup(func() { time.Local = was })
 
-	dir := t.TempDir()
-	path := filepath.Join(dir, "catalog.db")
-	catalog, err := OpenCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	instant := time.Date(2019, 7, 14, 12, 0, 0, 0, time.UTC)
+	var rows strings.Builder
 	for i := range 200 {
-		name := fmt.Sprintf("%d.jpg", i)
-		if err := catalog.Put(Photo{Hash: name, Path: "2019/07/" + name, Name: name, Taken: instant, Source: FromSidecar}); err != nil {
-			t.Fatal(err)
-		}
+		fmt.Fprintf(&rows, `INSERT INTO photos (hash, path, name, bytes, taken, source, kind, origin) VALUES ('%[1]d.jpg', '2019/07/%[1]d.jpg', '%[1]d.jpg', 1, %[2]d, 'sidecar', '', '');`, i, instant.Unix())
 	}
-	if _, err := catalog.db.Exec(`PRAGMA user_version = 0`); err != nil {
-		t.Fatal(err)
-	}
-	catalog.Close()
+	path := older(t, 0, rows.String())
 
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
@@ -149,20 +124,20 @@ func TestAnOlderCatalogOpenedManyTimesAtOnceTurnsOnce(t *testing.T) {
 	for err := range errs {
 		t.Errorf("an opening failed: %v", err)
 	}
-	catalog, err = OpenCatalog(path)
+	catalog, err := OpenCatalog(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer catalog.Close()
-	p, err := catalog.Photo("7.jpg")
+	p, err := catalog.Photo(Key{Hash: "7.jpg"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := asClock(instant.In(rome)); !p.Taken.Equal(want) {
 		t.Errorf("date %v, want %v: turned once", p.Taken, want)
 	}
-	copies, _ := filepath.Glob(path + ".before-clocks*")
-	if len(copies) != 1 || copies[0] != path+".before-clocks" {
+	copies, _ := filepath.Glob(path + ".before-libraries*")
+	if len(copies) != 1 || copies[0] != path+".before-libraries" {
 		t.Errorf("copies kept: %v, want the one", copies)
 	}
 }

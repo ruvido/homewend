@@ -84,7 +84,7 @@ func TestAnImportedPhotoIsNamedByItsFolder(t *testing.T) {
 	if err != nil || len(shown) != 1 {
 		t.Fatalf("%d shown with every account hidden, %v; want the imported one", len(shown), err)
 	}
-	_, sources, err := catalog.About(shown[0].Hash)
+	_, sources, err := catalog.About(shown[0].Key())
 	if err != nil || len(sources) != 1 || sources[0] != "local/old-laptop" {
 		t.Errorf("sources %v, %v; want local/old-laptop", sources, err)
 	}

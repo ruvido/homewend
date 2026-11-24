@@ -35,8 +35,6 @@ type Counts struct {
 	Twins int `json:"twins"`
 	// Moved to a date given, new or already in.
 	Redated int `json:"redated"`
-	// Given a date but filed in another profile, whose date it is to give.
-	NotRedated int `json:"not_redated"`
 	// Photos the library had and someone deleted from it: those that stay
 	// out, and those brought back, counted as new too.
 	Deleted     int `json:"deleted"`

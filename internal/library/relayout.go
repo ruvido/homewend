@@ -4,6 +4,7 @@
 package library
 
 import (
+	"database/sql"
 	"fmt"
 	"io/fs"
 	"os"
@@ -34,11 +35,12 @@ var (
 )
 
 // Relayout moves a library filed before profiles into them: each photo to
-// its first source's profile, by year and month, a link to it in the
-// profile of every other source, and its albums rebuilt beside it. A photo
+// its first source's profile, by year and month, a link to it in the library
+// of every other source's, and its albums rebuilt beside it. A photo
 // with no source goes in fallback's. Nothing is copied and nothing is lost:
 // files are renamed on the same disk, and an old album entry is removed only
-// once it is the same file as a photo now in place.
+// once it is the same file as a photo now in place. A run that stops halfway
+// is finished by the next: a photo leaves the old layout last.
 func Relayout(root string, catalog *Catalog, profileOf func(source string) string, fallback string, loc *time.Location) error {
 	photos, err := catalog.Page(Filter{})
 	if err != nil {
@@ -48,57 +50,63 @@ func Relayout(root string, catalog *Catalog, profileOf func(source string) strin
 	// name, and os.SameFile says whether it is that photo.
 	moved := map[string][]fs.FileInfo{}
 	for _, p := range photos {
-		old := filepath.Join(root, filepath.FromSlash(p.Path))
-		if !exists(old) {
+		home := filepath.Join(root, filepath.FromSlash(p.Path))
+		if !exists(home) {
 			continue
 		}
-		albums, sources, err := catalog.About(p.Hash)
-		if err != nil {
-			return err
-		}
-		profiles := profilesOf(sources, profileOf, fallback)
-		opt := Options{Location: loc, Profile: profiles[0], SeparateMessaging: true}
-		home := old
-		if !filedIn(p.Path, opt.Profile) {
-			if home, err = destination(old, root, p.capture(), opt, catalog); err != nil {
+		if p.Profile == "" {
+			if home, err = relayout(root, catalog, p, home, profileOf, fallback, loc); err != nil {
 				return err
-			}
-			if err := move(old, home); err != nil {
-				return err
-			}
-			if err := catalog.setPath(p.Hash, relativeTo(root, home), filepath.Base(home)); err != nil {
-				return err
-			}
-			sidecar := filepath.Join(root, WorkDir, "metadata", filepath.FromSlash(p.Path)+".json")
-			if exists(sidecar) {
-				if err := move(sidecar, filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json")); err != nil {
-					return err
-				}
 			}
 		}
 		if info, err := os.Lstat(home); err == nil {
 			moved[filepath.Base(home)] = append(moved[filepath.Base(home)], info)
 		}
-		for i, profile := range profiles {
-			o := opt
-			o.Profile = profile
-			if i > 0 {
-				there, err := destination(home, root, p.capture(), o, catalog)
-				if err != nil {
-					return err
-				}
-				if _, err := linkInto(home, there); err != nil {
-					return err
-				}
-			}
-			for _, album := range albums {
-				if _, err := linkInto(home, filepath.Join(profileRoot(root, o), "albums", album, filepath.Base(home))); err != nil {
-					return err
-				}
-			}
-		}
 	}
 	return clearOldTops(root, moved)
+}
+
+// relayout moves one photo, at old, and says where it is now.
+func relayout(root string, catalog *Catalog, p Photo, old string, profileOf func(source string) string, fallback string, loc *time.Location) (string, error) {
+	albums, sources, err := catalog.About(p.Key())
+	if err != nil {
+		return "", err
+	}
+	profiles := profilesOf(sources, profileOf, fallback)
+	// The first's last: until then the photo is still to be moved.
+	for i := len(profiles) - 1; ; i-- {
+		opt := Options{Location: loc, Profile: profiles[i], SeparateMessaging: true}
+		home, err := destination(old, Key{p.Hash, opt.Profile}, root, p.capture(), opt, catalog)
+		if err != nil {
+			return "", err
+		}
+		for _, album := range albums {
+			if _, err := linkInto(old, filepath.Join(profileRoot(root, opt), "albums", album, filepath.Base(home))); err != nil {
+				return "", err
+			}
+		}
+		if i == 0 {
+			if err := move(old, home); err != nil {
+				return "", err
+			}
+			if err := catalog.refile(p.Key(), opt.Profile, relativeTo(root, home)); err != nil {
+				return "", err
+			}
+			sidecar := filepath.Join(root, WorkDir, "metadata", filepath.FromSlash(p.Path)+".json")
+			if exists(sidecar) {
+				err = move(sidecar, filepath.Join(root, WorkDir, "metadata", relativeTo(root, home)+".json"))
+			}
+			return home, err
+		}
+		if _, err := linkInto(old, home); err != nil {
+			return "", err
+		}
+		if err := catalog.inTx(func(tx *sql.Tx) error {
+			return share(tx, p.Key(), opt.Profile, relativeTo(root, home), albums, func(s string) bool { return profileOf(s) == opt.Profile })
+		}); err != nil {
+			return "", err
+		}
+	}
 }
 
 // profilesOf are the profiles of a photo's sources, the first source's first.

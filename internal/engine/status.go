@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -138,6 +139,45 @@ func dateByName(root string) error {
 		}
 	}()
 	return nil
+}
+
+// linksFound are the libraries findLinks was begun for, in this run.
+var linksFound sync.Map
+
+// findLinks puts in the catalog the photos older programs left in a second
+// profile's folder without a record (library.FindLinks), begun once a run and in
+// the background: it reads the disk.
+func findLinks(root string, accounts []AccountInfo, s Settings) {
+	if _, err := os.Stat(catalogPath(root)); root == "" || err != nil {
+		return
+	}
+	if _, begun := linksFound.LoadOrStore(root, true); begun {
+		return
+	}
+	go func() {
+		if err := findLinksNow(root, accounts, s); err != nil {
+			// Tried again at the next start.
+			log.Printf("photos of a second profile: %v", err)
+		}
+	}()
+}
+
+func findLinksNow(root string, accounts []AccountInfo, s Settings) error {
+	profiles, _ := ProfileNames(accounts, s)
+	phones, err := LoadPhones()
+	if err != nil {
+		return err
+	}
+	for _, p := range phones.Phones {
+		profiles = append(profiles, p.Profile)
+	}
+	for _, p := range phones.Unpaired {
+		profiles = append(profiles, p.Profile)
+	}
+	slices.Sort(profiles)
+	return library.FindLinks(root, catalogPath(root), slices.Compact(profiles), s.ProfileFor, func() (func(), error) {
+		return waitLibrary(context.Background(), root, nil)
+	})
 }
 
 // yieldingTurn is the library's turn, for one photo of many: whoever waits

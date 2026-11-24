@@ -26,9 +26,6 @@ type Redate struct {
 	When time.Time `json:"when"`
 }
 
-// ErrOthersPhoto is a date given to a photo another profile brought first.
-var ErrOthersPhoto = errors.New("the photo is filed in another profile")
-
 // UnknownNameError is a name given, to date or to bring back, that the
 // folder does not have.
 type UnknownNameError struct{ Name string }
@@ -169,33 +166,27 @@ func Below(path, root string) (string, bool) {
 // redateInLibrary gives a date to a photo the library already holds: it
 // moves to the folder of that date, on the same disk, and the catalog says
 // the date; a date the person gave is said in a .xmp beside it too, a
-// guessed one is not. The file is not written.
-//
-// A photo is filed once, in the profile that brought it first; others hold
-// a second name of it. Its date is given from that profile: given from
-// another, it would take the photo away from the first (ErrOthersPhoto).
-func redateInLibrary(root string, catalog *Catalog, hash string, capture Capture, opt Options) error {
-	record, err := catalog.Photo(hash)
+// guessed one is not. The file is not written. The same photo in another
+// library keeps its own place and date.
+func redateInLibrary(root string, catalog *Catalog, k Key, capture Capture, opt Options) error {
+	record, err := catalog.Photo(k)
 	if err != nil {
 		return err
 	}
 	from := filepath.Join(root, filepath.FromSlash(record.Path))
-	if !filedIn(record.Path, opt.Profile) {
-		return ErrOthersPhoto
-	}
 	capture.Origin = record.Origin
-	to, err := destination(from, root, capture, opt, catalog)
+	to, err := destination(from, k, root, capture, opt, catalog)
 	if err != nil {
 		return err
 	}
 	if to != from {
 		// The catalog first: the new name is the photo's before anything
 		// moves, and a move that fails gives the old one back.
-		if err := catalog.setPath(hash, relativeTo(root, to), filepath.Base(to)); err != nil {
+		if err := catalog.setPath(k, relativeTo(root, to), filepath.Base(to)); err != nil {
 			return err
 		}
 		if err := move(from, to); err != nil {
-			catalog.setPath(hash, record.Path, record.Name)
+			catalog.setPath(k, record.Path, record.Name)
 			return err
 		}
 		// Google's sidecar, kept under the library's metadata folder by the
@@ -217,7 +208,7 @@ func redateInLibrary(root string, catalog *Catalog, hash string, capture Capture
 			os.Remove(filepath.Dir(month))
 		}
 	}
-	if err := catalog.setDate(hash, capture); err != nil {
+	if err := catalog.setDate(k, capture); err != nil {
 		return err
 	}
 	if capture.Source != FromGiven {
@@ -229,14 +220,14 @@ func redateInLibrary(root string, catalog *Catalog, hash string, capture Capture
 // GiveDates gives photos of the library at root a date, chosen in the
 // library: the earliest of them is taken at when, the others keep their
 // distance from it, as dates given before an import do; one with no date
-// takes when. Each stays in its own profile. A photo whose file is gone is
+// takes when. Each stays in its own library. A photo whose file is gone is
 // left out, before anything moves: a run half done, done again, would move
 // the first ones twice. It says how many moved.
-func GiveDates(root string, catalog *Catalog, hashes []string, when time.Time) (int, error) {
-	records := make([]Photo, 0, len(hashes))
+func GiveDates(root string, catalog *Catalog, photos []Key, when time.Time) (int, error) {
+	records := make([]Photo, 0, len(photos))
 	var earliest time.Time
-	for _, hash := range hashes {
-		p, err := catalog.Photo(hash)
+	for _, k := range photos {
+		p, err := catalog.Photo(k)
 		if err != nil {
 			return 0, err
 		}
@@ -285,7 +276,7 @@ func DateByName(root string, catalog *Catalog, photos []Photo, turn func() (func
 			return err
 		}
 		// Read again in its turn: a date given meanwhile stays.
-		if p, err = catalog.Photo(p.Hash); err == nil {
+		if p, err = catalog.Photo(p.Key()); err == nil {
 			if capture, ok := dateNamed(p.capture(), p.Name); ok {
 				err = redateFiled(root, catalog, p, capture)
 			}
@@ -306,18 +297,7 @@ func onDisk(root string, p Photo) bool {
 
 // redateFiled gives p the date of capture in the profile it is filed in.
 func redateFiled(root string, catalog *Catalog, p Photo, capture Capture) error {
-	return redateInLibrary(root, catalog, p.Hash, capture, Options{Profile: profileOf(p.Path), SeparateMessaging: true})
-}
-
-// profileOf is the profile a path of the library is filed in: its first
-// folder, unless that is already the date layout of a library from before
-// profiles (a year, undated/, messaging/), which has none.
-func profileOf(path string) string {
-	first, _, nested := strings.Cut(path, "/")
-	if !nested || first == "undated" || first == "messaging" || strings.Trim(first, "0123456789") == "" {
-		return ""
-	}
-	return first
+	return redateInLibrary(root, catalog, p.Key(), capture, Options{Profile: p.Profile, SeparateMessaging: true})
 }
 
 // writeXMP puts a given date in an XMP file beside the photo, named as

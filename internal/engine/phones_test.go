@@ -92,7 +92,7 @@ func TestAPhotoFromAPhone(t *testing.T) {
 	if !got.New || !strings.HasPrefix(got.Path, "ron/") {
 		t.Fatalf("got %+v, want new in ron's folder", got)
 	}
-	if have, out, _, err := Have([]string{hash, strings.Repeat("0", 64)}); err != nil || len(have) != 1 || len(out) != 0 {
+	if have, out, _, err := Have(phone, []string{hash, strings.Repeat("0", 64)}); err != nil || len(have) != 1 || len(out) != 0 {
 		t.Errorf("have %v out %v err %v, want it had", have, out, err)
 	}
 	again, err := ReceivePhoto(ctx, phone, hash, "IMG_1.JPG", int64(len(photo)), bytes.NewReader(photo))
@@ -106,7 +106,7 @@ func TestAPhotoFromAPhone(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, filepath.FromSlash(got.Path))); err != nil {
 		t.Fatal(err)
 	}
-	if _, out, _, _ := Have([]string{hash}); len(out) != 1 {
+	if _, out, _, _ := Have(phone, []string{hash}); len(out) != 1 {
 		t.Errorf("out %v, want it said deleted", out)
 	}
 	if back, err := ReceivePhoto(ctx, phone, hash, "IMG_1.JPG", int64(len(photo)), bytes.NewReader(photo)); err != nil || !back.Out {
@@ -177,14 +177,14 @@ func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 		}
 		hashes = append(hashes, h)
 	}
-	if done, err := Mark("", library.Archived, hashes[:1], true); err != nil || len(done) != 1 {
+	if done, err := MarkOf(phone, library.Archived, hashes[:1], true); err != nil || len(done) != 1 {
 		t.Fatalf("archived %v %v", done, err)
 	}
-	if done, err := Mark("", library.Trashed, hashes[1:], true); err != nil || len(done) != 1 {
+	if done, err := MarkOf(phone, library.Trashed, hashes[1:], true); err != nil || len(done) != 1 {
 		t.Fatalf("trashed %v %v", done, err)
 	}
 	count := func(view string) int {
-		list, err := Photos(Settings{}, "", "", false, view, 0)
+		list, err := Photos(Settings{}, "", "", "", false, view, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -264,8 +264,8 @@ func TestASecondProfileGetsOneNameEach(t *testing.T) {
 }
 
 // A photo deleted from the library stays out of the next import, counted:
-// the card still holds it. Brought back, it is new: placed in the profile
-// it is brought into.
+// the card still holds it. Brought back, it is new. Another library never had
+// it: it comes in there.
 func TestAPhotoDeletedFromTheLibraryStaysOutUnlessBroughtBack(t *testing.T) {
 	card := cameraCard(t)
 	root := t.TempDir()
@@ -284,29 +284,40 @@ func TestAPhotoDeletedFromTheLibraryStaysOutUnlessBroughtBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	fits := func(int64) error { return nil }
-	plan, err := PlanImport(context.Background(), card, folder, catalog, PlanOptions{Root: root}, nil)
+	plan, err := PlanImport(context.Background(), card, folder, catalog, PlanOptions{Profile: "ron", Root: root}, nil)
 	if err != nil || plan.Deleted != 1 || plan.Photos != 0 {
 		t.Errorf("look: %+v, %v; want the deleted photo said, not to copy", plan, err)
 	}
-	done, err := Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Fits: fits}, nil)
+	done, err := Import(context.Background(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Fits: fits}, nil)
 	if err != nil || done.Deleted != 1 || done.Placed != 0 {
 		t.Errorf("%+v, %v; want the deleted photo left out and said", done, err)
 	}
 	// Brought back on a full disk, it is deleted still: the next run does
 	// not bring it in unasked.
 	full := errors.New("no room")
-	if _, err := Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: func(int64) error { return full }}, nil); !errors.Is(err, full) {
+	if _, err := Import(context.Background(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: func(int64) error { return full }}, nil); !errors.Is(err, full) {
 		t.Fatalf("%v, want no room", err)
 	}
-	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Fits: fits}, nil)
+	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Fits: fits}, nil)
 	if err != nil || done.Deleted != 1 || done.Placed != 0 {
 		t.Errorf("%+v, %v; after a failed bring-back, want it deleted still", done, err)
 	}
-	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: fits}, nil)
+	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "ron"}, ImportOptions{Asked: Asked{BringBack: []string{"all"}}, Fits: fits}, nil)
 	if err != nil || done.Placed != 1 || done.BroughtBack != 1 || done.Deleted != 0 {
 		t.Errorf("%+v, %v; want the deleted photo placed again", done, err)
 	}
+	mustExist(t, filepath.Join(root, "ron", "2018", "01", "DSCF0002.JPG"))
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	done, err = Import(context.Background(), folder, root, catalog, Options{Profile: "anna"}, ImportOptions{Fits: fits}, nil)
+	if err != nil || done.Placed != 3 || done.Deleted != 0 {
+		t.Errorf("%+v, %v; want the card's three in anna's library", done, err)
+	}
 	mustExist(t, filepath.Join(root, "anna", "2018", "01", "DSCF0002.JPG"))
+	if exists(gone) {
+		t.Error("it came back in the library it was deleted from")
+	}
 }
 
 // On a disk with no hard links, a photo's name in a second profile is a
@@ -510,9 +521,9 @@ func TestADryRunCountsTheDatesGiven(t *testing.T) {
 	}
 }
 
-// A date given from a second profile does not take the photo away from the
-// one that brought it first: it is said, and nothing moves.
-func TestADateFromAnotherProfileLeavesThePhoto(t *testing.T) {
+// A date given as a photo comes into a second library is that library's
+// alone: the first keeps its place and its date.
+func TestADateInOneLibraryLeavesTheOthers(t *testing.T) {
 	card := t.TempDir()
 	write(t, card, "DCIM/DSCF0004.JPG", exifPhoto("2018:01:01 00:01:36", "four"))
 	root := t.TempDir()
@@ -533,11 +544,14 @@ func TestADateFromAnotherProfileLeavesThePhoto(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if done.NotRedated != 1 || done.Redated != 0 {
-		t.Errorf("%+v, want it said as another profile's", done)
+	if done.Placed != 1 || done.Redated != 1 || done.Bytes != 0 {
+		t.Errorf("%+v, want it in ann's library with its date, and no bytes", done)
 	}
 	mustExist(t, filepath.Join(root, "ron", "2018", "01", "DSCF0004.JPG"))
-	mustExist(t, filepath.Join(root, "ann", "2018", "01", "DSCF0004.JPG"))
+	mustExist(t, filepath.Join(root, "ann", "2026", "09", "DSCF0004.JPG"))
+	if !linked(filepath.Join(root, "ron", "2018", "01", "DSCF0004.JPG"), filepath.Join(root, "ann", "2026", "09", "DSCF0004.JPG")) {
+		t.Error("its bytes are on the disk twice")
+	}
 }
 
 // Dating a profile's only undated photo leaves the profile's own folder.
@@ -583,8 +597,8 @@ func TestADryRunSaysWhatADateWouldMove(t *testing.T) {
 }
 
 // A path completed by the shell from where the command runs names the
-// file below the folder too; and a dry run from another profile says the
-// date is not its to give, as the import does.
+// file below the folder too; and a dry run into another library says it is
+// new there.
 func TestADryRunTakesAPathFromHereAndKnowsTheProfile(t *testing.T) {
 	card := t.TempDir()
 	write(t, card, "DCIM/DSCF0004.JPG", exifPhoto("2018:01:01 00:01:36", "four"))
@@ -607,8 +621,8 @@ func TestADryRunTakesAPathFromHereAndKnowsTheProfile(t *testing.T) {
 	if plan, err := PlanImport(context.Background(), card, folder, catalog, PlanOptions{Asked: Asked{Redates: dates}, Profile: "ron", Root: root}, nil); err != nil || plan.Redated != 1 {
 		t.Errorf("%s from here: %+v, %v; want 1 that would move", name, plan, err)
 	}
-	if plan, err := PlanImport(context.Background(), card, folder, catalog, PlanOptions{Asked: Asked{Redates: dates}, Profile: "bob", Root: root}, nil); err != nil || plan.Redated != 0 || plan.NotRedated != 1 {
-		t.Errorf("from another profile: %+v, %v; want 1 left to its own", plan, err)
+	if plan, err := PlanImport(context.Background(), card, folder, catalog, PlanOptions{Asked: Asked{Redates: dates}, Profile: "bob", Root: root}, nil); err != nil || plan.Photos != 1 || plan.InLibrary != 0 || plan.Bytes != 0 {
+		t.Errorf("into another library: %+v, %v; want 1 new, its bytes there already", plan, err)
 	}
 	// Run from inside the folder, a path below it still names it.
 	t.Chdir(filepath.Join(card, "DCIM"))
@@ -666,7 +680,7 @@ func TestAKnownPhotoTakesTheCardAndADeletedTwinStaysOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, sources, err := catalog.About(hash)
+	_, sources, err := catalog.About(Key{hash, "ron"})
 	if err != nil || len(sources) != 2 {
 		t.Errorf("sources %v, %v; want Google and the card", sources, err)
 	}
@@ -802,7 +816,7 @@ func TestAPhotoInTheTrashStaysOutOfAnImport(t *testing.T) {
 		t.Fatal(err)
 	}
 	page, _ := catalog.Page(Filter{})
-	if done, err := catalog.Mark(Trashed, []string{page[0].Hash}, "ron", true); err != nil || len(done) != 1 {
+	if done, err := catalog.Mark(Trashed, []Key{{page[0].Hash, "ron"}}, true); err != nil || len(done) != 1 {
 		t.Fatalf("trashed %v %v", done, err)
 	}
 	asked := Asked{BringBack: []string{"all"}}
@@ -828,16 +842,16 @@ func TestDatesGivenInTheLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer catalog.Close()
-	byName := map[string]string{}
+	byName := map[string]Key{}
 	all, err := catalog.Page(Filter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range all {
-		byName[p.Name] = p.Hash
+		byName[p.Name] = p.Key()
 	}
 	when := time.Date(2020, 5, 1, 10, 0, 0, 0, time.UTC)
-	n, err := GiveDates(root, catalog, []string{byName["DSCF0002.JPG"], byName["DSCF0003.MOV"]}, when)
+	n, err := GiveDates(root, catalog, []Key{byName["DSCF0002.JPG"], byName["DSCF0003.MOV"]}, when)
 	if err != nil || n != 2 {
 		t.Fatalf("%d moved, %v", n, err)
 	}
@@ -849,19 +863,11 @@ func TestDatesGivenInTheLibrary(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Remove(filepath.Join(root, filepath.FromSlash(gone.Path)))
-	if n, err := GiveDates(root, catalog, []string{byName["DSCF0001.JPG"], byName["DSCF0002.JPG"]}, when.AddDate(1, 0, 0)); err != nil || n != 1 {
+	if n, err := GiveDates(root, catalog, []Key{byName["DSCF0001.JPG"], byName["DSCF0002.JPG"]}, when.AddDate(1, 0, 0)); err != nil || n != 1 {
 		t.Fatalf("with one gone: %d moved, %v; want 1", n, err)
 	}
 	mustExist(t, filepath.Join(root, "ron", "2021", "05", "DSCF0002.JPG"))
 	if _, err := os.Stat(filepath.Join(root, "ron", "2018")); !os.IsNotExist(err) {
 		t.Errorf("the year it left is still there: %v", err)
-	}
-}
-
-func TestTheProfileOfAPath(t *testing.T) {
-	for path, want := range map[string]string{"ron/2026/08/a.jpg": "ron", "2026/08/a.jpg": "", "undated/a.jpg": "", "a.jpg": ""} {
-		if got := profileOf(path); got != want {
-			t.Errorf("profileOf(%q) = %q, want %q", path, got, want)
-		}
 	}
 }

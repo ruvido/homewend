@@ -301,32 +301,13 @@ func TestProfilesShareOnePhoto(t *testing.T) {
 	if err1 != nil || err2 != nil || !os.SameFile(a, b) {
 		t.Fatalf("the second profile's photo is not the first's file: %v %v", err1, err2)
 	}
-	_, sources, err := catalog.About(mustHash(t, first))
-	if err != nil || len(sources) != 2 {
-		t.Errorf("sources %v %v", sources, err)
+	for _, profile := range []string{"ron", "sam"} {
+		albums, sources, err := catalog.About(Key{mustHash(t, first), profile})
+		if err != nil || len(sources) != 1 || sources[0] != "google/"+profile+"@example.com" || len(albums) != 1 {
+			t.Errorf("%s's: albums %v sources %v %v", profile, albums, sources, err)
+		}
 	}
-}
-
-// A catalog from before sources named their service gets "google/" in front.
-func TestOldSourcesAreNamedGoogle(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "catalog.db")
-	c, err := OpenCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := c.db.Exec(`INSERT INTO owners (account, hash) VALUES ('ron@example.com', 'h')`); err != nil {
-		t.Fatal(err)
-	}
-	c.Close()
-	c, err = OpenCatalog(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	counts, err := c.CountsByOwner()
-	if err != nil || counts["google/ron@example.com"] != 1 {
-		t.Errorf("got %v %v", counts, err)
-	}
+	mustExist(t, filepath.Join(root, WorkDir, "metadata", "sam", "2019", "07", "IMG_1.jpg.json"))
 }
 
 func mustHash(t *testing.T, path string) string {

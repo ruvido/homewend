@@ -187,7 +187,7 @@ func TestTheCatalogIsOnlyRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, known, err := look.PathOf("h"); err != nil || !known {
+	if _, known, err := look.PathOf(Key{Hash: "h"}); err != nil || !known {
 		t.Errorf("known %v, %v: the photo should be found", known, err)
 	}
 	if err := look.Put(Photo{Hash: "x", Path: "x", Name: "x"}); err == nil {
