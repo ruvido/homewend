@@ -118,12 +118,13 @@ export interface GridPhoto extends PhotoKey {
 	origin?: 'whatsapp' | 'telegram' | 'signal' | 'instagram' | 'app' | 'screenshot';
 }
 
-// Whose each photo is and its id, once as the list comes. The first profile's
-// id is its hash: most libraries are one person's.
+// Whose each photo is and its id, once as the list comes. The id names the
+// person, not their place among the others: the next list may have more, and
+// what is picked or open must not become someone else's.
 const asPhotos = ({ profiles, photos }: { profiles: string[]; photos: GridPhoto[] }) => {
 	for (const p of photos) {
 		p.profile = profiles[p.of ?? 0];
-		p.id = p.of ? `${p.profile}/${p.hash}` : p.hash;
+		p.id = `${p.profile}/${p.hash}`;
 	}
 	return photos;
 };
