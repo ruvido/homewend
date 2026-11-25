@@ -275,6 +275,8 @@ func TestAProfileInEachFile(t *testing.T) {
 		{"not-adobe.jpg", withSegments(j.Bytes(), 0xe1, asSRGB), patches},
 		{"none.jpg", j.Bytes(), patches},
 		{"iccp.png", afterIHDR(iccp(p3ICC)), patchesP3},
+		{"first.png", afterIHDR(iccp(anICC(srgbD50, srgbPara)), iccp(p3ICC)), patches},
+		{"wrecked.png", afterIHDR(pngChunk("iCCP", []byte("a\x00\x00no")), iccp(p3ICC)), patches},
 		{"cicp.png", afterIHDR(iccp(anICC(adobeD50, curv(563))), pngChunk("cICP", []byte{12, 13, 0, 1})), patchesP3},
 		{"srgb.png", afterIHDR(pngChunk("sRGB", []byte{0})), patches},
 	} {
@@ -366,8 +368,20 @@ func TestAProfileInAHEIC(t *testing.T) {
 		}
 	}
 
-	// The thumbnail is tile 6, of the photo 7.
+	// What is not a HEIC by its name is not read whole for its colours: a CR3
+	// begins as one.
 	a := defaults()
+	a.ofPhoto = prof
+	raw := filepath.Join(t.TempDir(), "a.cr3")
+	if err := os.WriteFile(raw, a.file(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if profileOf(bytes.NewReader(a.file()), raw) != nil {
+		t.Error("a CR3 is read")
+	}
+
+	// The thumbnail is tile 6, of the photo 7.
+	a = defaults()
 	a.ofPhoto, a.refs = prof, aBox("thmb", 0, 6, 0, 1, 0, 7)
 	for name, c := range map[string]struct {
 		ofThumbnail []byte
@@ -377,11 +391,11 @@ func TestAProfileInAHEIC(t *testing.T) {
 		"sRGB":         {aBox("colr", append([]byte("prof"), anICC(srgbD50, srgbPara)...)...), false},
 	} {
 		a.ofTile = c.ofThumbnail
-		path := filepath.Join(t.TempDir(), "a.heic")
-		if err := os.WriteFile(path, a.file(), 0o644); err != nil {
-			t.Fatal(err)
+		data := a.file()
+		img, colours := heicThumbnail(data)
+		if !bytes.Equal(data, a.file()) {
+			t.Error(name, "the photo's bytes are changed")
 		}
-		img, colours := heicThumbnail(path)
 		if img == nil || img.Bounds().Dx() != 64 || (colours != nil) != c.wide {
 			t.Error(name, img == nil, colours != nil)
 		}

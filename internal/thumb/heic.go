@@ -21,14 +21,14 @@ import (
 // The decoder decodes a file's primary item, so it is given the file with the
 // thumbnail as that (ISO/IEC 14496-12: in the meta box, pitm names the
 // primary item, and iref's thmb says which item is a thumbnail of which).
-func heicThumbnail(path string) (small image.Image, colours *profile) {
+func heicThumbnail(data []byte) (small image.Image, colours *profile) {
 	// A thumbnail the decoder does not survive is none: the photo may.
 	defer func() {
 		if recover() != nil {
 			small, colours = nil, nil
 		}
 	}()
-	data := readHEIC(path)
+	data = bytes.Clone(data) // the photo is still to be read from it
 	ofPhoto := heicProfile(data)
 	if !thumbnailFirst(data) {
 		return nil, nil

@@ -180,17 +180,18 @@ func decode(ctx context.Context, src string, size int) (image.Image, *profile, e
 		}
 	}
 	if library.IsHEIC(src) {
-		if img, own := smallHEIC(src, size); img != nil {
+		data := readHEIC(src)
+		if img, own := smallHEIC(src, data, size); img != nil {
 			return img, own, nil
 		}
-		if img := gridHEIC(ctx, src, size); img != nil {
-			return img, colours, nil
+		if img := gridHEIC(ctx, data, size); img != nil {
+			return img, heicProfile(data), nil
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
 		if img, err := heic.Decode(f); err == nil {
-			return img, colours, nil
+			return img, heicProfile(data), nil
 		}
 		// A JPEG saved with the wrong name.
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
@@ -242,13 +243,13 @@ func embedded(f io.ReadSeeker, src string, size int) image.Image {
 	return nil
 }
 
-// smallHEIC is a HEIC's own thumbnail, as embedded is a JPEG's, and what its
-// colours are.
-func smallHEIC(src string, size int) (image.Image, *profile) {
+// smallHEIC is the own thumbnail of the HEIC data, at src, as embedded is a
+// JPEG's, and what its colours are.
+func smallHEIC(src string, data []byte, size int) (image.Image, *profile) {
 	if size > Size {
 		return nil, nil
 	}
-	img, colours := heicThumbnail(src)
+	img, colours := heicThumbnail(data)
 	if img == nil || max(img.Bounds().Dx(), img.Bounds().Dy()) < size {
 		return nil, nil
 	}

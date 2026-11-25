@@ -4,6 +4,7 @@
 package thumb
 
 import (
+	"bufio"
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
@@ -32,26 +33,24 @@ type profile struct {
 const maxProfile = 1 << 20
 
 // profileOf is the profile in the photo f, at src; nil when its colours are
-// sRGB, it does not say, or it is one not known here.
+// sRGB, it does not say, or it is one not known here. A HEIC's is heicProfile's.
 func profileOf(f io.Reader, src string) *profile {
-	var head [12]byte
-	if _, err := io.ReadFull(f, head[:]); err != nil {
+	in := bufio.NewReader(f)
+	head, err := in.Peek(12)
+	if err != nil {
 		return nil
 	}
-	f = io.MultiReader(bytes.NewReader(head[:]), f)
 	switch {
 	case head[0] == 0xff && head[1] == 0xd8:
-		icc := jpegICC(f)
+		icc := jpegICC(in)
 		if len(icc) == 0 && library.IsAdobeRGB(src) {
 			return adobeRGB()
 		}
 		return iccProfile(icc)
 	case string(head[:8]) == "\x89PNG\r\n\x1a\n":
-		return pngProfile(f)
+		return pngProfile(in)
 	case string(head[:4]) == "RIFF" && string(head[8:]) == "WEBP":
-		return iccProfile(webpICC(f))
-	case string(head[4:8]) == "ftyp":
-		return heicProfile(readHEIC(src))
+		return iccProfile(webpICC(in))
 	}
 	return nil
 }
@@ -85,6 +84,8 @@ func jpegICC(f io.Reader) []byte {
 // before iCCP (the PNG standard, third edition).
 func pngProfile(f io.Reader) (p *profile) {
 	io.CopyN(io.Discard, f, 8)
+	// One: the standard allows no more, and each is a megabyte to unpack.
+	seen := false
 	for {
 		var head [8]byte
 		if _, err := io.ReadFull(f, head[:]); err != nil {
@@ -98,7 +99,8 @@ func pngProfile(f io.Reader) (p *profile) {
 			var cicp [4]byte
 			io.ReadFull(f, cicp[:])
 			return codePoints(uint64(cicp[0]), uint64(cicp[1]))
-		case kind == "iCCP" && size <= maxProfile:
+		case kind == "iCCP" && size <= maxProfile && !seen:
+			seen = true
 			chunk := make([]byte, size)
 			if _, err := io.ReadFull(f, chunk); err != nil {
 				return p
