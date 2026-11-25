@@ -13,8 +13,11 @@ const token = (name: string) =>
 // Nothing moves under reduced motion, as the CSS says in app.css.
 const still = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** A duration token in ms, 0 under reduced motion. */
-const ms = (name: 'motion-fast' | 'motion-base') => (still() ? 0 : parseFloat(token(name)) || 0);
+/** A duration token in ms, 0 under reduced motion. The build writes 200ms as .2s. */
+const ms = (name: 'motion-fast' | 'motion-base') => {
+	const d = token(name);
+	return still() ? 0 : (parseFloat(d) || 0) * (d.endsWith('ms') ? 1 : 1000);
+};
 
 /** A cubic-bezier token as an easing function: the curve the CSS uses. */
 function curve(name: 'ease-out' | 'ease-in'): (t: number) => number {
