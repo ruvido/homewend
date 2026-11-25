@@ -34,7 +34,7 @@ const (
 )
 
 // features are the calls a phone may find, or not on an older computer.
-var features = []string{"marks", "library"}
+var features = []string{"marks", "edits", "library"}
 
 // phoneListener is the second listener, on the local network, for the
 // phones' calls only: nothing of /api/ is reachable from it. Over TLS with
@@ -262,7 +262,11 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			phoneReply(w, nil, library.ErrNotMarks)
 			return
 		}
-		changed, err := engine.WaitForMarks(r.Context(), phone, r.URL.Query().Get("shelf"), after)
+		var states []library.State
+		for _, s := range strings.FieldsFunc(r.URL.Query().Get("states"), func(r rune) bool { return r == ',' }) {
+			states = append(states, library.State(s))
+		}
+		changed, err := engine.WaitForMarks(r.Context(), phone, r.URL.Query().Get("shelf"), after, states)
 		phoneReply(w, map[string]bool{"changed": changed}, err)
 	}))
 	// What the phone's owner sets on its photos: the call, the state, on or
@@ -372,5 +376,7 @@ func phoneError(w http.ResponseWriter, status int, msg string) {
 func phoneJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	out := json.NewEncoder(w)
+	out.SetEscapeHTML(false) // an edit is as it was said, and no longer
+	out.Encode(v)
 }

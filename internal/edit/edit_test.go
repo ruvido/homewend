@@ -663,3 +663,24 @@ func BenchmarkDraw(b *testing.B) {
 		}
 	}
 }
+
+// Removed is null, or nothing set and no crop key.
+func TestRemoves(t *testing.T) {
+	const none = `"crop":{"turns":0,"flip":false,"angle":0,"x":0,"y":0,"w":1,"h":1,"shape":"Free"}`
+	for data, want := range map[string]bool{
+		`null`:                                 true,
+		`{"adjust":{},"tools":2}`:              true,
+		`{"adjust":{"Exposure":0},"tools":2}`:  true,
+		`{"adjust":{},"tools":2,"Crop":1}`:     false,
+		`{"adjust":{},"tools":2,` + none + `}`: false,
+		`{"adjust":{"Exposure":1},"tools":2}`:  false,
+		`{"adjust":{"Grain":5},"tools":2}`:     false,
+		`{"adjust":{},"tools":3}`:              false,
+		`{"adjust":{},"tools":1}`:              false,
+		`7`:                                    false,
+	} {
+		if got := Removes([]byte(data)); got != want {
+			t.Errorf("%s: %v, want %v", data, got, want)
+		}
+	}
+}

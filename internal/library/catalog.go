@@ -361,7 +361,7 @@ func OpenCatalogReadOnly(path string) (*Catalog, error) {
 			err = db.QueryRow(`PRAGMA user_version`).Scan(&version)
 		}
 	}
-	if err == nil && version < marksSince {
+	if err == nil && version < editsSince {
 		c, err := OpenCatalog(path)
 		if err == nil {
 			c.Close()
@@ -1067,8 +1067,8 @@ func (c *Catalog) setPath(k Key, path, name string) error {
 
 // refile records that the photo k, of no library, is of profile's, at path.
 // One that library has already is that photo: it takes what k has that it has
-// not, its archive, turn, albums and sources, its heart when it was the last
-// set, is out of the Trash when either is, and is where it was, or at path
+// not, its archive, turn, albums and sources, its heart and its edit when they
+// were the last set, is out of the Trash when either is, and is where it was, or at path
 // when its file is gone.
 func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 	return c.inTx(func(tx *sql.Tx) error {
@@ -1084,20 +1084,22 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 				return err
 			}
 			into := Key{k.Hash, profile}
-			hearts, err := markIn(tx, Favorite)
-			if err != nil {
-				return err
-			}
-			its, err := hearts.of(k)
-			if err != nil {
-				return err
-			}
-			was, err := hearts.of(into)
-			if err != nil {
-				return err
-			}
-			if err := hearts.give(into, was, its); err != nil {
-				return err
+			for _, state := range []State{Favorite, Edit} {
+				marks, err := markIn(tx, state)
+				if err != nil {
+					return err
+				}
+				its, err := marks.of(k)
+				if err != nil {
+					return err
+				}
+				was, err := marks.of(into)
+				if err != nil {
+					return err
+				}
+				if err := marks.give(into, was, its); err != nil {
+					return err
+				}
 			}
 			queries := []string{
 				`INSERT OR IGNORE INTO owners SELECT account, ?1 FROM owners WHERE photo = (SELECT id FROM library_photos WHERE hash = ?2 AND profile = ?3)`,

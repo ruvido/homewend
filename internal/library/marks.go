@@ -9,13 +9,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/ruvido/homewend/internal/edit"
 )
 
 // A mark is what a person set on a photo of their library, kept with when it
 // was set and a number that grows with each, for a phone to hear of it and to
-// say its own. Today it is the heart alone.
+// say its own: the heart, and the edit.
 
 // marksSchema is what keeps them. A heart is noted by the triggers, in the
 // statement that sets it: nothing, not even a program from before marks, sets
@@ -64,6 +67,39 @@ CREATE TRIGGER mark_forgotten AFTER DELETE ON library_photos BEGIN
 END;
 `
 
+// editsSchema keeps the edits, under the marks' seqs and rules. They have a
+// table of their own: an older program reads a mark's value as a number. A
+// value is the JSON as it was said, NULL the photo as it came. Setting one
+// takes a seq; a program from before edits that forgets a photo, or refiles
+// it, does so to its edit.
+const editsSchema = `
+CREATE TABLE edits (
+  profile TEXT NOT NULL,
+  hash    TEXT NOT NULL,
+  value   TEXT,
+  at      INTEGER NOT NULL,
+  seq     INTEGER NOT NULL,
+  install TEXT NOT NULL DEFAULT '',
+  n       INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (profile, hash)
+);
+CREATE INDEX edits_by_seq ON edits(profile, seq);
+CREATE TRIGGER edit_noted AFTER UPDATE OF profile, value ON edits BEGIN
+  INSERT INTO mark_seqs VALUES (NEW.profile, 1) ON CONFLICT DO UPDATE SET last = last + 1;
+  UPDATE edits SET seq = (SELECT last FROM mark_seqs WHERE profile = NEW.profile)
+    WHERE profile = NEW.profile AND hash = NEW.hash;
+END;
+CREATE TRIGGER edit_refiled AFTER UPDATE OF profile ON library_photos BEGIN
+  UPDATE edits SET profile = NEW.profile WHERE profile = OLD.profile AND hash = NEW.hash;
+END;
+CREATE TRIGGER edit_forgotten AFTER DELETE ON library_photos BEGIN
+  DELETE FROM edits WHERE profile = OLD.profile AND hash = OLD.hash;
+END;
+`
+
+// Edit is the state of a photo's edit, in a table of its own.
+const Edit State = "edit"
+
 var (
 	// ErrNotMarks is a question that is not one of marks.
 	ErrNotMarks = errors.New("not a question of marks")
@@ -73,10 +109,14 @@ var (
 )
 
 // maxMarks is how many marks a question says and an answer has, and
-// maxInstall how long an install's id is: it is kept on every row.
+// maxInstall how long an install's id is: it is kept on every row. An answer's
+// marks take maxPage bytes at most, when they are more than one: each takes
+// markBytes and its own.
 const (
 	maxMarks   = 500
 	maxInstall = 128
+	maxPage    = 256 << 10
+	markBytes  = len(`{"hash":"","state":"","value":},`)
 )
 
 // Shelf is a library's marks as a phone names them: the catalog and the
@@ -104,9 +144,76 @@ func (c *Catalog) Shelf(profile string) (Shelf, error) {
 	return s, nil
 }
 
-// Differs is whether a phone that knows the shelf id up to after has
-// something to hear: another shelf, or a seq that is not its last.
-func (s Shelf) Differs(id string, after int64) bool { return s.ID != id || s.Cursor != after }
+// Differs is whether a phone that knows profile's shelf id up to after has
+// something to hear of states: another shelf, a seq not reached, or a mark.
+func (c *Catalog) Differs(profile, id string, after int64, states []State) (bool, error) {
+	s, err := c.Shelf(profile)
+	if err != nil || s.ID != id || s.Cursor <= after {
+		return err == nil && (s.ID != id || s.Cursor < after), err
+	}
+	heard, err := c.heard(states)
+	if err != nil || heard == "" {
+		return false, err
+	}
+	var some bool
+	err = c.db.QueryRow(`SELECT EXISTS (`+heard+`)`, profile, after, s.Cursor).Scan(&some)
+	return some, err
+}
+
+// heard is the SQL of the marks of states, those known here: of a profile,
+// from after a seq to one.
+func (c *Catalog) heard(states []State) (string, error) {
+	const of = ` WHERE profile = ?1 AND seq > ?2 AND seq <= ?3`
+	var parts []string
+	if asks(states, Favorite) {
+		parts = append(parts, `SELECT hash, '`+string(Favorite)+`', iif(value, 'true', 'false'), seq AS seq FROM marks`+of)
+	}
+	if asks(states, Edit) {
+		kept, err := hasTable(c.db, "edits") // not where nothing can be written
+		if err != nil {
+			return "", err
+		}
+		if kept {
+			parts = append(parts, `SELECT hash, '`+string(Edit)+`', COALESCE(value, 'null'), seq AS seq FROM edits`+of)
+		}
+	}
+	return strings.Join(parts, ` UNION ALL `), nil
+}
+
+// asks is whether a phone asks of state: one that names none is from before
+// edits.
+func asks(states []State, state State) bool {
+	return slices.Contains(states, state) || len(states) == 0 && state == Favorite
+}
+
+// Edits are the edits of the photos that have one; those of only, nil being all.
+func (c *Catalog) Edits(only []Key) (map[Key]string, error) {
+	kept, err := hasTable(c.db, "edits") // not where nothing can be written
+	if err != nil || !kept {
+		return nil, err
+	}
+	query, args := `SELECT hash, profile, value FROM edits WHERE value IS NOT NULL`, []any(nil)
+	if only != nil {
+		list, _ := json.Marshal(only)
+		query += ` AND (hash, profile) IN (SELECT value ->> 'hash', value ->> 'profile' FROM json_each(?))`
+		args = append(args, string(list))
+	}
+	rows, err := c.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	edits := map[Key]string{}
+	for rows.Next() {
+		var k Key
+		var value string
+		if err := rows.Scan(&k.Hash, &k.Profile, &value); err != nil {
+			return nil, err
+		}
+		edits[k] = value
+	}
+	return edits, rows.Err()
+}
 
 // MarkQuestion is what a phone says and asks: its own marks, then what
 // changed after a seq of the shelf it knows.
@@ -114,6 +221,7 @@ type MarkQuestion struct {
 	Shelf   string
 	After   int64
 	Install string
+	States  []State // it speaks of no other
 	Marks   []MarkAction
 }
 
@@ -137,13 +245,15 @@ type MarkAnswer struct {
 	Marks []Mark `json:"marks"`
 	// Unknown are the photos said that the library does not have.
 	Unknown []string `json:"unknown"`
+	// Refused count the edits said that are none.
+	Refused []int64 `json:"refused"`
 }
 
 // Mark is a photo's state in its library.
 type Mark struct {
-	Hash  string `json:"hash"`
-	State State  `json:"state"`
-	Value bool   `json:"value"`
+	Hash  string          `json:"hash"`
+	State State           `json:"state"`
+	Value json.RawMessage `json:"value"`
 }
 
 // check is whether the question is one.
@@ -165,7 +275,7 @@ func (q MarkQuestion) check() error {
 // computer's time then: each mark said applied by when it was made, then what
 // changed. A plain question takes no lock to write.
 func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAnswer, error) {
-	a := MarkAnswer{Said: []Mark{}, Marks: []Mark{}, Unknown: []string{}}
+	a := MarkAnswer{Said: []Mark{}, Marks: []Mark{}, Unknown: []string{}, Refused: []int64{}}
 	if err := q.check(); err != nil {
 		return a, err
 	}
@@ -180,14 +290,32 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 	}
 	var known []MarkAction
 	for _, m := range q.Marks {
-		if m.State == Favorite {
-			known = append(known, m)
+		if !asks(q.States, m.State) {
+			continue
 		}
+		switch m.State {
+		case Edit:
+			if _, err := edit.Parse(m.Value); err != nil && !errors.Is(err, edit.ErrNewer) {
+				a.Refused = append(a.Refused, m.N)
+				continue
+			}
+			if edit.Removes(m.Value) {
+				m.Value = json.RawMessage("null")
+			}
+		case Favorite:
+		default:
+			continue
+		}
+		known = append(known, m)
 	}
 	if len(known) > 0 {
 		if err := c.inTx(func(tx *sql.Tx) error { return a.apply(tx, profile, q.Install, known, then) }); unwritable(err) {
 			return a, ErrNoMarks
 		} else if err != nil {
+			// No table for them: it could not be given one.
+			if kept, has := hasTable(c.db, "edits"); has == nil && !kept {
+				err = ErrNoMarks
+			}
 			return a, err
 		}
 		// Those just applied are heard too.
@@ -195,22 +323,26 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 			return a, err
 		}
 	}
+	heard, err := c.heard(q.States)
+	if err != nil || heard == "" {
+		return a, err
+	}
 	// Up to the last seq read above: one that comes meanwhile is the next
 	// answer's.
-	rows, err := c.db.Query(`SELECT hash, state, value, seq FROM marks WHERE profile = ? AND seq > ? AND seq <= ? ORDER BY seq LIMIT ?`,
-		profile, q.After, a.Cursor, maxMarks+1)
+	rows, err := c.db.Query(heard+` ORDER BY seq LIMIT ?4`, profile, q.After, a.Cursor, maxMarks+1)
 	if err != nil {
 		return a, err
 	}
 	defer rows.Close()
-	last := q.After
+	last, size := q.After, 0
 	for rows.Next() {
 		var m Mark
 		var seq int64
-		if err := rows.Scan(&m.Hash, &m.State, &m.Value, &seq); err != nil {
+		if err := rows.Scan(&m.Hash, &m.State, (*[]byte)(&m.Value), &seq); err != nil {
 			return a, err
 		}
-		if len(a.Marks) == maxMarks {
+		size += markBytes + len(m.Hash) + len(m.State) + len(m.Value)
+		if len(a.Marks) == maxMarks || size > maxPage && len(a.Marks) > 0 {
 			a.More, a.Cursor = true, last
 			break
 		}
@@ -223,9 +355,15 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 // apply applies the marks an install says, those without a time first, and
 // says what the library then holds of each photo.
 func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkAction, then time.Time) error {
-	hearts, err := markIn(tx, Favorite)
-	if err != nil {
-		return err
+	in := map[State]marker{}
+	for _, m := range marks {
+		if _, ok := in[m.State]; ok {
+			continue
+		}
+		var err error
+		if in[m.State], err = markIn(tx, m.State); err != nil {
+			return err
+		}
 	}
 	for _, timed := range []bool{false, true} {
 		for _, m := range marks {
@@ -233,36 +371,38 @@ func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkActi
 				continue
 			}
 			k := Key{m.Hash, profile}
-			was, err := hearts.of(k)
+			was, err := in[m.State].of(k)
 			if err != nil {
 				return err
 			}
 			if !was.in {
 				continue
 			}
-			is := mark{value: string(m.Value) == "true", install: install, n: m.N}
+			is := mark{value: string(m.Value), install: install, n: m.N}
 			if timed {
 				// Never 0, which is no time, and never later than now.
 				is.at = max(1, then.UnixMilli()-max(0, *m.Ago))
 			}
-			if err := hearts.give(k, was, is); err != nil {
+			if err := in[m.State].give(k, was, is); err != nil {
 				return err
 			}
 		}
 	}
-	answered := map[string]bool{}
+	answered, unknown := map[[2]string]bool{}, map[string]bool{}
 	for _, m := range marks {
-		if answered[m.Hash] {
+		if one := [2]string{m.Hash, string(m.State)}; unknown[m.Hash] || answered[one] {
 			continue
+		} else {
+			answered[one] = true
 		}
-		answered[m.Hash] = true
-		is, err := hearts.of(Key{m.Hash, profile})
+		is, err := in[m.State].of(Key{m.Hash, profile})
 		if err != nil {
 			return err
 		}
 		if is.in {
-			a.Said = append(a.Said, Mark{m.Hash, Favorite, is.value})
+			a.Said = append(a.Said, Mark{m.Hash, m.State, json.RawMessage(is.value)})
 		} else {
+			unknown[m.Hash] = true
 			a.Unknown = append(a.Unknown, m.Hash)
 		}
 	}
@@ -274,11 +414,14 @@ func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkActi
 type mark struct {
 	id      int64
 	in      bool
-	value   bool
+	value   string // its JSON
 	at      int64
 	install string
 	n       int64
 }
+
+// on is whether there is a heart, or an edit.
+func (m mark) on() bool { return m.value != "false" && m.value != "null" }
 
 // marker reads and sets the marks of one state in one write, each of its
 // queries prepared once for the hundreds a phone says.
@@ -289,14 +432,21 @@ type marker struct {
 
 func markIn(tx *sql.Tx, state State) (marker, error) {
 	m := marker{state: state}
+	table, value := `marks`, `iif(p.`+string(state)+`, 'true', 'false')`
+	begin, set := `marks (profile, hash, state, value, at, seq) VALUES (?, ?, '`+string(state)+`', 0, 0, 0)`, setting(state)
+	if state == Edit {
+		table, value = `edits`, `COALESCE(m.value, 'null')`
+		begin, set = `edits (profile, hash, at, seq) VALUES (?, ?, 0, 0)`,
+			`UPDATE edits SET value = ? WHERE (profile, hash) = (SELECT profile, hash FROM library_photos WHERE id = ?)`
+	}
 	var err error
 	for into, query := range map[**sql.Stmt]string{
-		&m.find: `SELECT p.id, p.out = 0, p.` + string(state) + `, COALESCE(m.at, 0), COALESCE(m.install, ''), COALESCE(m.n, 0)
-			FROM library_photos p LEFT JOIN marks m ON m.profile = p.profile AND m.hash = p.hash AND m.state = ?
+		&m.find: `SELECT p.id, p.out = 0, ` + value + `, COALESCE(m.at, 0), COALESCE(m.install, ''), COALESCE(m.n, 0)
+			FROM library_photos p LEFT JOIN ` + table + ` m ON m.profile = p.profile AND m.hash = p.hash
 			WHERE p.hash = ? AND p.profile = ?`,
-		&m.begin: `INSERT OR IGNORE INTO marks (profile, hash, state, value, at, seq) VALUES (?, ?, ?, 0, 0, 0)`,
-		&m.set:   setting(state),
-		&m.sign:  `UPDATE marks SET at = ?, install = ?, n = ? WHERE profile = ? AND hash = ? AND state = ?`,
+		&m.begin: `INSERT OR IGNORE INTO ` + begin,
+		&m.set:   set,
+		&m.sign:  `UPDATE ` + table + ` SET at = ?, install = ?, n = ? WHERE profile = ? AND hash = ?`,
 	} {
 		if *into, err = tx.Prepare(query); err != nil {
 			return m, err
@@ -308,7 +458,7 @@ func markIn(tx *sql.Tx, state State) (marker, error) {
 // of is the mark of the photo k; with none, or no photo, no time and no value.
 func (m marker) of(k Key) (mark, error) {
 	var is mark
-	err := m.find.QueryRow(m.state, k.Hash, k.Profile).Scan(&is.id, &is.in, &is.value, &is.at, &is.install, &is.n)
+	err := m.find.QueryRow(k.Hash, k.Profile).Scan(&is.id, &is.in, &is.value, &is.at, &is.install, &is.n)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
 	}
@@ -323,7 +473,7 @@ func (m marker) give(k Key, was, is mark) error {
 	if is.install != "" && is.install == was.install && is.n <= was.n {
 		return nil
 	}
-	if is.at == 0 && (!is.value || was.value || was.at != 0) {
+	if is.at == 0 && (!is.on() || was.on() || was.at != 0) {
 		return nil
 	}
 	// The clock was ahead as a later one was set: it is not believed. Now, not
@@ -337,13 +487,17 @@ func (m marker) give(k Key, was, is mark) error {
 		is.install, is.n = was.install, was.n
 	}
 	// An off where there was no mark is one too.
-	if _, err := m.begin.Exec(k.Profile, k.Hash, m.state); err != nil {
+	if _, err := m.begin.Exec(k.Profile, k.Hash); err != nil {
 		return err
 	}
-	if _, err := m.set.Exec(is.value, was.id); err != nil {
+	var value any = is.on()
+	if m.state == Edit {
+		value = sql.NullString{String: is.value, Valid: is.on()}
+	}
+	if _, err := m.set.Exec(value, was.id); err != nil {
 		return err
 	}
-	_, err := m.sign.Exec(is.at, is.install, is.n, k.Profile, k.Hash, m.state)
+	_, err := m.sign.Exec(is.at, is.install, is.n, k.Profile, k.Hash)
 	return err
 }
 

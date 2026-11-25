@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -51,6 +52,9 @@ func addPhotos(t testing.TB, c *Catalog, profile string, n int) {
 		t.Fatal(err)
 	}
 }
+
+// heart is a photo's heart, as it is heard.
+func heart(n int) Mark { return Mark{hashed(n), Favorite, json.RawMessage("true")} }
 
 // act is an action of photo 0's heart; ago below -1 is no time.
 func act(n int64, on bool, ago int64) MarkAction {
@@ -196,7 +200,7 @@ func TestWhoseCountIsKept(t *testing.T) {
 	// Another photo's count is its own.
 	other := act(1, true, 0)
 	other.Hash = hashed(1)
-	if a := say(t, c, "A", other); len(a.Said) != 1 || !a.Said[0].Value {
+	if a := say(t, c, "A", other); len(a.Said) != 1 || string(a.Said[0].Value) != "true" {
 		t.Errorf("%+v", a)
 	}
 }
@@ -221,7 +225,7 @@ func TestWhatIsSaidIsAnswered(t *testing.T) {
 	gone := edit
 	gone.Hash = hashed(77)
 	a := say(t, c, "A", of(0, 1), of(1, 2), of(2, 3), of(9, 4), of(0, 5), of(9, 6), edit, gone)
-	if want := []Mark{{hashed(0), Favorite, true}, {hashed(1), Favorite, true}}; !slices.Equal(a.Said, want) {
+	if want := []Mark{heart(0), heart(1)}; !reflect.DeepEqual(a.Said, want) {
 		t.Errorf("said %v, want %v", a.Said, want)
 	}
 	if want := []string{hashed(2), hashed(9)}; !slices.Equal(a.Unknown, want) {
@@ -238,7 +242,7 @@ func TestWhatIsSaidIsAnswered(t *testing.T) {
 		t.Fatal(err)
 	}
 	a = say(t, c, "A", of(1, 2), of(2, 7))
-	if want := []Mark{{hashed(1), Favorite, true}, {hashed(2), Favorite, true}}; !slices.Equal(a.Said, want) {
+	if want := []Mark{heart(1), heart(2)}; !reflect.DeepEqual(a.Said, want) {
 		t.Errorf("said %v, want %v", a.Said, want)
 	}
 	// An unknown one and a state unknown alone write nothing.
@@ -375,8 +379,8 @@ func TestALibraryIsHeardInPages(t *testing.T) {
 	if calls != 3 || len(heard) != 1099 || heard[hashed(700)] != 1 || q.After != 1101 {
 		t.Errorf("%d calls, %d heard, cursor %d", calls, len(heard), q.After)
 	}
-	if s, _ := c.Shelf("ron"); s.Differs(q.Shelf, q.After) {
-		t.Errorf("%+v, want it all heard", s)
+	if differs, err := c.Differs("ron", q.Shelf, q.After, nil); differs || err != nil {
+		t.Errorf("%v %v, want it all heard", differs, err)
 	}
 }
 
@@ -458,7 +462,7 @@ func before(t *testing.T, version int) string {
 // kept; one that looks for links still does, and no opening after the first
 // writes.
 func TestHeartsBecomeMarks(t *testing.T) {
-	for version, want := range map[int]int{librariesSince: marksSince, linksBeforeMarks: linksSince} {
+	for version, want := range map[int]int{librariesSince: editsSince, linksBeforeMarks: linksSince} {
 		path := before(t, version)
 		for name, open := range map[string]func(string) (*Catalog, error){"to look": OpenCatalogReadOnly, "to write": OpenCatalog} {
 			c, err := open(path)
@@ -466,7 +470,7 @@ func TestHeartsBecomeMarks(t *testing.T) {
 				t.Fatal(name, err)
 			}
 			a, err := c.Marks("ron", MarkQuestion{}, time.Now())
-			if err != nil || len(a.Marks) != 2 || a.Cursor != 2 || !a.Marks[0].Value {
+			if err != nil || len(a.Marks) != 2 || a.Cursor != 2 || string(a.Marks[0].Value) != "true" {
 				t.Errorf("%s: %+v %v", name, a, err)
 			}
 			if a, err := c.Marks("ann", MarkQuestion{}, time.Now()); err != nil || len(a.Marks) != 1 || a.Cursor != 1 {
@@ -529,7 +533,7 @@ func TestAProgramFromBeforeMarks(t *testing.T) {
 	c, path := marking(t, 2)
 	olderAt(t, path, linksSince, `UPDATE library_photos SET favorite = 1 WHERE hash = '`+hashed(0)+`' AND profile = 'ron' AND out = 0`)
 	heartIs(t, c, "ron", true)
-	if a := say(t, c, "A", act(1, false, 60_000)); !a.Said[0].Value {
+	if a := say(t, c, "A", act(1, false, 60_000)); string(a.Said[0].Value) != "true" {
 		t.Error("a heart set now was taken off by one a minute old")
 	}
 	// Its merge writes the heart as it was: no mark is made of none.
@@ -545,7 +549,7 @@ func TestAProgramFromBeforeMarks(t *testing.T) {
 	}
 	s, _ := c.Shelf("ron")
 	olderAt(t, path, linksSince, `UPDATE OR IGNORE library_photos SET profile = 'ron', path = 'ron/2' WHERE hash = '`+hashed(2)+`' AND profile = ''`)
-	if a, err := c.Marks("ron", MarkQuestion{Shelf: s.ID, After: s.Cursor}, time.Now()); err != nil || len(a.Marks) != 1 || a.Marks[0].Hash != hashed(2) || !a.Marks[0].Value {
+	if a, err := c.Marks("ron", MarkQuestion{Shelf: s.ID, After: s.Cursor}, time.Now()); err != nil || len(a.Marks) != 1 || a.Marks[0].Hash != hashed(2) || string(a.Marks[0].Value) != "true" {
 		t.Errorf("filed: %+v %v", a, err)
 	}
 	if a, err := c.Marks("", MarkQuestion{}, time.Now()); err != nil || len(a.Marks) != 0 {
@@ -617,9 +621,11 @@ func TestTwoProcessesMark(t *testing.T) {
 			_, err = c.Mark(Favorite, []Key{{hashed(i), "ann"}}, true)
 			if err == nil {
 				a := MarkAction{N: int64(i), Hash: hashed(i), State: Favorite, Value: json.RawMessage("true"), Ago: new(int64)}
+				e := a
+				e.State, e.Value = Edit, json.RawMessage(bright)
 				var s Shelf
 				if s, err = c.Shelf("ron"); err == nil {
-					_, err = c.Marks("ron", MarkQuestion{Shelf: s.ID, Install: profile, Marks: []MarkAction{a}}, time.Now())
+					_, err = c.Marks("ron", MarkQuestion{Shelf: s.ID, Install: profile, States: both, Marks: []MarkAction{a, e}}, time.Now())
 				}
 			}
 			c.Close()
@@ -637,7 +643,7 @@ func TestTwoProcessesMark(t *testing.T) {
 	}
 	c, made := marking(t, each)
 	addPhotos(t, c, "ann", each)
-	if _, err := c.db.Exec(`DROP TABLE catalog_id; DROP TABLE marks; DROP TABLE mark_seqs; DROP TRIGGER mark_noted; DROP TRIGGER mark_refiled; DROP TRIGGER mark_forgotten; PRAGMA user_version = 3`); err != nil {
+	if _, err := c.db.Exec(`DROP TABLE catalog_id; DROP TABLE marks; DROP TABLE mark_seqs; DROP TRIGGER mark_noted; DROP TRIGGER mark_refiled; DROP TRIGGER mark_forgotten; ` + dropEdits + ` PRAGMA user_version = 3`); err != nil {
 		t.Fatal(err)
 	}
 	c.Close()
@@ -668,6 +674,9 @@ func TestTwoProcessesMark(t *testing.T) {
 		FROM marks m JOIN library_photos p ON p.hash = m.hash AND p.profile = m.profile`).Scan(&ids, &rows, &seqs, &apart)
 	if err != nil || ids != 1 || rows != 2*each || seqs != 2*each || apart != 0 {
 		t.Errorf("%d ids, %d marks, %d seqs, %d not their photo's, %v", ids, rows, seqs, apart, err)
+	}
+	if err := c.db.QueryRow(`SELECT COUNT(DISTINCT seq) FROM (SELECT seq FROM edits UNION ALL SELECT seq FROM marks WHERE profile = 'ron')`).Scan(&seqs); err != nil || seqs != 2*each {
+		t.Errorf("%d seqs of ron's hearts and edits, %v", seqs, err)
 	}
 	s, err := c.Shelf("ann")
 	if err != nil || s.Cursor != 2*each {
