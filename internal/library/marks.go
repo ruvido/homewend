@@ -11,6 +11,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ruvido/homewend/internal/edit"
@@ -213,6 +214,104 @@ func (c *Catalog) Edits(only []Key) (map[Key]string, error) {
 		edits[k] = value
 	}
 	return edits, rows.Err()
+}
+
+// digests are the names of the edits met: to name one, and read whether it is
+// drawn here, takes longer than all else a list does with it.
+// shortcut: never forgotten, some 300 bytes each; bounded if ever met as memory.
+var digests sync.Map
+
+// EditDigest names the edit that value, its JSON, is, when it is one this
+// program draws; "" is none, or one to be kept and not drawn. Two libraries'
+// equal ones have one name.
+func EditDigest(value string) string {
+	if name, known := digests.Load(value); known {
+		return name.(string)
+	}
+	name := ""
+	if _, err := edit.Parse([]byte(value)); err == nil && value != "null" {
+		sum := sha256.Sum256([]byte(value))
+		name = hex.EncodeToString(sum[:12])
+	}
+	// Its own: value may be a piece of all the edits.
+	digests.Store(strings.Clone(value), name)
+	return name
+}
+
+// fewEdits is up to how many photos' edits are looked for one by one.
+const fewEdits = 500
+
+// giveEdits gives photos, of a list, the edits they are shown with. What is
+// read is the edits there are, as one row: a list without any
+// pays for none.
+func (c *Catalog) giveEdits(photos []Photo) error {
+	names := map[Key]string{}
+	if len(photos) <= fewEdits {
+		keys := make([]Key, len(photos))
+		for i, p := range photos {
+			keys[i] = p.Key()
+		}
+		edits, err := c.Edits(keys)
+		if err != nil {
+			return err
+		}
+		for k, value := range edits {
+			names[k] = EditDigest(value)
+		}
+	} else {
+		kept, err := hasTable(c.db, "edits") // not where nothing can be written
+		if err != nil || !kept {
+			return err
+		}
+		// No JSON has a 0 in it.
+		rows, err := c.db.Query(`SELECT COALESCE(group_concat(profile || char(0) || hash || char(0) || value, char(0)), '') FROM edits NOT INDEXED WHERE value IS NOT NULL`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var keys []Key
+		var values []string
+		for rows.Next() {
+			k, all := Key{}, ""
+			if err := rows.Scan(&all); err != nil {
+				return err
+			}
+			for all != "" {
+				var value string
+				k.Profile, all, _ = strings.Cut(all, "\x00")
+				k.Hash, all, _ = strings.Cut(all, "\x00")
+				value, all, _ = strings.Cut(all, "\x00")
+				keys, values = append(keys, k), append(values, value)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// Read the first time, they are the slowest part: on every core.
+		var wg sync.WaitGroup
+		for some := range slices.Chunk(values, 1000) {
+			wg.Go(func() {
+				for i, value := range some {
+					some[i] = EditDigest(value)
+				}
+			})
+		}
+		wg.Wait()
+		names = make(map[Key]string, len(keys))
+		for i, k := range keys {
+			names[k] = values[i]
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	for i := range photos {
+		p := &photos[i]
+		if name := names[p.Key()]; name != "" && !IsVideo(p.Name) {
+			p.Edit, p.Turn = name, 0
+		}
+	}
+	return nil
 }
 
 // MarkQuestion is what a phone says and asks: its own marks, then what

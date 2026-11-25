@@ -305,7 +305,7 @@ func (im *Importing) Thumbnail(ctx context.Context, path string) (string, error)
 	if !ok {
 		return "", fs.ErrNotExist
 	}
-	file, _, err := cached(ctx, "thumbs", thumb.Size, hash, func() (string, string, error) { return src, "", nil })
+	file, _, err := cached(ctx, "thumbs", thumb.Size, hash, drawing{}, func() (string, string, error) { return src, "", nil })
 	return file, err
 }
 

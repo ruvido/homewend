@@ -26,6 +26,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ import (
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 
+	"github.com/ruvido/homewend/internal/edit"
 	"github.com/ruvido/homewend/internal/library"
 )
 
@@ -55,7 +57,8 @@ const quality = 80
 var ErrNoDecoder = errors.New("no decoder for this file")
 
 // Path is where the thumbnail of the photo with this hash is kept: by
-// content, so it never goes stale and a moved photo keeps it.
+// content, so it never goes stale and a moved photo keeps it. One of an edit
+// is under Edited.
 func Path(cacheDir, hash string) string {
 	if len(hash) < 2 {
 		return filepath.Join(cacheDir, hash+".jpg")
@@ -63,9 +66,34 @@ func Path(cacheDir, hash string) string {
 	return filepath.Join(cacheDir, hash[:2], hash+".jpg")
 }
 
-// Make writes the picture of src at dst, its long edge size at most (Size
-// or PreviewSize), whole or not at all.
-func Make(ctx context.Context, src, dst string, size int) (err error) {
+// editMark is between a name and its edit's: no file's version has it, all
+// hexadecimal.
+const editMark = "-edit-"
+
+// Edited is the name Path keeps the picture of the content or file name by,
+// with the edit named digest.
+func Edited(name, digest string) string {
+	if digest == "" {
+		return name
+	}
+	return name + editMark + digest
+}
+
+// ForgetEdits deletes the pictures of hash, with an edit, in cacheDir that are
+// of none of digests.
+func ForgetEdits(cacheDir, hash string, digests []string) {
+	files, _ := filepath.Glob(Path(cacheDir, hash+"*"+editMark+"*"))
+	for _, file := range files {
+		_, digest, _ := strings.Cut(strings.TrimSuffix(filepath.Base(file), ".jpg"), editMark)
+		if !slices.Contains(digests, digest) {
+			os.Remove(file)
+		}
+	}
+}
+
+// Make writes the picture of src at dst, with its edit, its long edge size at
+// most (Size or PreviewSize), whole or not at all.
+func Make(ctx context.Context, src, dst string, size int, e edit.Edit) (err error) {
 	// A damaged file a decoder does not survive is a file with no picture,
 	// not the end of the program that met it.
 	defer func() {
@@ -73,7 +101,12 @@ func Make(ctx context.Context, src, dst string, size int) (err error) {
 			err = fmt.Errorf("decoding %s: %v", src, r)
 		}
 	}()
-	img, colours, err := decode(ctx, src, size)
+	// What is drawn from: for an edit, what leaves enough in its frame.
+	from := size
+	if !e.None() {
+		from = drawnFrom(src, size, e)
+	}
+	img, colours, err := decode(ctx, src, from)
 	if err != nil {
 		return err
 	}
@@ -81,7 +114,10 @@ func Make(ctx context.Context, src, dst string, size int) (err error) {
 		return fmt.Errorf("%w: %s is empty", ErrNoDecoder, src)
 	}
 	// Scaled first: there are fewer pixels to convert.
-	img = upright(colours.toSRGB(fit(img, size)), library.Orientation(src))
+	img = upright(colours.toSRGB(fit(img, from)), library.Orientation(src))
+	if !e.None() {
+		img = fit(rgba(edit.Draw(img, e)), size)
+	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
 		return err
@@ -104,6 +140,26 @@ func Make(ctx context.Context, src, dst string, size int) (err error) {
 		os.Remove(f.Name())
 	}
 	return err
+}
+
+// minDrawn is the long edge an edit is drawn at, at least. Off the edit drawn
+// on the whole of 12 MP, smooth, by strong tools: 3 of 255 at most at 256, 512,
+// 1024 and whole; with noise or texture, 512 and 1024 are half as far off as
+// 256 and the whole, which are scaled in one step (measured 2026-11-25).
+const minDrawn = 2 * Size
+
+// drawnFrom is how large the whole of src is to be, for what the edit e keeps
+// of it to be size. Past Size: the camera's thumbnail is not read.
+func drawnFrom(src string, size int, e edit.Edit) int {
+	w, h := Dimensions(src)
+	size = max(size, minDrawn)
+	long := max(w, h)
+	if long == 0 {
+		return size
+	}
+	kw, kh := e.Size(w, h)
+	kept := max(kw, kh)
+	return max(min((long*size+kept-1)/kept, long), Size+1)
 }
 
 // Dimensions are the pixels of the photo at path as it is shown, turned as

@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ruvido/homewend/internal/edit"
+
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -81,8 +83,11 @@ type Photo struct {
 	Origin  Origin
 	Albums  []string
 	// Turn is how many quarter turns anticlockwise the person gave it: kept
-	// here, the file is never changed.
-	Turn     int
+	// here, the file is never changed. In a list, 0 of a photo with an Edit,
+	// which says which way up it is.
+	Turn int
+	// Edit names the edit it is shown with, in a list: "" is none.
+	Edit     string
 	Archived bool
 	Favorite bool
 }
@@ -592,7 +597,10 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 			return cmp.Or(b.Taken.Compare(a.Taken), cmp.Compare(a.Name, b.Name))
 		})
 	}
-	return photos, err
+	if err != nil {
+		return nil, err
+	}
+	return photos, c.giveEdits(photos)
 }
 
 // BytesByKind is how many bytes the library's files take, by what they are
@@ -810,7 +818,10 @@ func (c *Catalog) Latest(n int) ([]Photo, error) {
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, c.giveEdits(out)
 }
 
 // State is what a photo's owner can set on it, by the catalog's column.
@@ -860,15 +871,40 @@ func setState(tx *sql.Tx, state State, photos []Key, on bool) ([]Key, error) {
 	return done, nil
 }
 
-// TurnLeft gives a photo a quarter turn more, anticlockwise, and says how
-// many it has now; fs.ErrNotExist for one the catalog lacks.
-func (c *Catalog) TurnLeft(k Key) (int, error) {
-	var turn int
-	err := c.db.QueryRow(`UPDATE library_photos SET turn = (turn + 1) % 4 WHERE hash = ? AND profile = ? RETURNING turn`, k.Hash, k.Profile).Scan(&turn)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fs.ErrNotExist
-	}
-	return turn, err
+// TurnLeft gives a photo a quarter turn more, anticlockwise, and says how it
+// is shown now, its turn and its edit; fs.ErrNotExist for one the catalog
+// lacks. Of a photo with an edit it is the edit that turns, and a phone hears
+// of it; one this program cannot draw stays as it is, and so does the photo.
+func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
+	err = c.inTx(func(tx *sql.Tx) error {
+		var name string
+		err := tx.QueryRow(`SELECT name, turn FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&name, &turn)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fs.ErrNotExist
+		} else if err != nil {
+			return err
+		}
+		edits, err := markIn(tx, Edit)
+		if err != nil {
+			return err
+		}
+		was, err := edits.of(k)
+		if err != nil {
+			return err
+		}
+		if !was.on() || IsVideo(name) {
+			turn = (turn + 1) % 4
+			_, err := tx.Exec(`UPDATE library_photos SET turn = ? WHERE id = ?`, turn, was.id)
+			return err
+		}
+		turned, err := edit.TurnLeft([]byte(was.value))
+		if err != nil {
+			return nil
+		}
+		turn, digest = 0, EditDigest(string(turned))
+		return edits.give(k, was, mark{value: string(turned), at: time.Now().UnixMilli()})
+	})
+	return turn, digest, err
 }
 
 // About says which albums a photo is in and which accounts it came from.

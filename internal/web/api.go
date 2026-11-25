@@ -205,8 +205,8 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, nil, engine.Unpair(r.PathValue("id"), "computer"))
 	})
 	mux.HandleFunc("POST /api/turn/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		turn, err := engine.TurnLeft(photoOf(r))
-		reply(w, map[string]int{"turn": turn}, err)
+		turned, err := engine.TurnLeft(photoOf(r))
+		reply(w, turned, err)
 	})
 	mux.HandleFunc("GET /api/latest", func(w http.ResponseWriter, r *http.Request) {
 		list, err := engine.Latest(6)
@@ -220,9 +220,9 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		f, err := engine.FileOf(photoOf(r))
 		reply(w, f, err)
 	})
-	for path, picture := range map[string]func(context.Context, library.Key) (string, bool, error){"thumb": engine.Thumbnail, "preview": engine.Preview} {
+	for path, picture := range map[string]func(context.Context, library.Key, string) (string, bool, error){"thumb": engine.Thumbnail, "preview": engine.Preview} {
 		mux.HandleFunc("GET /api/"+path+"/{hash}", func(w http.ResponseWriter, r *http.Request) {
-			file, kept, err := picture(r.Context(), photoOf(r))
+			file, kept, err := picture(r.Context(), photoOf(r), r.URL.Query().Get("edit"))
 			if err != nil {
 				reply(w, nil, err)
 				return

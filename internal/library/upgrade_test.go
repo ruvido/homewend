@@ -367,7 +367,7 @@ func TestAPhotoOfTwoLibraries(t *testing.T) {
 			t.Fatalf("%s: %v %v", state, done, err)
 		}
 	}
-	if n, err := c.TurnLeft(ron); err != nil || n != 1 {
+	if n, _, err := c.TurnLeft(ron); err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
 	if p, err := c.Photo(sam); err != nil || p.Archived || p.Favorite || p.Turn != 0 {

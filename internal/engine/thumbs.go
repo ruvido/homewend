@@ -5,6 +5,7 @@ package engine
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -97,8 +98,13 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 	}
 	kept := thumb.Kept(folder)
 	var todo []library.Photo
+	// As it came, for a phone; with its edit, for the window.
+	lacks := func(p library.Photo, edit string) bool {
+		name := thumb.Edited(p.Hash, edit)
+		return !kept[name] && !failed[name]
+	}
 	for _, p := range photos {
-		if !kept[p.Hash] && !failed[p.Hash] {
+		if lacks(p, "") || lacks(p, p.Edit) {
 			todo = append(todo, p)
 		}
 	}
@@ -120,12 +126,18 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 			}
 			again = time.Now().Add(thumbsEvery)
 		}
-		if _, _, err := Thumbnail(ctx, p.Key()); err != nil {
-			// The disk taken out: none of the rest is there to be tried.
-			if libraryAway(root, s.Filled) {
-				return listing, false
+		for _, edit := range slices.Compact([]string{p.Edit, ""}) {
+			if !lacks(p, edit) {
+				continue
 			}
-			failed[p.Hash] = true
+			// With an edit, what is not kept was drawn as it came.
+			if _, made, err := Thumbnail(ctx, p.Key(), edit); err != nil || edit != "" && !made {
+				// The disk taken out: none of the rest is there to be tried.
+				if libraryAway(root, s.Filled) {
+					return listing, false
+				}
+				failed[thumb.Edited(p.Hash, edit)] = true
+			}
 		}
 	}
 	set(len(photos))

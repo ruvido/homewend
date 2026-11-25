@@ -287,7 +287,7 @@ func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) 
 	}
 	end := func() {}
 	defer func() { end() }()
-	file, kept, err = cached(ctx, dir, size, hash, func() (string, string, error) {
+	file, kept, err = cached(ctx, dir, size, hash, drawing{}, func() (string, string, error) {
 		done, err := phoneTurn(ctx, phone)
 		if err != nil {
 			return "", "", err

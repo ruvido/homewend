@@ -20,6 +20,8 @@ import (
 	"testing"
 
 	"github.com/gen2brain/heic"
+
+	"github.com/ruvido/homewend/internal/edit"
 )
 
 var be = binary.BigEndian
@@ -225,7 +227,7 @@ func made(t *testing.T, name string, file []byte, size int) image.Image {
 	if err := os.WriteFile(src, file, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Make(t.Context(), src, dst, size); err != nil {
+	if err := Make(t.Context(), src, dst, size, edit.Edit{}); err != nil {
 		t.Fatal(name, err)
 	}
 	b, err := os.ReadFile(dst)

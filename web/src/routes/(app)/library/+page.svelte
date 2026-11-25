@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
-	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct, type PhotoKey } from '#lib/api.js';
+	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
 	import { isView } from '#lib/library.js';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
@@ -96,11 +96,11 @@
 	const picked = $derived(photos.filter((p) => selected.has(p.id)));
 	async function turnPicked() {
 		// Shown a few times a second: each showing lays the whole grid out.
-		const turns = new Map<string, number>();
+		const turns = new Map<string, Shown>();
 		let shownAt = 0;
 		try {
 			for (const p of picked) {
-				turns.set(p.id, (await turnLeft(p)).turn);
+				turns.set(p.id, await turnLeft(p));
 				if (performance.now() - shownAt < 200) continue;
 				turned(turns);
 				shownAt = performance.now();
@@ -109,7 +109,7 @@
 			turned(turns);
 		}
 	}
-	const turned = (turns: Map<string, number>) => (list = list.map((p) => (turns.has(p.id) ? { ...p, turn: turns.get(p.id) } : p)));
+	const turned = (turns: Map<string, Shown>) => (list = list.map((p) => (turns.has(p.id) ? { ...p, edit: undefined, ...turns.get(p.id) } : p)));
 	// A heart shows at once, and is taken back if it could not be kept. One
 	// after another: two quick clicks end as the last.
 	let hearts: Promise<unknown> = Promise.resolve();
@@ -366,7 +366,7 @@
 	</Grid>
 	</div>
 	</div>
-	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, p) => act(a, [p])} onturned={(id, turn) => turned(new Map([[id, turn]]))} onfavorite={favorite} ontakenout={() => reload++} ondated={(id) => ((reopen = id), (open = null), reload++)} />
+	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, p) => act(a, [p])} onturned={(id, now) => turned(new Map([[id, now]]))} onfavorite={favorite} ontakenout={() => reload++} ondated={(id) => ((reopen = id), (open = null), reload++)} />
 	{#if asking}
 		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
 		<Dialog title={text.trashAsk(asking.photos.length)}>

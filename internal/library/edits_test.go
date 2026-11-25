@@ -486,3 +486,110 @@ func TestLinksFoundWithNoTable(t *testing.T) {
 		c.Close()
 	}
 }
+
+// A list says of each photo the edit it is shown with, and then no turn; of
+// one not drawn here, or of a video, the turn alone. Many are asked otherwise
+// than a few.
+func TestAListSaysTheEdits(t *testing.T) {
+	for _, n := range []int{4, fewEdits + 1} {
+		c, _ := marking(t, n)
+		if err := c.Put(Photo{Hash: hashed(2), Profile: "ron", Path: "film.mp4", Name: "film.mp4"}); err != nil {
+			t.Fatal(err)
+		}
+		addPhotos(t, c, "ann", n)
+		for i := range 4 {
+			for _, profile := range []string{"ron", "ann"} {
+				if _, _, err := c.TurnLeft(Key{hashed(i), profile}); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		for i, value := range []string{bright, newer, warm} {
+			e := edited(int64(i), value, 0)
+			e.Hash = hashed(i)
+			tell(t, c, "A", 0, e)
+		}
+		pages := map[string]func() ([]Photo, error){
+			"all":    func() ([]Photo, error) { return c.Page(Filter{}) },
+			"latest": func() ([]Photo, error) { return c.Latest(2 * n) },
+		}
+		for name, page := range pages {
+			photos, err := page()
+			if err != nil || len(photos) != 2*n {
+				t.Fatalf("%s: %d photos, %v", name, len(photos), err)
+			}
+			for _, p := range photos {
+				digest, turn := "", 0
+				if slices.Contains([]string{hashed(0), hashed(1), hashed(2), hashed(3)}, p.Hash) {
+					turn = 1
+				}
+				if p.Key() == (Key{hashed(0), "ron"}) {
+					digest, turn = EditDigest(bright), 0
+				}
+				if p.Edit != digest || p.Turn != turn || (digest == "") != (p.Key() != Key{hashed(0), "ron"}) {
+					t.Errorf("%d, %s: %s of %s is %q, turned %d", n, name, p.Hash, p.Profile, p.Edit, p.Turn)
+				}
+			}
+		}
+		// Removed, it is turned as it was.
+		tell(t, c, "A", 0, edited(9, "null", 0))
+		photos, err := c.Page(Filter{Only: []Key{{hashed(0), "ron"}}})
+		if err != nil || len(photos) != 1 || photos[0].Edit != "" || photos[0].Turn != 1 {
+			t.Errorf("%+v %v", photos, err)
+		}
+	}
+}
+
+// Rotate on a photo with an edit is an edit, of now, that a phone hears; one
+// not known here stays, and so does the photo.
+func TestRotateIsAnEdit(t *testing.T) {
+	c, _ := marking(t, 1)
+	k := Key{hashed(0), "ron"}
+	a := tell(t, c, "A", 0, edited(7, bright, 100))
+	turn, digest, err := c.TurnLeft(k)
+	edits, _ := c.Edits([]Key{k})
+	turned := edits[k]
+	if err != nil || turn != 0 || digest == "" || digest != EditDigest(turned) || !strings.Contains(turned, `"turns":3`) {
+		t.Fatalf("%d %q %v: %s", turn, digest, err, turned)
+	}
+	if p, err := c.Photo(k); err != nil || p.Turn != 0 {
+		t.Errorf("%+v %v", p, err)
+	}
+	b := tell(t, c, "B", a.Cursor)
+	if len(b.Marks) != 1 || string(b.Marks[0].Value) != turned || b.Cursor <= a.Cursor {
+		t.Errorf("%+v", b)
+	}
+	// An older action of a phone does not undo it, nor the one said again.
+	tell(t, c, "A", 0, edited(8, warm, 5000), edited(7, bright, 0))
+	editIs(t, c, "ron", turned)
+	time.Sleep(2 * time.Millisecond)
+	tell(t, c, "A", 0, edited(9, newer, 0))
+	if turn, digest, err := c.TurnLeft(k); turn != 0 || digest != "" || err != nil {
+		t.Errorf("%d %q %v", turn, digest, err)
+	}
+	editIs(t, c, "ron", newer)
+	// Removed, and turned: its turn.
+	time.Sleep(2 * time.Millisecond)
+	tell(t, c, "A", 0, edited(10, "null", 0))
+	if turn, digest, err := c.TurnLeft(k); turn != 1 || digest != "" || err != nil {
+		t.Errorf("%d %q %v", turn, digest, err)
+	}
+}
+
+// BenchmarkPage is the window's list of 100,000, with edits.
+func BenchmarkPage(b *testing.B) {
+	for _, n := range []int{0, 5_000, 90_000} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			c, _ := marking(b, 100_000)
+			if _, err := c.db.Exec(`INSERT INTO edits (profile, hash, value, at, seq) SELECT profile, hash, '{"adjust":{"Exposure":' || (id % 100) || ',"Warmth":-8},"tools":2,"crop":{"turns":1,"flip":false,"angle":14,"x":0.05,"y":-0.03,"w":0.5,"h":0.' || id || ',"shape":"Free"}}', 0, id FROM library_photos LIMIT ?`, n); err != nil {
+				b.Fatal(err)
+			}
+			for b.Loop() {
+				photos, err := c.Page(Filter{Grid: true})
+				if err != nil || n > 0 && photos[0].Edit == "" {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}

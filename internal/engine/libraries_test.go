@@ -132,7 +132,7 @@ func TestWhatOneDoesToAPhotoIsNotDoneToTheOthers(t *testing.T) {
 	if _, err := Mark(library.Trashed, []library.Key{{Hash: hash, Profile: "ann"}}, false); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil || n != 1 {
+	if n, err := TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil || n.Turn != 1 {
 		t.Fatal(n, err)
 	}
 	if n, err := GiveDates([]library.Key{{Hash: hash, Profile: "ann"}}, time.Date(2020, 5, 1, 0, 0, 0, 0, time.UTC)); err != nil || n != 1 {
@@ -410,7 +410,7 @@ func TestAnEditedFileIsNotTheOthersPicture(t *testing.T) {
 	}
 	tall := func(k library.Key) (bool, bool) {
 		t.Helper()
-		file, kept, err := Thumbnail(context.Background(), k)
+		file, kept, err := Thumbnail(context.Background(), k, "")
 		if err != nil {
 			t.Fatal(err)
 		}

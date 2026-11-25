@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ruvido/homewend/internal/edit"
 )
 
 func aBox(kind string, inside ...byte) []byte {
@@ -67,7 +69,7 @@ func TestAJPEGNamedHEIC(t *testing.T) {
 	if err := os.Rename(path, named); err != nil {
 		t.Fatal(err)
 	}
-	if err := Make(context.Background(), named, filepath.Join(t.TempDir(), "out.jpg"), Size); err != nil {
+	if err := Make(context.Background(), named, filepath.Join(t.TempDir(), "out.jpg"), Size, edit.Edit{}); err != nil {
 		t.Error(err)
 	}
 }

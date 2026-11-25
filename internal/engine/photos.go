@@ -6,6 +6,7 @@ package engine
 import (
 	"cmp"
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ruvido/homewend/internal/edit"
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/thumb"
 )
@@ -39,8 +41,10 @@ type GridPhoto struct {
 	Video   bool   `json:"video,omitempty"`
 	// Missing: its file is gone from the library, deleted or moved by hand.
 	Missing bool `json:"missing,omitempty"`
-	// Turn: quarter turns anticlockwise the person gave it.
+	// Turn: quarter turns anticlockwise the person gave it, of one with no Edit.
 	Turn int `json:"turn,omitempty"`
+	// Edit: the name of the edit its pictures are asked with.
+	Edit string `json:"edit,omitempty"`
 	// Archived: in the Archive, shown in an album.
 	Archived bool `json:"archived,omitempty"`
 	// Favorite: given a heart.
@@ -254,7 +258,7 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Archived: p.Archived, Favorite: p.Favorite}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
@@ -492,18 +496,28 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 	return done, err
 }
 
+// Turned is how a photo is shown: its quarter turns, or its edit.
+type Turned struct {
+	Turn int    `json:"turn"`
+	Edit string `json:"edit,omitempty"`
+}
+
 // TurnLeft gives a photo of the library a quarter turn anticlockwise, kept in
-// the catalog, and says how many it has now.
-func TurnLeft(k library.Key) (int, error) {
+// the catalog, and says how it is shown now.
+func TurnLeft(k library.Key) (Turned, error) {
 	c, _, err := openLibrary()
 	if err != nil {
-		return 0, err
+		return Turned{}, err
 	}
 	if c == nil {
-		return 0, fs.ErrNotExist
+		return Turned{}, fs.ErrNotExist
 	}
 	defer c.Close()
-	return c.TurnLeft(k)
+	turn, digest, err := c.TurnLeft(k)
+	if digest != "" {
+		lookNow()
+	}
+	return Turned{turn, digest}, err
 }
 
 // GiveDates gives photos of the library a date chosen in the window: the
@@ -533,10 +547,11 @@ func GiveDates(photos []library.Key, when time.Time) (int, error) {
 // thumbSlots keeps thumbnails from taking every core while a grid scrolls.
 var thumbSlots = make(chan struct{}, max(1, runtime.NumCPU()-1))
 
-// Thumbnail returns the file of a photo's thumbnail, making it the first time;
-// kept says it is the content's, which never changes.
-func Thumbnail(ctx context.Context, k library.Key) (file string, kept bool, err error) {
-	return cached(ctx, "thumbs", thumb.Size, k.Hash, func() (string, string, error) { return pictureOf(k, os.Stat) })
+// Thumbnail returns the file of a photo's thumbnail with the edit asked, ""
+// being none, making it the first time; kept says it is what was asked, which
+// never changes.
+func Thumbnail(ctx context.Context, k library.Key, asked string) (file string, kept bool, err error) {
+	return picture(ctx, "thumbs", thumb.Size, k, asked)
 }
 
 // Preview is the picture the viewer shows a photo of the library with, at
@@ -545,8 +560,93 @@ func Thumbnail(ctx context.Context, k library.Key) (file string, kept bool, err 
 //
 // shortcut: no limit on the cache's size (about 0.5–1 MB a photo looked at),
 // prune by age when a library's previews grow past a few GB.
-func Preview(ctx context.Context, k library.Key) (file string, kept bool, err error) {
-	return cached(ctx, "previews", thumb.PreviewSize, k.Hash, func() (string, string, error) { return pictureOf(k, os.Stat) })
+func Preview(ctx context.Context, k library.Key, asked string) (file string, kept bool, err error) {
+	return picture(ctx, "previews", thumb.PreviewSize, k, asked)
+}
+
+// picture is the picture of k kept in the cache's folder dir, with the edit
+// named asked: with the one it has now when that is another, and as it came
+// when that is none, or cannot be drawn; then it is not kept.
+func picture(ctx context.Context, dir string, size int, k library.Key, asked string) (file string, kept bool, err error) {
+	source := func() (string, string, error) { return pictureOf(k, os.Stat) }
+	plain := func() (string, bool, error) {
+		return cached(ctx, dir, size, k.Hash, drawing{}, source)
+	}
+	if asked == "" {
+		return plain()
+	}
+	folder, err := picturesDir(dir)
+	if err != nil {
+		return "", false, err
+	}
+	// Its name says what it is: the catalog is not asked.
+	if _, err := hex.DecodeString(asked); err == nil {
+		file := thumb.Path(folder, thumb.Edited(k.Hash, asked))
+		if _, err := os.Stat(file); err == nil {
+			return file, true, nil
+		}
+	}
+	its, all, err := editsOf(k)
+	if err != nil {
+		return "", false, err
+	}
+	if its.name != "" {
+		if file, kept, err = cached(ctx, dir, size, k.Hash, its, source); err == nil {
+			thumb.ForgetEdits(folder, k.Hash, all)
+			return file, kept && its.name == asked, nil
+		}
+		if ctx.Err() != nil {
+			return "", false, err
+		}
+	}
+	file, _, err = plain()
+	return file, false, err
+}
+
+// drawing is an edit to draw a picture with, and its name; the zero one is none.
+type drawing struct {
+	name string
+	edit edit.Edit
+}
+
+// editsOf is the edit k is shown with, and the names of those its content is
+// in any library.
+func editsOf(k library.Key) (its drawing, all []string, err error) {
+	c, _, err := openLibrary()
+	if err != nil {
+		return its, nil, err
+	}
+	if c == nil {
+		return its, nil, fs.ErrNotExist
+	}
+	defer c.Close()
+	copies, err := c.Copies(k.Hash)
+	if err != nil {
+		return its, nil, err
+	}
+	keys := make([]library.Key, len(copies))
+	for i, p := range copies {
+		keys[i] = p.Key()
+	}
+	edits, err := c.Edits(keys)
+	if err != nil {
+		return its, nil, err
+	}
+	for _, p := range copies {
+		value := edits[p.Key()]
+		name := library.EditDigest(value)
+		if name == "" || library.IsVideo(p.Name) {
+			continue
+		}
+		all = append(all, name)
+		if p.Key() == k {
+			its.name = name
+			if its.edit, err = edit.Parse([]byte(value)); err != nil {
+				return its, nil, err
+			}
+		}
+	}
+	return its, all, nil
 }
 
 // pictureOf is the file a photo's picture is made from: its own, or else
@@ -609,10 +709,10 @@ func picturesDir(dir string) (string, error) {
 	return filepath.Join(cache, "homewend", dir), err
 }
 
-// cached is the picture of the content hash at size, kept by it in the
-// cache's folder dir; or, when source says the file it found is not that content
+// cached is the picture of the content hash at size, with an edit, kept by them
+// in the cache's folder dir; or, when source says the file it found is not that content
 // any more, of the version source names, and kept is false.
-func cached(ctx context.Context, dir string, size int, hash string, source func() (file, version string, err error)) (dst string, kept bool, err error) {
+func cached(ctx context.Context, dir string, size int, hash string, with drawing, source func() (file, version string, err error)) (dst string, kept bool, err error) {
 	folder, err := picturesDir(dir)
 	if err != nil {
 		return "", false, err
@@ -622,14 +722,14 @@ func cached(ctx context.Context, dir string, size int, hash string, source func(
 		_, err := os.Stat(dst)
 		return err == nil
 	}
-	if there(hash) {
+	if there(thumb.Edited(hash, with.name)) {
 		return dst, true, nil
 	}
 	src, version, err := source()
 	if err != nil {
 		return "", false, err
 	}
-	name := cmp.Or(version, hash)
+	name := thumb.Edited(cmp.Or(version, hash), with.name)
 	if kept = version == ""; there(name) {
 		return dst, kept, nil
 	}
@@ -642,7 +742,7 @@ func cached(ctx context.Context, dir string, size int, hash string, source func(
 	if there(name) { // made while this one waited
 		return dst, kept, nil
 	}
-	return dst, kept, thumb.Make(ctx, src, dst, size)
+	return dst, kept, thumb.Make(ctx, src, dst, size, with.edit)
 }
 
 // PathOf is where a photo is on the disk, or was.
@@ -733,7 +833,7 @@ func Latest(n int) (PhotoList, error) {
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
 	for i, p := range list {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit}
 	}
 	return listOf(out, profiles), err
 }

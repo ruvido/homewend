@@ -8,7 +8,7 @@
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { pane, swap } from '#lib/motion.js';
-	import { getAbout, getFile, pathOf, pictureOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile } from '#lib/api.js';
+	import { getAbout, getFile, originalOf, pathOf, pictureOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile, type Shown } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
@@ -38,8 +38,8 @@
 		/** What went wrong with the last act. */
 		failed?: string;
 		onact?: (a: MarkAct, p: GridPhoto) => void;
-		/** Turned: how many quarter turns it has now. */
-		onturned?: (id: string, turn: number) => void;
+		/** Turned: how it is shown now. */
+		onturned?: (id: string, now: Shown) => void;
 		/** Given a heart, or not any more. */
 		onfavorite?: (p: GridPhoto, on: boolean) => void;
 		ontakenout?: () => void;
@@ -56,11 +56,13 @@
 	const id = $derived(p?.id);
 	const missing = $derived(p?.missing);
 	// What Chromium shows by itself: zoomed in, the original; anything else
-	// (HEIC, a raw file) is zoomed in on its preview.
+	// (HEIC, a raw file, a photo with an edit) is zoomed in on its preview.
 	const ext = $derived(p ? p.name.toLowerCase().split('.').pop() ?? '' : '');
 	const image = $derived(['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext));
-	// The photo whose preview has loaded whole: shown over its thumbnail.
-	let ready = $state('');
+	// The photo whose preview has loaded whole, as it was then: shown over its
+	// thumbnail. Its edit another since, that stays until the new one's has.
+	let ready = $state.raw<GridPhoto>();
+	const seen = $derived(p && ready?.id === p.id && ready.edit !== p.edit ? ready : p);
 	// The previews of the photos either side, asked before they are wanted:
 	// the browser keeps them, and moving on is at once.
 	$effect(() => {
@@ -79,7 +81,7 @@
 	// Turned a quarter or three, the picture's box is the stage's on its side.
 	let stageW = $state(0);
 	let stageH = $state(0);
-	const turn = $derived(p?.turn ?? 0);
+	const turn = $derived(seen?.turn ?? 0);
 	const side = $derived(turn % 2 === 1);
 	const fit = $derived(
 		!turn
@@ -93,17 +95,17 @@
 		if (!p) return;
 		const photo = p;
 		zoomed = asked = null;
-		onturned?.(photo.id, (await turnLeft(photo)).turn);
+		onturned?.(photo.id, await turnLeft(photo));
 	}
 	let pan = $state<HTMLDivElement>();
-	let asked = $state<{ id: string; fx: number; fy: number } | null>(null);
+	let asked = $state<{ src: string; fx: number; fy: number } | null>(null);
 	// w × h the picture as shown, turned; iw × ih the picture itself.
-	let zoomed = $state<{ id: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
-	const zoomSrc = $derived(p ? pictureOf(p, image ? 'original' : 'preview') : '');
+	let zoomed = $state<{ src: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
+	const zoomSrc = $derived(p ? image && !p.edit ? originalOf(p) : pictureOf(p, 'preview') : '');
 	$effect(() => {
-		// Another photo: fitted again.
-		if (id !== zoomed?.id) zoomed = null;
-		if (id !== asked?.id) asked = null;
+		// Another photo, or edit of it: fitted again.
+		if (zoomSrc !== zoomed?.src) zoomed = null;
+		if (zoomSrc !== asked?.src) asked = null;
 		if (id !== beat) beat = '';
 	});
 	function zoomIn(e: MouseEvent) {
@@ -116,7 +118,7 @@
 		const fx = (e.clientX - r.left - (r.width - w) / 2) / w;
 		const fy = (e.clientY - r.top - (r.height - h) / 2) / h;
 		if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return;
-		asked = { id: p.id, fx, fy };
+		asked = { src: zoomSrc, fx, fy };
 	}
 	function loaded(e: Event) {
 		if (!asked) return;
@@ -270,7 +272,7 @@
 							</div>
 						{:else if video}
 							<!-- svelte-ignore a11y_media_has_caption -->
-							<video src={pictureOf(p, 'original')} controls autoplay></video>
+							<video src={originalOf(p)} controls autoplay></video>
 						{:else if zoomed}
 							<div class="pan" bind:this={pan} onpointerdown={down} onpointermove={moveDrag} onpointerup={up} role="presentation">
 								<div class="turned" style:width="{zoomed.w}px" style:height="{zoomed.h}px">
@@ -287,16 +289,16 @@
 						{:else}
 							<!-- The thumbnail at once; the preview, from the cache, over it only
 							     once whole: a big file is never seen drawing itself. -->
-							<img src={pictureOf(p)} alt={p.name} style={fit} />
+							<img src={pictureOf(seen ?? p)} alt={p.name} style={fit} />
 							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 							<img
 								style={fit}
 								class="full"
-								class:ready={ready === p.id}
+								class:ready={ready?.id === p.id}
 								src={pictureOf(p, 'preview')}
 								alt=""
 								bind:this={fitted}
-								onload={() => p && (ready = p.id)}
+								onload={() => p && (ready = p)}
 								onclick={zoomIn}
 							/>
 							{#if asked}

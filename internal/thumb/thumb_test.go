@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/ruvido/homewend/internal/edit"
 )
 
 func writePNG(t *testing.T, path string, w, h int) {
@@ -39,7 +41,7 @@ func TestMakeFitsTheLongEdge(t *testing.T) {
 	// The grid's thumbnail and the viewer's preview, each at its own size.
 	for _, size := range []int{Size, PreviewSize} {
 		dst := Path(filepath.Join(dir, "cache", strconv.Itoa(size)), "abcdef")
-		if err := Make(context.Background(), src, dst, size); err != nil {
+		if err := Make(context.Background(), src, dst, size, edit.Edit{}); err != nil {
 			t.Fatal(err)
 		}
 		f, err := os.Open(dst)
@@ -60,7 +62,7 @@ func TestMakeFitsTheLongEdge(t *testing.T) {
 func TestUnknownFormat(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "x.txt")
 	os.WriteFile(src, []byte("hello"), 0o644)
-	if err := Make(context.Background(), src, src+".jpg", Size); !errors.Is(err, ErrNoDecoder) {
+	if err := Make(context.Background(), src, src+".jpg", Size, edit.Edit{}); !errors.Is(err, ErrNoDecoder) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -130,7 +132,7 @@ func TestTheCamerasThumbnail(t *testing.T) {
 		{"for the viewer", 1024, 768, 512, 384, PreviewSize, false},
 	} {
 		dst := filepath.Join(t.TempDir(), "out.jpg")
-		if err := Make(context.Background(), withThumbnail(t, c.w, c.h, c.tw, c.th), dst, c.size); err != nil {
+		if err := Make(context.Background(), withThumbnail(t, c.w, c.h, c.tw, c.th), dst, c.size, edit.Edit{}); err != nil {
 			t.Fatal(c.name, err)
 		}
 		f, err := os.Open(dst)
@@ -204,7 +206,7 @@ func TestNoBarsInAThumbnail(t *testing.T) {
 		{"no thumbnail", 1500, 1000, nil, false, false},
 	} {
 		dst := filepath.Join(t.TempDir(), "out.jpg")
-		if err := Make(context.Background(), withStream(t, c.w, c.h, c.bar, c.some), dst, Size); err != nil {
+		if err := Make(context.Background(), withStream(t, c.w, c.h, c.bar, c.some), dst, Size, edit.Edit{}); err != nil {
 			t.Fatal(c.name, err)
 		}
 		f, err := os.Open(dst)
@@ -246,7 +248,7 @@ func TestANoWidePhoto(t *testing.T) {
 	if err := os.WriteFile(path, b, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := Make(context.Background(), path, filepath.Join(t.TempDir(), "out.jpg"), Size); err == nil {
+	if err := Make(context.Background(), path, filepath.Join(t.TempDir(), "out.jpg"), Size, edit.Edit{}); err == nil {
 		t.Error("made one")
 	}
 }

@@ -92,10 +92,19 @@ function of(p: PhotoKey) {
 	return p.hash + end;
 }
 
-/** Its picture, small, at the size of a screen, or its own file. */
-export const pictureOf = (p: PhotoKey, what: 'thumb' | 'preview' | 'original' = 'thumb') => `/api/${what}/${of(p)}`;
+/** Its picture as it is shown, small or at the size of a screen; and its own file. */
+export const pictureOf = (p: PhotoKey & Shown, what: 'thumb' | 'preview' = 'thumb') => `/api/${what}/${of(p)}` + (p.edit ? `&edit=${p.edit}` : '');
+export const originalOf = (p: PhotoKey) => `/api/original/${of(p)}`;
 
-export interface GridPhoto extends PhotoKey {
+/** How a photo is shown. */
+export interface Shown {
+	/** Quarter turns anticlockwise the person gave it, of one with no edit. */
+	turn?: number;
+	/** Names its edit: another, and its pictures are others. */
+	edit?: string;
+}
+
+export interface GridPhoto extends PhotoKey, Shown {
 	/** Its library and its content in one: what a list and a selection know it by. */
 	id: string;
 	/** Whose library's, by its place in the engine's profiles: none is the first. */
@@ -109,8 +118,6 @@ export interface GridPhoto extends PhotoKey {
 	video?: boolean;
 	/** Its file is gone from the library, deleted or moved by hand. */
 	missing?: boolean;
-	/** Quarter turns anticlockwise the person gave it. */
-	turn?: number;
 	/** In the Archive, shown in an album. */
 	archived?: boolean;
 	/** Given a heart. */
@@ -248,7 +255,7 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 
 export const getLatest = () => call<Parameters<typeof asPhotos>[0]>('GET', '/api/latest').then(asPhotos);
 export const giveDates = (photos: PhotoKey[], when: string) => call<{ moved: number }>('POST', '/api/dates', { photos: photos.map(keyOf), when });
-export const turnLeft = (p: PhotoKey) => call<{ turn: number }>('POST', `/api/turn/${of(p)}`);
+export const turnLeft = (p: PhotoKey) => call<Shown>('POST', `/api/turn/${of(p)}`);
 /** A square picture turned as the person turned the photo. */
 export const turned = (p: { turn?: number }) => (p.turn ? `rotate(${-90 * p.turn}deg)` : undefined);
 export interface PhotoAbout {
