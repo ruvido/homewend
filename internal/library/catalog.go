@@ -554,8 +554,9 @@ type Filter struct {
 	NoDate         bool // only the photos whose date nobody knows
 	// Archived keeps only the archived photos; Grid leaves them out, as the
 	// main grid and its years do; Trashed keeps only those in the Trash,
-	// which are otherwise in no list.
-	Archived, Grid, Trashed bool
+	// which are otherwise in no list; Favorite only those with a heart,
+	// archived or not.
+	Archived, Grid, Trashed, Favorite bool
 	// Profile keeps the photos of this profile's library.
 	Profile string
 	// Only keeps only these photos; nil is all, empty is none.
@@ -641,6 +642,19 @@ func (c *Catalog) Count(f Filter) (int, error) {
 	return n, err
 }
 
+// CountsByState is how many photos are archived, in the Trash and given a
+// heart, as many as Page has for each, in one reading of the rows.
+func (c *Catalog) CountsByState(accounts []string) (archived, trashed, favorite int, err error) {
+	query := `SELECT COALESCE(SUM(trashed = 0 AND archived), 0), COALESCE(SUM(trashed), 0), COALESCE(SUM(trashed = 0 AND favorite), 0)
+		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1)`
+	clause, args := ownedBy(accounts)
+	if clause != "" {
+		query += " AND " + clause
+	}
+	err = c.db.QueryRow(query, args...).Scan(&archived, &trashed, &favorite)
+	return archived, trashed, favorite, err
+}
+
 // where is query narrowed by the filter, and its arguments.
 func (f Filter) where(query string) (string, []any) {
 	where := []string{"NOT " + away}
@@ -666,6 +680,9 @@ func (f Filter) where(query string) (string, []any) {
 		where = append(where, "archived = 1")
 	} else if f.Grid {
 		where = append(where, "archived = 0")
+	}
+	if f.Favorite {
+		where = append(where, "favorite = 1")
 	}
 	if f.Profile != "" {
 		where = append(where, "profile = ?")

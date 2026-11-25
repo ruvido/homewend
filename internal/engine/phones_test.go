@@ -160,7 +160,8 @@ func mustRead(t *testing.T, name string) string {
 }
 
 // A photo archived on the computer leaves the grid for the Archive, one in
-// the Trash leaves both for the Trash, and the overview counts them.
+// the Trash leaves both for the Trash, a favorite archived stays one, and the
+// overview counts them.
 func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 	config(t)
 	root := t.TempDir()
@@ -183,6 +184,11 @@ func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 	if done, err := MarkOf(phone, library.Trashed, hashes[1:], true); err != nil || len(done) != 1 {
 		t.Fatalf("trashed %v %v", done, err)
 	}
+	for _, h := range hashes {
+		if done, err := Mark(library.Favorite, []library.Key{{Hash: h, Profile: "ron"}}, true); err != nil || len(done) != 1 {
+			t.Fatalf("favorite %v %v", done, err)
+		}
+	}
 	count := func(view string) int {
 		list, err := Photos(Settings{}, "", "", "", false, view, 0)
 		if err != nil {
@@ -193,8 +199,11 @@ func TestArchiveAndTrashOnTheComputer(t *testing.T) {
 	if grid, archive, trash := count(""), count(ViewArchive), count(ViewTrash); grid != 0 || archive != 1 || trash != 1 {
 		t.Errorf("grid %d archive %d trash %d, want 0 1 1", grid, archive, trash)
 	}
+	if favorites := count(ViewFavorites); favorites != 1 {
+		t.Errorf("favorites %d, want the archived one", favorites)
+	}
 	o, err := overview(root, nil, nil, "")
-	if err != nil || o.Archived != 1 || o.Trashed != 1 || o.Total != 0 {
+	if err != nil || o.Archived != 1 || o.Trashed != 1 || o.Favorites != 1 || o.Total != 0 {
 		t.Errorf("overview %+v %v", o, err)
 	}
 }

@@ -28,6 +28,7 @@ export const twoAccounts: Sidebar = {
 	takeouts: 5,
 	archived: 12,
 	trashed: 3,
+	favorites: 148,
 	missing: 0
 };
 

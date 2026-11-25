@@ -139,12 +139,21 @@
 		<hr />
 
 		{#if !rail}
-			<button class="row" class:selected={is({ kind: 'all' })} onclick={() => go({ kind: 'all' })}>
-				<span class="lead"><Icon name="images" size={20} /></span>
-				<span class="label">{text.allPhotos}</span>
-				<!-- None counted is no number: a library whose disk does not answer is not empty. -->
-				{#if data.total > 0}<span class="count">{data.total.toLocaleString('en')}</span>{/if}
-			</button>
+			<div class="group">
+				<button class="row" class:selected={is({ kind: 'all' })} onclick={() => go({ kind: 'all' })}>
+					<span class="lead"><Icon name="images" size={20} /></span>
+					<span class="label">{text.allPhotos}</span>
+					<!-- None counted is no number: a library whose disk does not answer is not empty. -->
+					{#if data.total > 0}<span class="count">{data.total.toLocaleString('en')}</span>{/if}
+				</button>
+				{#if data.favorites > 0 || is({ kind: 'favorites' })}
+					<button in:reveal out:reveal={{ leaving: true }} class="row" class:selected={is({ kind: 'favorites' })} onclick={() => go({ kind: 'favorites' })}>
+						<span class="lead"><Icon name="heart" size={20} /></span>
+						<span class="label">{text.favorites}</span>
+						{#if data.favorites > 0}<span class="count">{data.favorites.toLocaleString('en')}</span>{/if}
+					</button>
+				{/if}
+			</div>
 
 			<hr />
 

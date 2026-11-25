@@ -166,6 +166,71 @@ func TestAnArchivedPhoto(t *testing.T) {
 	}
 }
 
+// The Favorites are the photos with a heart of the accounts asked, archived
+// ones too, those in the Trash not; the counts of the states are their lists'.
+func TestTheFavorites(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	empty := func(what string) {
+		if a, tr, f, err := c.CountsByState(nil); a != 0 || tr != 0 || f != 0 || err != nil {
+			t.Errorf("%s: %d %d %d %v", what, a, tr, f, err)
+		}
+	}
+	empty("no photo")
+	keys := map[string]Key{}
+	for i, h := range []string{"a", "b", "c", "d", "e"} {
+		keys[h] = Key{h, "ron"}
+		taken := time.Date(2020, 5, 1+i, 0, 0, 0, 0, time.UTC)
+		if err := c.Put(Photo{Hash: h, Profile: "ron", Path: "ron/" + h, Name: h, Taken: taken}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	empty("no state")
+	for h, account := range map[string]string{"a": "ron", "c": "ron", "b": "ann", "d": "ann", "e": "ann"} {
+		if err := c.addOwner(keys[h], "google/"+account+"@example.com"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for state, hashes := range map[State]string{Favorite: "abcd", Archived: "bce", Trashed: "ce"} {
+		for _, h := range hashes {
+			if done, err := c.Mark(state, []Key{keys[string(h)]}, true); err != nil || len(done) != 1 {
+				t.Fatalf("%s %c: %v %v", state, h, done, err)
+			}
+		}
+	}
+	for _, x := range []struct {
+		accounts []string
+		want     string
+	}{
+		{nil, "dba"},
+		{[]string{"google/ron@example.com"}, "a"},
+		{[]string{"google/ann@example.com"}, "db"},
+		{[]string{}, ""},
+	} {
+		page, err := c.Page(Filter{Favorite: true, Accounts: x.accounts})
+		got := ""
+		for _, p := range page {
+			got += p.Hash
+		}
+		if err != nil || got != x.want {
+			t.Errorf("favorites of %v: %q %v, want %q", x.accounts, got, err, x.want)
+		}
+		archived, trashed, favorite, err := c.CountsByState(x.accounts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, f := range []Filter{{Archived: true}, {Trashed: true}, {Favorite: true}} {
+			f.Accounts = x.accounts
+			if n, err := c.Count(f); err != nil || n != []int{archived, trashed, favorite}[i] {
+				t.Errorf("%+v: list %d %v, counts %d %d %d", f, n, err, archived, trashed, favorite)
+			}
+		}
+	}
+}
+
 // A photo in the Trash is in no list, not even its album, and is held as
 // deleted: no import and no phone brings it in again; restored, it is back.
 func TestAPhotoInTheTrash(t *testing.T) {
