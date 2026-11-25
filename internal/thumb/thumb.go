@@ -326,7 +326,8 @@ func frame(ctx context.Context, src string, size int) (image.Image, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: video needs ffmpeg", ErrNoDecoder)
 	}
-	scale := "scale='min(" + strconv.Itoa(size) + ",iw)':-2"
+	// A JPEG is BT.601, full range; HD video is BT.709, which ffmpeg leaves.
+	scale := "scale='min(" + strconv.Itoa(size) + ",iw)':-2:out_color_matrix=bt601:out_range=full"
 	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "error", "-i", src,
 		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-")
 	out, err := cmd.Output()

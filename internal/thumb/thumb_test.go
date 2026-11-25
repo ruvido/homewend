@@ -14,6 +14,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -247,5 +248,33 @@ func TestANoWidePhoto(t *testing.T) {
 	}
 	if err := Make(context.Background(), path, filepath.Join(t.TempDir(), "out.jpg"), Size); err == nil {
 		t.Error("made one")
+	}
+}
+
+// A video's frame has its colours, whatever matrix and range they are in.
+func TestAVideosColours(t *testing.T) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("no ffmpeg")
+	}
+	for _, c := range []struct{ matrix, levels string }{
+		{"bt709", "tv"}, {"bt709", "pc"}, {"smpte170m", "tv"}, {"bt2020nc", "tv"},
+	} {
+		src := filepath.Join(t.TempDir(), "a.mkv")
+		out, err := exec.CommandContext(t.Context(), ffmpeg, "-v", "error",
+			"-f", "lavfi", "-i", "color=c=0x00c000:s=1280x720:d=0.2",
+			"-vf", "scale=out_color_matrix="+c.matrix+":out_range="+c.levels+",format=yuv420p",
+			"-colorspace", c.matrix, "-color_range", c.levels, "-c:v", "ffv1", src).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		img, err := frame(t.Context(), src, Size)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := color.RGBAModel.Convert(img.At(50, 50)).(color.RGBA)
+		if far(got.R, 0, 6) || far(got.G, 192, 6) || far(got.B, 0, 6) {
+			t.Errorf("%s, %s: %v", c.matrix, c.levels, got)
+		}
 	}
 }
