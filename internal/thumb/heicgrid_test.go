@@ -228,7 +228,7 @@ func TestAGridDamaged(t *testing.T) {
 			t.Fatal(err)
 		}
 		whole, err := heic.Decode(bytes.NewReader(a.file()))
-		img := gridHEIC(t.Context(), path, PreviewSize)
+		img := gridHEIC(t.Context(), readHEIC(path), PreviewSize)
 		if img != nil && (err != nil || !alike(img, whole)) {
 			t.Error(name, err)
 		}
@@ -246,19 +246,19 @@ func TestAGridDamaged(t *testing.T) {
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if gridHEIC(t.Context(), path, PreviewSize) != nil {
+		if gridHEIC(t.Context(), readHEIC(path), PreviewSize) != nil {
 			t.Error("tiles that are not what they are said to be")
 		}
 	}
 	if err := os.WriteFile(path, defaults().file(), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if img := gridHEIC(t.Context(), path, 75); img == nil || img.Bounds().Size() != image.Pt(50, 75) {
+	if img := gridHEIC(t.Context(), readHEIC(path), 75); img == nil || img.Bounds().Size() != image.Pt(50, 75) {
 		t.Error(img)
 	}
 	gone, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := decode(gone, path, PreviewSize); !errors.Is(err, context.Canceled) {
+	if _, _, err := decode(gone, path, PreviewSize); !errors.Is(err, context.Canceled) {
 		t.Error(err)
 	}
 }

@@ -52,14 +52,14 @@ const (
 // first, is not slowed by those either side of it.
 var oneGrid = make(chan struct{}, 1)
 
-// gridHEIC is the HEIC at src no larger than size, upright, its tiles decoded
+// gridHEIC is the HEIC data no larger than size, upright, its tiles decoded
 // apart; nil when it is not a grid of the kind known here or does not decode
 // as one, for the decoder to be given it whole.
 //
 // The whole takes 5 to 7 seconds in the decoder that comes with the app,
 // nearly all of it HEVC on one core. ffmpeg, when there is one, decodes the
 // tiles as the frames of a video; without it every core takes tiles.
-func gridHEIC(ctx context.Context, src string, size int) image.Image {
+func gridHEIC(ctx context.Context, data []byte, size int) image.Image {
 	// libheif does the same by itself.
 	if heic.Dynamic() == nil {
 		return nil
@@ -70,7 +70,7 @@ func gridHEIC(ctx context.Context, src string, size int) image.Image {
 		return nil
 	}
 	defer func() { <-oneGrid }()
-	g := gridOf(readHEIC(src))
+	g := gridOf(data)
 	if g == nil {
 		return nil
 	}

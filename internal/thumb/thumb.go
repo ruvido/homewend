@@ -73,14 +73,15 @@ func Make(ctx context.Context, src, dst string, size int) (err error) {
 			err = fmt.Errorf("decoding %s: %v", src, r)
 		}
 	}()
-	img, err := decode(ctx, src, size)
+	img, colours, err := decode(ctx, src, size)
 	if err != nil {
 		return err
 	}
 	if img.Bounds().Empty() {
 		return fmt.Errorf("%w: %s is empty", ErrNoDecoder, src)
 	}
-	img = upright(fit(img, size), library.Orientation(src))
+	// Scaled first: there are fewer pixels to convert.
+	img = upright(colours.toSRGB(fit(img, size)), library.Orientation(src))
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
 		return err
@@ -155,42 +156,57 @@ func Kept(cacheDir string) map[string]bool {
 	return kept
 }
 
-func decode(ctx context.Context, src string, size int) (image.Image, error) {
+// decode is the picture of src, size large or more, and what its colours are.
+func decode(ctx context.Context, src string, size int) (image.Image, *profile, error) {
 	ext := strings.ToLower(filepath.Ext(src))
 	if library.IsVideo(src) {
-		return frame(ctx, src, size)
+		img, err := frame(ctx, src, size)
+		return img, nil, err
 	}
 	f, err := os.Open(src)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
-	if img := embedded(f, src, size); img != nil {
-		return img, nil
+	colours := profileOf(f, src)
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, nil, err
+	}
+	// The camera's thumbnail does not say its colours, where the photo's are
+	// not sRGB.
+	if colours == nil {
+		if img := embedded(f, src, size); img != nil {
+			return img, nil, nil
+		}
 	}
 	if library.IsHEIC(src) {
-		if img := smallHEIC(src, size); img != nil {
-			return img, nil
+		data := readHEIC(src)
+		if img, own := smallHEIC(src, data, size); img != nil {
+			return img, own, nil
 		}
-		if img := gridHEIC(ctx, src, size); img != nil {
-			return img, nil
+		if img := gridHEIC(ctx, data, size); img != nil {
+			return img, heicProfile(data), nil
 		}
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if img, err := heic.Decode(f); err == nil {
-			return img, nil
+			return img, heicProfile(data), nil
 		}
 		// A JPEG saved with the wrong name.
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	img, _, err := image.Decode(f)
 	if errors.Is(err, image.ErrFormat) {
-		return nil, fmt.Errorf("%w: %s", ErrNoDecoder, ext)
+		return nil, nil, fmt.Errorf("%w: %s", ErrNoDecoder, ext)
 	}
-	return img, err
+	switch img.(type) {
+	case *image.CMYK, *image.Gray, *image.Gray16: // not the three colours of a profile
+		colours = nil
+	}
+	return img, colours, err
 }
 
 // embedded is the thumbnail the camera wrote in the JPEG f, when it is as
@@ -227,19 +243,20 @@ func embedded(f io.ReadSeeker, src string, size int) image.Image {
 	return nil
 }
 
-// smallHEIC is a HEIC's own thumbnail, as embedded is a JPEG's.
-func smallHEIC(src string, size int) image.Image {
+// smallHEIC is the own thumbnail of the HEIC data, at src, as embedded is a
+// JPEG's, and what its colours are.
+func smallHEIC(src string, data []byte, size int) (image.Image, *profile) {
 	if size > Size {
-		return nil
+		return nil, nil
 	}
-	img := heicThumbnail(src)
+	img, colours := heicThumbnail(data)
 	if img == nil || max(img.Bounds().Dx(), img.Bounds().Dy()) < size {
-		return nil
+		return nil, nil
 	}
 	if w, h := Dimensions(src); w == 0 || !sameShape(img, w, h) {
-		return nil
+		return nil, nil
 	}
-	return img
+	return img, colours
 }
 
 // sameShape says whether img has the shape of w by h, within two of its own
@@ -310,7 +327,8 @@ func frame(ctx context.Context, src string, size int) (image.Image, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: video needs ffmpeg", ErrNoDecoder)
 	}
-	scale := "scale='min(" + strconv.Itoa(size) + ",iw)':-2"
+	// A JPEG is BT.601, full range; HD video is BT.709, which ffmpeg leaves.
+	scale := "scale='min(" + strconv.Itoa(size) + ",iw)':-2:out_color_matrix=bt601:out_range=full"
 	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "error", "-i", src,
 		"-frames:v", "1", "-vf", scale, "-f", "image2pipe", "-vcodec", "mjpeg", "-")
 	out, err := cmd.Output()
@@ -339,7 +357,16 @@ func fit(img image.Image, size int) image.Image {
 		w, h = max(1, w*size/h), size
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
-	// In strips, one a core: the pixels are the same.
+	inStrips(h, func(from, to int) {
+		strip := dst.SubImage(image.Rect(0, from, w, to)).(*image.RGBA)
+		draw.ApproxBiLinear.Scale(strip, dst.Bounds(), img, b, draw.Src, nil)
+	})
+	return dst
+}
+
+// inStrips does the h lines of a picture in strips, one a core: the pixels are
+// the same.
+func inStrips(h int, do func(from, to int)) {
 	var wg sync.WaitGroup
 	var failed atomic.Value
 	strips := min(h, runtime.GOMAXPROCS(0))
@@ -351,15 +378,13 @@ func fit(img image.Image, size int) image.Image {
 					failed.Store(fmt.Sprint(r))
 				}
 			}()
-			strip := dst.SubImage(image.Rect(0, h*i/strips, w, h*(i+1)/strips)).(*image.RGBA)
-			draw.ApproxBiLinear.Scale(strip, dst.Bounds(), img, b, draw.Src, nil)
+			do(h*i/strips, h*(i+1)/strips)
 		})
 	}
 	wg.Wait()
 	if r := failed.Load(); r != nil {
 		panic(r)
 	}
-	return dst
 }
 
 // upright turns img as the EXIF orientation says.
@@ -369,11 +394,7 @@ func upright(img image.Image, orientation int) image.Image {
 	}
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
-	src, ok := img.(*image.RGBA)
-	if !ok {
-		src = image.NewRGBA(b)
-		draw.Draw(src, b, img, b.Min, draw.Src)
-	}
+	src := rgba(img)
 	swap := orientation >= 5
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	if swap {
@@ -402,5 +423,16 @@ func upright(img image.Image, orientation int) image.Image {
 			copy(out.Pix[to:to+4], src.Pix[from:from+4])
 		}
 	}
+	return out
+}
+
+// rgba is img, or a copy of it, as an RGBA.
+func rgba(img image.Image) *image.RGBA {
+	if out, ok := img.(*image.RGBA); ok {
+		return out
+	}
+	b := img.Bounds()
+	out := image.NewRGBA(b)
+	draw.Draw(out, b, img, b.Min, draw.Src)
 	return out
 }
