@@ -110,8 +110,8 @@ func Parse(data []byte) (Edit, error) {
 }
 
 // Removes says whether data, an edit not refused, is the photo as it came: null,
-// or no tool set and no crop. A crop that changes nothing is an edit: it is the
-// photo as its file has it, not as it was turned here.
+// or no tool set and nothing else. A crop that changes nothing is an edit: it is
+// the photo as its file has it, not as it was turned here.
 func Removes(data []byte) bool {
 	e, err := Parse(data)
 	if err != nil || !e.None() {
@@ -121,7 +121,8 @@ func Removes(data []byte) bool {
 	if json.Unmarshal(data, &fields) != nil || fields == nil {
 		return true
 	}
-	if _, ok := fields["crop"]; ok || json.Unmarshal(fields["adjust"], &adjust) != nil {
+	// The two it must have: a crop, or a field not known here, is something.
+	if len(fields) != 2 || json.Unmarshal(fields["adjust"], &adjust) != nil {
 		return false
 	}
 	for name := range adjust {

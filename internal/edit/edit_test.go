@@ -671,7 +671,7 @@ func TestRemoves(t *testing.T) {
 		`null`:                                 true,
 		`{"adjust":{},"tools":2}`:              true,
 		`{"adjust":{"Exposure":0},"tools":2}`:  true,
-		`{"adjust":{},"tools":2,"Crop":1}`:     true,
+		`{"adjust":{},"tools":2,"Crop":1}`:     false,
 		`{"adjust":{},"tools":2,` + none + `}`: false,
 		`{"adjust":{"Exposure":1},"tools":2}`:  false,
 		`{"adjust":{"Grain":5},"tools":2}`:     false,

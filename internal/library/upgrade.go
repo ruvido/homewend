@@ -517,7 +517,21 @@ func addLinks(tx *sql.Tx, links []link, profileOf func(source string) string) er
 	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || linksFound(version) {
 		return err
 	}
-	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, linksSince))
+	// A table that could not be made, the disk full, is still to be.
+	since := linksSince
+	for _, lacks := range []struct {
+		table string
+		since int
+	}{{"edits", linksBeforeEdits}, {"marks", linksBeforeMarks}} {
+		there, err := hasTable(tx, lacks.table)
+		if err != nil {
+			return err
+		}
+		if !there {
+			since = lacks.since
+		}
+	}
+	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, since))
 	return err
 }
 

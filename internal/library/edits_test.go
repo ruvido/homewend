@@ -459,3 +459,30 @@ func TestEditsWhereNothingCanBeWritten(t *testing.T) {
 		t.Error(fmt.Sprint(err))
 	}
 }
+
+// Links found where a table could not be made leave it to be made by the next
+// opening.
+func TestLinksFoundWithNoTable(t *testing.T) {
+	for version, drop := range map[int]string{
+		marksSince:     dropEdits,
+		librariesSince: dropEdits + `DROP TABLE catalog_id; DROP TABLE marks; DROP TABLE mark_seqs; DROP TRIGGER mark_noted; DROP TRIGGER mark_refiled; DROP TRIGGER mark_forgotten;`,
+	} {
+		c, path := marking(t, 1)
+		olderAt(t, path, version, drop)
+		if err := c.inTx(func(tx *sql.Tx) error { return addLinks(tx, nil, nil) }); err != nil {
+			t.Fatal(err)
+		}
+		c.Close()
+		c, err := OpenCatalog(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tell(t, c, "A", 0, act(1, true, 0), edited(2, bright, 0))
+		editIs(t, c, "ron", bright)
+		var now int
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != linksSince {
+			t.Errorf("from %d: version %d %v, want %d", version, now, err, linksSince)
+		}
+		c.Close()
+	}
+}
