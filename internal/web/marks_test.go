@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -42,6 +43,7 @@ type answered struct {
 	Other, More, Changed bool
 	Said, Marks          []library.Mark
 	Unknown              []string
+	Refused              []int64
 	Have                 []string
 }
 
@@ -73,10 +75,10 @@ func (p *testPhone) try(ctx context.Context, method, path, body string) (int, an
 }
 
 // wait is a held question, its status and answer when they come.
-func (p *testPhone) wait(ctx context.Context, shelf string, after int64) <-chan answered {
+func (p *testPhone) wait(ctx context.Context, shelf string, after int64, states ...string) <-chan answered {
 	out := make(chan answered, 1)
 	go func() {
-		code, a, err := p.try(ctx, "GET", fmt.Sprintf("/v1/marks?shelf=%s&after=%d", shelf, after), "")
+		code, a, err := p.try(ctx, "GET", fmt.Sprintf("/v1/marks?shelf=%s&after=%d&states=%s", shelf, after, strings.Join(states, ",")), "")
 		if err != nil {
 			a.Error = err.Error()
 		} else if code != http.StatusOK {
@@ -148,7 +150,7 @@ func pairWith(t *testing.T, url, profile string) *testPhone {
 		t.Fatal(err)
 	}
 	status, a := p.call("POST", "/v1/pair", `{"code":"`+code+`","name":"Pixel"}`)
-	if status != http.StatusOK || !slices.Contains(a.Features, "marks") {
+	if status != http.StatusOK || !slices.Contains(a.Features, "marks") || !slices.Contains(a.Features, "edits") {
 		t.Fatalf("pairing: %d %+v", status, a)
 	}
 	p.token, p.id = a.Token, a.Phone
@@ -181,7 +183,7 @@ func TestAPhonesHeartsAreTheWindows(t *testing.T) {
 	srv := httptest.NewServer(phoneRoutes(&phoneListener{port: 1}))
 	defer srv.Close()
 	ron, ann := pairWith(t, srv.URL, "ron"), pairWith(t, srv.URL, "ann")
-	if _, a := ron.call("GET", "/v1/hello", ""); !slices.Contains(a.Features, "marks") {
+	if _, a := ron.call("GET", "/v1/hello", ""); !slices.Contains(a.Features, "marks") || !slices.Contains(a.Features, "edits") {
 		t.Errorf("hello: %+v", a)
 	}
 	// Nothing is in the library yet: it has no marks to speak of.
@@ -203,8 +205,8 @@ func TestAPhonesHeartsAreTheWindows(t *testing.T) {
 	nowhere := strings.Repeat("0", 64)
 	code, a := ron.says(shelf, 0, said(1, one, true, 10), said(2, nowhere, true, 10),
 		`{"n":3,"hash":"`+two+`","state":"edit","value":{"a":[1]},"ago":5}`)
-	if code != http.StatusOK || a.Other || a.More || a.Owner != "ron" || a.Shelf != shelf || *a.Cursor != 1 || len(a.Said) != 1 || !a.Said[0].Value ||
-		len(a.Marks) != 1 || a.Marks[0] != a.Said[0] || !slices.Equal(a.Unknown, []string{nowhere}) {
+	if code != http.StatusOK || a.Other || a.More || a.Owner != "ron" || a.Shelf != shelf || *a.Cursor != 1 || len(a.Said) != 1 || string(a.Said[0].Value) != "true" ||
+		len(a.Marks) != 1 || !reflect.DeepEqual(a.Marks, a.Said) || !slices.Equal(a.Unknown, []string{nowhere}) {
 		t.Errorf("said: %d %+v", code, a)
 	}
 	list, err := engine.Photos(engine.Settings{}, "", "", "", false, "", 0)
@@ -231,7 +233,7 @@ func TestAPhonesHeartsAreTheWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	ann.ends("a heart of ann's", anns, true)
-	if _, a := ann.says(annHave.Shelf, 0); len(a.Marks) != 1 || a.Marks[0].Hash != one || !a.Marks[0].Value {
+	if _, a := ann.says(annHave.Shelf, 0); len(a.Marks) != 1 || a.Marks[0].Hash != one || string(a.Marks[0].Value) != "true" {
 		t.Errorf("ann hears %+v", a)
 	}
 	// The page follows LibraryChanges: a heart that comes in moves it.
@@ -333,7 +335,7 @@ func TestAHostilePhonesMarks(t *testing.T) {
 	// The greatest numbers there are.
 	for _, m := range []string{`{"n":9223372036854775807,"hash":"` + one + `","state":"favorite","value":true,"ago":9223372036854775807}`,
 		`{"n":9223372036854775807,"hash":"` + one + `","state":"favorite","value":false,"ago":-9223372036854775808}`} {
-		if code, a := p.says(shelf, 0, m); code != http.StatusOK || len(a.Said) != 1 || !a.Said[0].Value {
+		if code, a := p.says(shelf, 0, m); code != http.StatusOK || len(a.Said) != 1 || string(a.Said[0].Value) != "true" {
 			t.Errorf("%d %+v", code, a)
 		}
 	}
@@ -372,4 +374,54 @@ func TestQuittingEndsAQuestion(t *testing.T) {
 	if err := <-served; err != nil {
 		t.Error(err)
 	}
+}
+
+// Two phones of one library hear each other's edits, as they were said; one
+// from before edits is neither told of one nor carries it.
+func TestAPhonesEdits(t *testing.T) {
+	newLibrary(t)
+	srv := httptest.NewServer(phoneRoutes(&phoneListener{port: 1}))
+	defer srv.Close()
+	first, second, old := pairWith(t, srv.URL, "ron"), pairWith(t, srv.URL, "ron"), pairWith(t, srv.URL, "ron")
+	one := first.sends("one")
+	_, have := first.call("POST", "/v1/have", `{"hashes":[]}`)
+	shelf := have.Shelf
+	asks := func(p *testPhone, after int64, marks ...string) (int, answered) {
+		return p.call("POST", "/v1/marks", fmt.Sprintf(`{"shelf":%q,"after":%d,"install":%q,"states":["favorite","edit"],"marks":[%s]}`, shelf, after, p.id, strings.Join(marks, ",")))
+	}
+	edit := func(n int, value string) string {
+		return fmt.Sprintf(`{"n":%d,"hash":%q,"state":"edit","value":%s,"ago":0}`, n, one, value)
+	}
+	const newer = `{"tools":9,"by":"<a&b>","x":[1.50,null]}`
+	told, untold := second.wait(context.Background(), shelf, 0, "favorite", "edit"), old.wait(context.Background(), shelf, 0)
+	code, a := asks(first, 0, edit(1, newer), edit(2, `{"tools":1}`), said(3, one, true, 0))
+	if code != http.StatusOK || len(a.Said) != 2 || !slices.Equal(a.Refused, []int64{2}) || string(a.Said[0].Value) != newer {
+		t.Errorf("%d %+v", code, a)
+	}
+	second.ends("an edit", told, true)
+	old.ends("a heart", untold, true)
+	if _, a := asks(second, 0); len(a.Marks) != 2 || string(a.Marks[0].Value) != newer || a.Marks[0].State != library.Edit || *a.Cursor != 2 {
+		t.Errorf("heard: %+v", a)
+	}
+	if _, a := old.says(shelf, 0); len(a.Marks) != 1 || a.Marks[0].State != library.Favorite || *a.Cursor != 2 {
+		t.Errorf("an older phone hears %+v", a)
+	}
+	// Removed: null to the one, nothing to the other.
+	told, untold = second.wait(context.Background(), shelf, 2, "favorite", "edit"), old.wait(context.Background(), shelf, 2)
+	if _, a := asks(first, 2, edit(4, `null`)); len(a.Said) != 1 || string(a.Said[0].Value) != "null" || a.Said[0].State != library.Edit {
+		t.Errorf("removed: %+v", a)
+	}
+	second.ends("removed", told, true)
+	if code, _ := asks(first, 3, edit(5, `null}`)); code != http.StatusBadRequest {
+		t.Errorf("not JSON: %d", code)
+	}
+	if code, _ := asks(first, 3, edit(5, `{"tools":2,"x":"`+strings.Repeat("y", 70_000)+`"}`)); code != http.StatusOK {
+		t.Errorf("a long one: %d", code)
+	}
+	select {
+	case a := <-untold:
+		t.Errorf("an older phone was told of an edit: %+v", a)
+	case <-time.After(1200 * time.Millisecond): // a look at what another process wrote too
+	}
+	srv.CloseClientConnections()
 }

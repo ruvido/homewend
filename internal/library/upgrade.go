@@ -27,13 +27,23 @@ const (
 	librariesSince = 2
 	// Marks are kept. 3 is a catalog without them whose links were found.
 	marksSince = 4
+	// Edits are kept. Before, 5 was one whose links were found.
+	editsSince = 6
 	// The names older programs gave a photo in a second profile's folder, and
 	// not in the catalog, were looked for (FindLinks).
-	linksSince = 5
+	linksSince = 7
 )
 
-// linksBeforeMarks is linksSince as a program from before marks writes it.
-const linksBeforeMarks = 3
+// What linksSince was to a program from before marks, and from before edits.
+const (
+	linksBeforeMarks = 3
+	linksBeforeEdits = 5
+)
+
+// linksFound is whether a catalog of this version had its links looked for.
+func linksFound(version int) bool {
+	return version >= linksSince || version == linksBeforeEdits || version == linksBeforeMarks
+}
 
 // beforeLibraries ends the name of the copy kept of an older catalog.
 const beforeLibraries = ".before-libraries"
@@ -109,7 +119,7 @@ var upgrading sync.Mutex
 // macOS, waits for the first even to read (catalogDSN), and it for the second.
 func upgrade(db *sql.DB, path string) error {
 	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= marksSince {
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= editsSince {
 		return err
 	}
 	upgrading.Lock()
@@ -119,7 +129,7 @@ func upgrade(db *sql.DB, path string) error {
 	for try := 1; ; try++ {
 		again, err := upgradeOnce(db, path, try >= upgradeTries)
 		if err != nil && version >= librariesSince && unwritable(err) {
-			return nil // where nothing can be written, it is shown without marks
+			return nil // where nothing can be written, it is shown without what it lacks
 		}
 		if err != nil || !again {
 			return err
@@ -158,7 +168,7 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= marksSince {
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= editsSince {
 		return false, err
 	}
 	if err := tx.QueryRow(changed).Scan(&now); err != nil || now != before && !anyway {
@@ -179,28 +189,30 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 			os.Remove(kept)
 		}
 	}()
-	older, err := hasPhotos(tx)
+	older, err := hasTable(tx, "photos")
 	if err != nil {
 		return false, err
 	}
-	steps, since := schema+marksSchema, linksSince
+	steps, since := schema+marksSchema+editsSchema, linksSince
 	switch {
 	case older:
 		if err := complete(tx, version); err != nil {
 			return false, err
 		}
-		steps, since = setAside+schema+intoLibraries+marksSchema, marksSince
+		steps, since = setAside+schema+intoLibraries+marksSchema+editsSchema, editsSince
 	case version >= librariesSince:
-		if steps = marksSchema; version < linksBeforeMarks {
-			since = marksSince
+		if steps = ""; !linksFound(version) {
+			since = editsSince
 		}
 		// A program from before them, finding links, has the version go back.
-		var there bool
-		if err := tx.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'catalog_id')`).Scan(&there); err != nil {
-			return false, err
-		}
-		if there {
-			steps = ""
+		for _, s := range []struct{ table, schema string }{{"marks", marksSchema}, {"edits", editsSchema}} {
+			there, err := hasTable(tx, s.table)
+			if err != nil {
+				return false, err
+			}
+			if !there {
+				steps += s.schema
+			}
 		}
 	}
 	if _, err := tx.Exec(steps); err != nil {
@@ -214,12 +226,13 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 	return false, err
 }
 
-// hasPhotos is whether the catalog is one from before libraries.
-func hasPhotos(db interface {
+// hasTable is whether the catalog has the table: photos, one from before
+// libraries.
+func hasTable(db interface {
 	QueryRow(query string, args ...any) *sql.Row
-}) (older bool, err error) {
-	err = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'photos')`).Scan(&older)
-	return older, err
+}, name string) (has bool, err error) {
+	err = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)`, name).Scan(&has)
+	return has, err
 }
 
 // complete gives an older catalog what the last of them had: its tables and
@@ -267,7 +280,7 @@ var errTakenAway = errors.New("the copy was taken away")
 // copyBefore copies an older catalog, when it holds photos, into a file of its
 // own beside it: "" when none is needed.
 func copyBefore(db *sql.DB, path string) (string, error) {
-	some, err := hasPhotos(db)
+	some, err := hasTable(db, "photos")
 	if err == nil && some {
 		err = db.QueryRow(`SELECT EXISTS (SELECT 1 FROM photos)`).Scan(&some)
 	}
@@ -422,7 +435,7 @@ func FindLinks(root, catalog string, profiles []string, profileOf func(source st
 	done := false
 	err := with(catalog, func(c *Catalog) error {
 		var version int
-		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= linksSince || version == linksBeforeMarks {
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || linksFound(version) {
 			done = true
 			return err
 		}
@@ -499,15 +512,12 @@ func addLinks(tx *sql.Tx, links []link, profileOf func(source string) string) er
 		WHERE m.album = o.album AND p.profile = o.profile AND w.account = o.account)`); err != nil {
 		return err
 	}
+	// An older program that found them meanwhile left its own version.
 	var version int
-	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || linksFound(version) {
 		return err
 	}
-	since := linksSince
-	if version < marksSince {
-		since = linksBeforeMarks
-	}
-	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, since))
+	_, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, linksSince))
 	return err
 }
 

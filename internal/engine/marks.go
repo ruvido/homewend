@@ -78,6 +78,7 @@ var waiting = struct {
 type waiter struct {
 	profile, shelf string
 	after          int64
+	states         []library.State
 	told           chan told
 }
 
@@ -94,13 +95,13 @@ func (w *waiter) tell(changed bool, err error) {
 	}
 }
 
-// WaitForMarks waits until phone's library has marks past after, or its shelf
+// WaitForMarks waits until phone's library has marks of states past after, or its shelf
 // is not the one named; false when none came in a while, the phone asked
 // again or was unpaired, or ctx ended. The catalog is closed meanwhile.
-func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64) (bool, error) {
+func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64, states []library.State) (bool, error) {
 	timer := time.NewTimer(marksHeld)
 	defer timer.Stop()
-	w := &waiter{profile: phone.Profile, shelf: shelf, after: after, told: make(chan told, 1)}
+	w := &waiter{profile: phone.Profile, shelf: shelf, after: after, states: states, told: make(chan told, 1)}
 	waiting.Lock()
 	if old := waiting.phones[phone.ID]; old != nil {
 		old.tell(false, nil)
@@ -167,12 +168,12 @@ func lookFor(waiters []*waiter) {
 		defer c.Close()
 	}
 	for _, w := range waiters {
-		var shelf library.Shelf
+		changed := false
 		if err == nil {
-			shelf, err = c.Shelf(w.profile)
+			changed, err = c.Differs(w.profile, w.shelf, w.after, w.states)
 		}
-		if err != nil || shelf.Differs(w.shelf, w.after) {
-			w.tell(err == nil, err)
+		if err != nil || changed {
+			w.tell(changed, err)
 		}
 	}
 }

@@ -74,7 +74,7 @@ func listOfProfile(profile string) *atomic.Pointer[phoneList] {
 	return l.(*atomic.Pointer[phoneList])
 }
 
-// heartsSet is set, a write to c of hearts alone: what was listed before it is
+// heartsSet is set, a write to c of marks alone: what was listed before it is
 // still so after it, when nothing else was written meanwhile.
 func heartsSet(c *library.Catalog, set func() error) error {
 	return writing(c, set, func(_, _ library.Written) {})
