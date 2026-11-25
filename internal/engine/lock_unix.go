@@ -25,3 +25,6 @@ func tryLock(file *os.File) error {
 }
 
 func unlockFile(file *os.File) { unix.Flock(int(file.Fd()), unix.LOCK_UN) }
+
+// inUse never is: a file replaced while read is read as it was.
+func inUse(error) bool { return false }

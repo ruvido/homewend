@@ -22,3 +22,8 @@ func tryLock(file *os.File) error {
 func unlockFile(file *os.File) {
 	windows.UnlockFileEx(windows.Handle(file.Fd()), 0, 1, 0, &windows.Overlapped{})
 }
+
+// inUse is a file refused as another has it, or is replacing it.
+func inUse(err error) bool {
+	return errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_ACCESS_DENIED)
+}

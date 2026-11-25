@@ -104,7 +104,11 @@ func LoadPhones() (Phones, error) {
 
 func readJSON[T any](path string) (T, error) {
 	var v T
-	data, err := os.ReadFile(path)
+	var data []byte
+	err := whenFree(func() (err error) {
+		data, err = os.ReadFile(path)
+		return err
+	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return v, nil
 	}

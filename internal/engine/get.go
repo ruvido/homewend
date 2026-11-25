@@ -293,5 +293,17 @@ func writeJSON(path string, v any) error {
 	if err := os.WriteFile(path+".tmp", data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(path+".tmp", path)
+	return whenFree(func() error { return os.Rename(path+".tmp", path) })
+}
+
+// whenFree does fn again, for a moment, while a file is another's: Windows
+// refuses to read a file being replaced, and to replace one being read.
+func whenFree(fn func() error) error {
+	for wait := time.Millisecond; ; wait *= 2 {
+		err := fn()
+		if err == nil || !inUse(err) || wait > time.Second/2 {
+			return err
+		}
+		time.Sleep(wait)
+	}
 }
