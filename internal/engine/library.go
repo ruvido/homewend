@@ -161,7 +161,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 		idOf[a.ID] = a.ID
 		o.Accounts = append(o.Accounts, ShownAccount{AccountInfo: a, Shown: !slices.Contains(hidden, a.ID)})
 		if notes, err := loadNotes(a.Dir); err == nil {
-			o.Takeouts += len(notes)
+			o.Takeouts += len(asked(notes))
 		}
 	}
 	// No library chosen yet, or nothing in it yet: the accounts are there,

@@ -96,6 +96,7 @@ func TestTheManifestComesFirstAndTheYearsAreFollowed(t *testing.T) {
 		Target: takeout.Target{Job: "job", User: "1"},
 		Export: takeout.Export{
 			Job:      "job",
+			Bytes:    int64(len(part)),
 			Parts:    []takeout.Part{{Index: 0, Filename: "part-001.zip", Size: int64(len(part))}},
 			Manifest: takeout.Part{Index: 1, Filename: "manifest.zip", Size: int64(len(manifest))},
 		},
@@ -128,6 +129,11 @@ func TestTheManifestComesFirstAndTheYearsAreFollowed(t *testing.T) {
 	}
 	if !result.Verification.Complete() || result.Verification.Declared != 3 {
 		t.Errorf("verification %+v", result.Verification)
+	}
+
+	// Once Google stops listing its parts, what it was is still told.
+	if l := localOf(f.Library, gone("job", 0)); l == nil || l.Parts != 1 || l.Of != 1 || l.Bytes != f.Export.Bytes {
+		t.Errorf("kept %+v, want 1 part of 1, %d bytes", l, f.Export.Bytes)
 	}
 
 	// A second run finds it all there: no download, every year full from its

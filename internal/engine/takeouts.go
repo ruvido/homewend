@@ -96,7 +96,8 @@ type Local struct {
 	// account's profile does not move.
 	Profile  string `json:"profile"`
 	Parts    int    `json:"parts"`
-	Of       int    `json:"of"`
+	Of       int    `json:"of"`              // 0: expired, and begun before it was kept
+	Bytes    int64  `json:"bytes,omitempty"` // its size, kept when it was downloaded
 	Declared int    `json:"declared,omitempty"`
 	Present  int    `json:"present,omitempty"`
 }
@@ -109,10 +110,23 @@ func localOf(root string, e takeout.Export) *Local {
 	if err != nil || !st.begun() {
 		return nil
 	}
-	l := &Local{Of: len(e.Parts), Profile: st.Profile}
+	l := &Local{Of: len(e.Parts), Bytes: st.Bytes, Profile: st.Profile}
 	for _, p := range e.Parts {
 		if st.Unpacked[p.Filename] {
 			l.Parts++
+		}
+	}
+	if l.Of == 0 {
+		// Expired: what is here is the only record of its parts. Of one counted
+		// before their number was kept, all are here.
+		for _, done := range st.Unpacked {
+			if done {
+				l.Parts++
+			}
+		}
+		l.Of = st.Parts
+		if l.Of == 0 && st.Checked != nil {
+			l.Of = l.Parts
 		}
 	}
 	if st.Checked != nil {
@@ -138,13 +152,12 @@ func Takeouts(sess *session.Session) ([]Takeout, error) {
 	if err != nil {
 		return nil, err
 	}
+	byJob := asked(notes)
 	list := make([]Takeout, len(exports))
 	for i, e := range exports {
 		list[i] = Takeout{Export: e, ID: ShortID(e.Job), Status: StatusOf(e)}
-		for _, n := range notes {
-			if n.Job == e.Job {
-				list[i].Year, list[i].Known = n.Year, true
-			}
+		if n, ok := byJob[e.Job]; ok {
+			list[i].Year, list[i].Known = n.Year, true
 		}
 	}
 	if root, err := DefaultLibrary(); err == nil && root != "" {
@@ -155,6 +168,56 @@ func Takeouts(sess *session.Session) ([]Takeout, error) {
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].Created.After(list[j].Created) })
 	return list, nil
+}
+
+// WithPast lists the account's exports as Takeouts does, and those Homewend
+// asked for that Google no longer lists, expired.
+func WithPast(sess *session.Session) ([]Takeout, error) {
+	list, err := Takeouts(sess)
+	if err != nil {
+		return nil, err
+	}
+	notes, err := loadNotes(sess.Profile)
+	if err != nil {
+		return nil, err
+	}
+	root, err := DefaultLibrary()
+	if err != nil {
+		return nil, err
+	}
+	return append(list, past(notes, list, root)...), nil
+}
+
+// past are the exports noted that listed does not hold, newest first, with
+// what is known of them here: what Google said of them is gone.
+func past(notes []note, listed []Takeout, root string) []Takeout {
+	byJob := asked(notes)
+	for _, t := range listed {
+		delete(byJob, t.Job)
+	}
+	var list []Takeout
+	for job, n := range byJob {
+		t := Takeout{Export: takeout.Export{Job: job, Created: n.Asked, Expired: true}, ID: ShortID(job), Status: Expired, Year: n.Year, Known: true}
+		if root != "" {
+			t.Local = localOf(root, t.Export)
+		}
+		list = append(list, t)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].Created.After(list[j].Created) })
+	return list
+}
+
+// asked are the notes by the export they asked for. One that never got its
+// export, because the request failed or is still going, asked for none; of
+// two with the same export, the last is the one that did.
+func asked(notes []note) map[string]note {
+	byJob := map[string]note{}
+	for _, n := range notes {
+		if n.Job != "" {
+			byJob[n.Job] = n
+		}
+	}
+	return byJob
 }
 
 // byID finds the export whose job id starts with id.

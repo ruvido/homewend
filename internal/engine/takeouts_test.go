@@ -171,3 +171,65 @@ func TestDownloadedSkipsATakeoutOnlyRead(t *testing.T) {
 		t.Errorf("got %q, %v; want the begun one alone", job, err)
 	}
 }
+
+// The exports asked for that Google no longer lists, newest first, each with
+// what the library knows of it. One still listed, and a request that never
+// got its export, are not among them.
+func TestPastIsWhatWasAskedAndGoogleNoLongerLists(t *testing.T) {
+	lib := t.TempDir()
+	day := 24 * time.Hour
+	for job, st := range map[string]state{
+		"all":    {Profile: "ann", Unpacked: map[string]bool{"a.zip": true, "b.zip": true}, Checked: &checked{Declared: 10, Present: 7}, Bytes: 900, Parts: 2},
+		"before": {Profile: "ann", Unpacked: map[string]bool{"a.zip": true, "b.zip": true}, Checked: &checked{Declared: 5, Present: 5}},
+		"half":   {Profile: "ann", Unpacked: map[string]bool{"a.zip": true}, Bytes: 900, Parts: 2},
+		"read":   {Manifest: "m.zip"},
+	} {
+		if err := st.save(filepath.Join(lib, library.WorkDir, job)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notes := []note{
+		{Year: 2021, Asked: now.Add(-5 * day), Job: "never"},
+		{Asked: now.Add(-4 * day), Job: "all"},
+		{Year: 2022, Asked: now.Add(-3 * day), Job: "before"},
+		{Year: 2023, Asked: now.Add(-2 * day), Job: "half"},
+		{Year: 2024, Asked: now.Add(-day), Job: "read"},
+		{Year: 2025, Asked: now, Job: "listed"},
+		{Year: 2026, Asked: now},
+		// A failed request takes the export of the next: the last one is right.
+		{Year: 2020, Asked: now.Add(-6 * day), Job: "never"},
+	}
+	list := past(notes, []Takeout{{Export: gone("listed", 0)}}, lib)
+	want := []struct {
+		job   string
+		year  int
+		local *Local
+	}{
+		{"read", 2024, nil},
+		{"half", 2023, &Local{Profile: "ann", Parts: 1, Of: 2, Bytes: 900}},
+		{"before", 2022, &Local{Profile: "ann", Parts: 2, Of: 2, Declared: 5, Present: 5}},
+		{"all", 0, &Local{Profile: "ann", Parts: 2, Of: 2, Bytes: 900, Declared: 10, Present: 7}},
+		{"never", 2020, nil},
+	}
+	if len(list) != len(want) {
+		t.Fatalf("got %d, want %d: %+v", len(list), len(want), list)
+	}
+	for i, w := range want {
+		g := list[i]
+		if g.Job != w.job || g.Year != w.year || !g.Known || g.Status != Expired || (g.Local == nil) != (w.local == nil) || g.Local != nil && *g.Local != *w.local {
+			t.Errorf("%d: got %s %d %+v, want %s %d %+v", i, g.Job, g.Year, g.Local, w.job, w.year, w.local)
+		}
+	}
+}
+
+// Google lists no parts of an expired export: those unpacked are still here.
+func TestLocalOfAnExpiredTakeoutStillListed(t *testing.T) {
+	lib := t.TempDir()
+	st := state{Profile: "ann", Unpacked: map[string]bool{"a.zip": true}, Checked: &checked{Declared: 3, Present: 3}}
+	if err := st.save(filepath.Join(lib, library.WorkDir, "job")); err != nil {
+		t.Fatal(err)
+	}
+	if l := localOf(lib, gone("job", 0)); l == nil || l.Parts != 1 || l.Of != 1 || l.Present != 3 {
+		t.Errorf("got %+v, want its 1 part, 3 files here", l)
+	}
+}

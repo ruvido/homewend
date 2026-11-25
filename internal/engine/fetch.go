@@ -75,6 +75,7 @@ func (f Fetch) Run(ctx context.Context, g download.Getter, emit progress.Func) (
 	if err != nil {
 		return Result{}, err
 	}
+	st.Bytes, st.Parts = f.Export.Bytes, len(f.Export.Parts)
 	if f.Again {
 		st.Unpacked, st.Checked = map[string]bool{}, nil
 	}
@@ -443,6 +444,9 @@ type state struct {
 	Manifest string          `json:"manifest"`          // manifest filename, once fetched
 	Profile  string          `json:"profile,omitempty"` // the library's folder it went in
 	Checked  *checked        `json:"checked,omitempty"` // the last count against the manifest
+	// The export's size and parts: Google stops saying them once it expires.
+	Bytes int64 `json:"bytes,omitempty"`
+	Parts int   `json:"parts,omitempty"`
 }
 
 // checked is how many of the files the manifest lists were found on disk.
