@@ -7,8 +7,16 @@
 import { cubicOut } from 'svelte/easing';
 import { fade, scale, slide, type TransitionConfig } from 'svelte/transition';
 
-const token = (name: string) =>
-	typeof document === 'undefined' ? '' : getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
+// Read once each: every tile selected by Ctrl+A asks.
+const tokens = new Map<string, string>();
+function token(name: string): string {
+	let v = tokens.get(name);
+	if (!v && typeof document !== 'undefined') {
+		v = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
+		tokens.set(name, v);
+	}
+	return v ?? '';
+}
 
 // Nothing moves under reduced motion, as the CSS says in app.css.
 const still = () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
