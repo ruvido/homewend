@@ -258,7 +258,7 @@ func TestAGridDamaged(t *testing.T) {
 	}
 	gone, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := decode(gone, path, PreviewSize); !errors.Is(err, context.Canceled) {
+	if _, _, err := decode(gone, path, PreviewSize); !errors.Is(err, context.Canceled) {
 		t.Error(err)
 	}
 }

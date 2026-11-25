@@ -15,28 +15,76 @@ import (
 )
 
 // heicThumbnail is the small picture an iPhone writes in a HEIC beside the
-// photo, upright as the photo is, or nil. Decoding 12 MP takes 6 to 9
+// photo, upright as the photo is, and its colours, or nil. Decoding 12 MP takes 6 to 9
 // seconds, this 0.1 (59 photos of an iPhone 7, 24/11).
 //
 // The decoder decodes a file's primary item, so it is given the file with the
 // thumbnail as that (ISO/IEC 14496-12: in the meta box, pitm names the
 // primary item, and iref's thmb says which item is a thumbnail of which).
-func heicThumbnail(path string) (small image.Image) {
+func heicThumbnail(path string) (small image.Image, colours *profile) {
 	// A thumbnail the decoder does not survive is none: the photo may.
 	defer func() {
 		if recover() != nil {
-			small = nil
+			small, colours = nil, nil
 		}
 	}()
 	data := readHEIC(path)
+	ofPhoto := heicProfile(data)
 	if !thumbnailFirst(data) {
-		return nil
+		return nil, nil
 	}
 	img, err := heic.Decode(bytes.NewReader(data))
 	if err != nil {
+		return nil, nil
+	}
+	// One that says nothing of its colours is the photo made smaller.
+	if colr := heicColours(data); colr != nil {
+		return img, colrProfile(colr)
+	}
+	return img, ofPhoto
+}
+
+// heicProfile is what the colours of the photo in the HEIC data are.
+func heicProfile(data []byte) *profile { return colrProfile(heicColours(data)) }
+
+// heicColours is the colr of data's primary item, or of the first tile it is
+// made of: the profile, when it has that and the code points.
+func heicColours(data []byte) (colr []byte) {
+	meta := fullBox(data, "meta")
+	primary, ok := primaryItem(meta)
+	if !ok {
 		return nil
 	}
-	return img
+	items := []uint32{primary}
+	for _, r := range references(meta, "dimg") {
+		if r.from == primary && len(r.to) > 0 {
+			items = append(items, r.to[0])
+		}
+	}
+	has := itemProperties(meta, box(box(meta, "iprp"), "ipco"))
+	for _, item := range items {
+		for _, p := range has[item] {
+			if p.kind == "colr" && len(p.data) >= 4 && (colr == nil || string(p.data[:4]) != "nclx") {
+				colr = p.data
+			}
+		}
+		if colr != nil {
+			return colr
+		}
+	}
+	return nil
+}
+
+// colrProfile is the profile in a colr, or the one its code points name.
+func colrProfile(colr []byte) *profile {
+	r := reader{b: colr}
+	switch string(r.next(4)) {
+	case "prof", "rICC":
+		return iccProfile(r.b)
+	case "nclx":
+		return codePoints(r.u(2), r.u(2))
+	}
+	return nil
 }
 
 // readHEIC is the file at path, or nil.

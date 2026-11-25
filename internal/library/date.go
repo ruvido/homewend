@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"iter"
 	"math"
 	"os"
 	"path/filepath"
@@ -472,6 +473,19 @@ func readTagOffset(data []byte, tiff, ifd int, want uint16, order binary.ByteOrd
 	return found, ok
 }
 
+func readShort(data []byte, tiff, ifd int, want uint16, order binary.ByteOrder) (int, bool) {
+	var found int
+	var ok bool
+	eachEntry(data, tiff, ifd, order, func(tag, kind uint16, count uint32, at int) bool {
+		if tag != want || kind != 3 { // 3 = SHORT, held in the entry itself
+			return false
+		}
+		found, ok = int(order.Uint16(data[at+8:at+10])), true
+		return true
+	})
+	return found, ok
+}
+
 const tagOrientation = 0x0112
 
 // exifHead is the beginning of the file at path, with its EXIF: the segment
@@ -507,33 +521,11 @@ func flashPixThumbnail(path string) []byte {
 		return nil
 	}
 	defer file.Close()
-	in := bufio.NewReader(file)
-	var b [4]byte
-	if _, err := io.ReadFull(in, b[:2]); err != nil || b[0] != 0xff || b[1] != 0xd8 {
-		return nil
-	}
 	// A camera's is some 20 KB: what asks for more is no thumbnail.
 	const most = 1 << 20
 	read := 0
 	streams := map[uint16][]byte{}
-	for {
-		if _, err := io.ReadFull(in, b[:]); err != nil || b[0] != 0xff || b[1] < 0xe0 || b[1] > 0xef {
-			break // past the APP segments
-		}
-		size := int(binary.BigEndian.Uint16(b[2:])) - 2
-		if size < 0 {
-			break
-		}
-		if b[1] != 0xe2 {
-			if _, err := in.Discard(size); err != nil {
-				break
-			}
-			continue
-		}
-		data := make([]byte, size)
-		if _, err := io.ReadFull(in, data); err != nil {
-			break
-		}
+	for data := range APP2(file) {
 		if len(data) > 13 && string(data[:5]) == "FPXR\x00" && data[6] == 2 {
 			n, at := binary.BigEndian.Uint16(data[7:]), binary.BigEndian.Uint32(data[9:])
 			if read += len(data); read > most || int(at) != len(streams[n]) {
@@ -549,6 +541,37 @@ func flashPixThumbnail(path string) []byte {
 		}
 	}
 	return largest
+}
+
+// APP2 are the APP2 segments of the JPEG r, among those before its picture:
+// where a FlashPix stream and a colour profile are.
+func APP2(r io.Reader) iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		in := bufio.NewReader(r)
+		var b [4]byte
+		if _, err := io.ReadFull(in, b[:2]); err != nil || b[0] != 0xff || b[1] != 0xd8 {
+			return
+		}
+		for {
+			if _, err := io.ReadFull(in, b[:]); err != nil || b[0] != 0xff || (b[1] < 0xe0 || b[1] > 0xef) && b[1] != 0xfe {
+				return // past the APP segments and the comments
+			}
+			size := int(binary.BigEndian.Uint16(b[2:])) - 2
+			if size < 0 {
+				return
+			}
+			if b[1] != 0xe2 {
+				if _, err := in.Discard(size); err != nil {
+					return
+				}
+				continue
+			}
+			data := make([]byte, size)
+			if _, err := io.ReadFull(in, data); err != nil || !yield(data) {
+				return
+			}
+		}
+	}
 }
 
 // exifThumbnail is the JPEG in IFD1, where tags 0x0201 and 0x0202 say where
@@ -616,18 +639,29 @@ func Orientation(path string) int {
 	if !ok {
 		return 1
 	}
-	o := 1
-	eachEntry(head, tiff, int(order.Uint32(head[tiff+4:tiff+8])), order, func(tag, kind uint16, count uint32, at int) bool {
-		if tag != tagOrientation || kind != 3 { // 3 = SHORT, held in the entry itself
-			return false
-		}
-		o = int(order.Uint16(head[at+8 : at+10]))
-		return true
-	})
+	o, _ := readShort(head, tiff, int(order.Uint32(head[tiff+4:tiff+8])), tagOrientation, order)
 	if o < 1 || o > 8 {
 		return 1
 	}
 	return o
+}
+
+// IsAdobeRGB says whether the EXIF of the photo at path says its colours are
+// Adobe RGB, as a camera set to it does, with no profile: interoperability
+// "R03" (the EXIF standard, DCF's option file), its colour space not sRGB.
+func IsAdobeRGB(path string) bool {
+	head, tiff, order, ok := exifHead(path)
+	if !ok {
+		return false
+	}
+	exif := subIFD(head, tiff, int(order.Uint32(head[tiff+4:tiff+8])), order)
+	interop, ok := readTagOffset(head, tiff, exif, 0xa005, order)
+	if exif == 0 || !ok {
+		return false
+	}
+	index, _ := readTag(head, tiff, interop, 0x0001, order)
+	space, _ := readShort(head, tiff, exif, 0xa001, order)
+	return index == "R03\x00" && space != 1
 }
 
 // millisName is a name that is only the milliseconds since 1970, maybe after
