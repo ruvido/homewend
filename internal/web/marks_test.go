@@ -6,6 +6,7 @@ package web
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -112,7 +114,30 @@ func newLibrary(t *testing.T) string {
 	if err := engine.SetDefaultLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { stillTrash(t, lib) })
 	return lib
+}
+
+// stillTrash waits for the files the Trash moves beside the calls, which would
+// find the test's library gone.
+func stillTrash(t *testing.T, lib string) {
+	path := filepath.Join(lib, library.WorkDir, "catalog.db")
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for end := time.Now().Add(2 * time.Second); time.Now().Before(end); time.Sleep(10 * time.Millisecond) {
+		moving := 1
+		err := db.QueryRow(`SELECT COUNT(*) FROM library_photos WHERE out = 0 AND (trashed = 1) <> (path LIKE '.trash/%')`).Scan(&moving)
+		_, journal := os.Stat(filepath.Join(lib, library.WorkDir, "trash-moves.json"))
+		if err == nil && moving == 0 && journal != nil {
+			return
+		}
+	}
 }
 
 func pairWith(t *testing.T, url, profile string) *testPhone {

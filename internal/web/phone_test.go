@@ -29,6 +29,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if err := engine.SetDefaultLibrary(lib); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { stillTrash(t, lib) })
 	h := phoneRoutes(&phoneListener{port: 1})
 	call := func(method, target, token, body string) (int, map[string]any) {
 		r := httptest.NewRequest(method, target, strings.NewReader(body))
