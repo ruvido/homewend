@@ -24,6 +24,13 @@ export function day(d: Date): string {
 	return `${d.getDate()} ${text.monthNames[d.getMonth()].slice(0, 3)}`;
 }
 
+/** From one day to another, each with its year in place of its day when it
+ *  is not this year's: Mar 2024 → 2 Oct. */
+export function span(from: Date, to: Date, now = new Date()): string {
+	const end = (d: Date) => (d.getFullYear() === now.getFullYear() ? day(d) : `${text.monthNames[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`);
+	return `${end(from)} → ${end(to)}`;
+}
+
 const clockFormat = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' });
 
 /** A time of day as the window writes it: 09:41. */

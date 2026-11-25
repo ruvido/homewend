@@ -1,10 +1,10 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<!-- P1–P3: the phones paired with this computer; Add a phone shows the code. -->
+<!-- P1–P3, P5: the phones paired with this computer, and those no longer; Add a phone shows the code. -->
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { flip } from 'svelte/animate';
-	import { moving, reveal } from '#lib/motion.js';
+	import { moving, reveal, swap } from '#lib/motion.js';
 	import ContextMenu, { type MenuItem } from '#lib/components/ContextMenu.svelte';
 	import Icon from '#lib/components/Icon.svelte';
 	import PairCard from '#lib/components/PairCard.svelte';
@@ -14,12 +14,13 @@
 	import Dialog from '#lib/components/Dialog.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import { app, personOf } from '#lib/app.svelte.js';
-	import { ApiError, getPhones, startPairing, stopPairing, unpair, type Phone } from '#lib/api.js';
-	import { clock, day } from '#lib/format.js';
+	import { ApiError, getPhones, startPairing, stopPairing, unpair, type Phone, type Unpaired } from '#lib/api.js';
+	import { clock, day, span } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
 
 	// null until the first answer: "No phone yet" never flashes before the list.
 	let phones = $state<Phone[] | null>(null);
+	let unpaired = $state<Unpaired[]>([]);
 	let failed = $state('');
 	// The code shown, while a phone is awaited.
 	let code = $state('');
@@ -52,6 +53,7 @@
 				else renew++;
 			}
 			phones = p.phones;
+			unpaired = p.unpaired;
 			failed = '';
 		} catch (e) {
 			failed = String(e);
@@ -175,6 +177,30 @@
 			</tbody>
 		</table>
 	{/if}
+	<!-- Inside the first answer's block: only a phone unpaired here moves in. -->
+	{#if phones}
+		{#if unpaired.length}
+			<div class="unpaired" in:reveal>
+				<table>
+					<thead>
+						<tr><th>{text.unpairedCol}</th><th>{text.accountCol}</th><th>{text.pairedCol}</th><th>{text.broughtCol}</th><th>{text.byCol}</th><th></th></tr>
+					</thead>
+					<tbody>
+						{#each unpaired as p (p.unpaired)}
+							<tr in:swap animate:flip={moving()}>
+								<td><span class="name"><Icon name="phone" size={16} /><b>{p.name}</b></span></td>
+								<td>{p.profile}</td>
+								<td>{span(new Date(p.paired), new Date(p.unpaired))}</td>
+								<td>{p.photos.toLocaleString('en')}</td>
+								<td><span class="status faint"><i></i><b>{text.byWhom[p.by]}</b></span></td>
+								<td class="act"><span class="slot"></span></td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+	{/if}
 </div>
 
 {#if menu}<ContextMenu items={menu.items} anchor={menu.anchor} onclose={() => (menu = null)} />{/if}
@@ -208,6 +234,27 @@
 	}
 	th:nth-child(6) {
 		width: 96px;
+	}
+	/* Too narrow for equal columns to hold the two dates (135px with their
+	   gap): each takes its content, the empty one nothing. */
+	.unpaired {
+		container-type: inline-size;
+	}
+	/* Empty, it has no baseline: a row is as tall as the paired ones. */
+	.unpaired .slot {
+		vertical-align: top;
+	}
+	@container (max-width: 860px) {
+		.unpaired table {
+			table-layout: auto;
+		}
+		.unpaired th:nth-child(6) {
+			width: 0;
+			padding-right: 0;
+		}
+		.unpaired .slot {
+			width: 0;
+		}
 	}
 	/* P6: one row a person, a click goes on to the code. */
 	.who {

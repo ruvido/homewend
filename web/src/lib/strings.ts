@@ -219,6 +219,11 @@ export const text = {
 			.filter(Boolean)
 			.join(' · '),
 	unpair: 'Unpair',
+	unpairedCol: 'UNPAIRED',
+	pairedCol: 'PAIRED',
+	broughtCol: 'BROUGHT',
+	byCol: 'BY',
+	byWhom: { phone: 'The phone', computer: 'This computer' },
 	takeoutCol: 'TAKEOUT',
 	askedCol: 'ASKED',
 	sizeCol: 'SIZE',

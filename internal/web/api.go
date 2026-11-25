@@ -167,7 +167,8 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		}
 		reply(w, nil, engine.EjectCard(body.Path))
 	})
-	// The phones paired, without their tokens, and whether a code waits.
+	// The phones paired, without their tokens, those unpaired, newest first,
+	// and whether a code waits.
 	mux.HandleFunc("GET /api/phones", func(w http.ResponseWriter, r *http.Request) {
 		p, err := engine.LoadPhones()
 		for i := range p.Phones {
@@ -176,7 +177,10 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		if p.Phones == nil {
 			p.Phones = []engine.Phone{}
 		}
-		reply(w, map[string]any{"phones": p.Phones, "pairing": engine.Pairing()}, err)
+		// Never null: the page reads its length.
+		unpaired := append([]engine.Unpaired{}, p.Unpaired...)
+		slices.Reverse(unpaired)
+		reply(w, map[string]any{"phones": p.Phones, "unpaired": unpaired, "pairing": engine.Pairing()}, err)
 	})
 	// Add a phone: a code for the profile chosen, as the QR's text.
 	mux.HandleFunc("POST /api/phones/pair", func(w http.ResponseWriter, r *http.Request) {

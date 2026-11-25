@@ -199,7 +199,9 @@ export const getYears = (account: string) => call<YearCounts>('GET', `/api/years
 export const countYears = (account: string) => call<Record<string, never>>('POST', `/api/years?${q({ account })}`);
 /** A phone paired with this computer (docs/phone.md). */
 export type Phone = { id: string; name: string; profile: string; paired: string; seen?: string; backup?: string; photos: number };
-export const getPhones = () => call<{ phones: Phone[]; pairing: boolean }>('GET', '/api/phones');
+/** A phone no longer paired: what it brought, and where it was unpaired. */
+export type Unpaired = { name: string; profile: string; paired: string; unpaired: string; photos: number; by: 'phone' | 'computer' };
+export const getPhones = () => call<{ phones: Phone[]; unpaired: Unpaired[]; pairing: boolean }>('GET', '/api/phones');
 export const startPairing = (profile: string) => call<{ qr: string }>('POST', '/api/phones/pair', { profile });
 export const stopPairing = () => call<null>('DELETE', '/api/phones/pair');
 export const unpair = (id: string) => call<null>('DELETE', `/api/phones/${encodeURIComponent(id)}`);

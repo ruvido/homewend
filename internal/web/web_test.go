@@ -4,6 +4,7 @@
 package web
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -265,5 +266,37 @@ func TestEmptyThroughTheAPI(t *testing.T) {
 	}
 	if code, _ := post(photo); code != http.StatusGone {
 		t.Errorf("its disk away: %d, want 410", code)
+	}
+}
+
+// The history is said newest first, a list even when empty.
+func TestUnpairedPhonesThroughTheAPI(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	s := newTestServer(t)
+	cookie := &http.Cookie{Name: cookieName, Value: s.token}
+	if got := get(s, "/api/phones", cookie); !strings.Contains(got.Body.String(), `"unpaired":[]`) {
+		t.Errorf("none unpaired: %s", got.Body)
+	}
+	for _, p := range []struct{ name, by string }{{"Old", "phone"}, {"New", "computer"}} {
+		code, err := engine.StartPairing("ron")
+		if err != nil {
+			t.Fatal(err)
+		}
+		phone, _, err := engine.Pair(code, p.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := engine.Unpair(phone.ID, p.by); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out struct{ Unpaired []engine.Unpaired }
+	if err := json.Unmarshal(get(s, "/api/phones", cookie).Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if u := out.Unpaired; len(u) != 2 || u[0].Name != "New" || u[0].By != "computer" || u[1].Name != "Old" || u[1].By != "phone" || u[0].Profile != "ron" {
+		t.Errorf("unpaired %+v, want New then Old", u)
 	}
 }
