@@ -14,6 +14,12 @@ import (
 
 const piece = 64
 
+// Size is how large the edited picture is of a photo w by h.
+func (e Edit) Size(w, h int) (int, int) {
+	f := newFrame(e.crop, w, h)
+	return f.w, f.h
+}
+
 // Draw makes the edited picture of img, which is upright, in sRGB and whole.
 // It is img itself, or shares its bytes, if the edit is none.
 func Draw(img image.Image, e Edit) *image.NRGBA {

@@ -684,3 +684,67 @@ func TestRemoves(t *testing.T) {
 		}
 	}
 }
+
+// Turned left, what is drawn is what was, turned left; four times, it is the
+// edit it was.
+func TestTurnLeft(t *testing.T) {
+	src := scene(96, 64)
+	for name, crop := range map[string]string{
+		"no crop":          "",
+		"a frame":          cropJSON(0, false, 0, 0.125, -0.0625, 0.5, 0.75),
+		"turned":           cropJSON(1, false, 0, 0.125, 0.0625, 0.5, 0.75),
+		"flipped":          cropJSON(0, true, 0, 0.125, -0.0625, 0.5, 0.75),
+		"flipped, turned":  cropJSON(3, true, 0, -0.125, 0.0625, 0.5, 0.75),
+		"tilted":           cropJSON(2, false, 14, 0.05, -0.03, 0.5, 0.625),
+		"tilted, flipped":  cropJSON(1, true, -21, 0.05, -0.03, 0.5, 0.625),
+		"a crop of naught": cropJSON(0, false, 0, 0, 0, 1, 1),
+	} {
+		for _, tools := range []string{`{}`, `{"Contrast":40,"Clarity":30,"Grain":3}`} {
+			text := `{"adjust":` + tools + `,"tools":2,"more":"<&>"}`
+			if crop != "" {
+				text = strings.TrimSuffix(text, "}") + `,"crop":` + crop + `}`
+			}
+			first, err := Parse([]byte(text))
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := []byte(text)
+			for i := range 4 {
+				e, _ := Parse(data)
+				if data, err = TurnLeft(data); err != nil {
+					t.Fatal(name, err)
+				}
+				left, err := Parse(data)
+				if err != nil {
+					t.Fatalf("%s: %s %v", name, data, err)
+				}
+				was, is := Draw(src, e), Draw(src, left)
+				if is.Rect.Dx() != was.Rect.Dy() || is.Rect.Dy() != was.Rect.Dx() {
+					t.Fatalf("%s: %v of %v", name, is.Rect, was.Rect)
+				}
+				for y := range is.Rect.Dy() {
+					for x := range is.Rect.Dx() {
+						a, b := is.NRGBAAt(x, y), was.NRGBAAt(was.Rect.Dx()-1-y, x)
+						if max(apart(a.R, b.R), apart(a.G, b.G), apart(a.B, b.B)) > 2 {
+							t.Fatalf("%s, turn %d: at %d,%d %v, want %v", name, i, x, y, a, b)
+						}
+					}
+				}
+			}
+			if last, _ := Parse(data); last != first || !strings.Contains(string(data), `"more"`) {
+				t.Errorf("%s: %s after four turns, of %s", name, data, text)
+			}
+			if Removes(data) {
+				t.Errorf("%s: %s is no edit", name, data)
+			}
+		}
+	}
+	for _, no := range []string{`null`, `{"adjust":{},"tools":3}`, `{"tools":2}`, `no`} {
+		if got, err := TurnLeft([]byte(no)); err == nil {
+			t.Errorf("%s turned is %s", no, got)
+		}
+	}
+	if got, err := TurnLeft([]byte(`{"adjust":{"Warmth":9},"tools":2,"crop":` + cropJSON(0, false, 0, 0, 0, 1, 1) + `}`)); err != nil || strings.Contains(string(got), "-0,") {
+		t.Errorf("%s %v", got, err)
+	}
+}

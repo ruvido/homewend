@@ -133,6 +133,52 @@ func Removes(data []byte) bool {
 	return true
 }
 
+// TurnLeft is the edit data a quarter turn more anticlockwise, all else in it
+// as it was. The error is Parse's.
+func TurnLeft(data []byte) ([]byte, error) {
+	e, err := Parse(data)
+	if err != nil {
+		return nil, err
+	}
+	var fields, frame map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		return nil, errors.New("edit: none to turn")
+	}
+	if json.Unmarshal(fields["crop"], &frame); frame == nil {
+		frame = map[string]json.RawMessage{"turns": []byte("0"), "flip": []byte("false"), "angle": []byte("0"),
+			"x": []byte("0"), "y": []byte("0"), "w": []byte("1"), "h": []byte("1"), "shape": []byte(`"Free"`)}
+	}
+	// The frame is of the photo flipped, then turned: it turns with it.
+	turns, err := integer(frame["turns"])
+	if err != nil {
+		return nil, err
+	}
+	var x float64
+	if err := json.Unmarshal(frame["x"], &x); err != nil {
+		return nil, err
+	}
+	frame["turns"] = json.RawMessage(strconv.Itoa((turns + 3) & 3))
+	frame["x"], frame["w"], frame["h"] = frame["y"], frame["h"], frame["w"]
+	frame["y"] = json.RawMessage(strconv.FormatFloat(0-x, 'g', -1, 64))
+	if fields["crop"], err = json.Marshal(frame); err != nil {
+		return nil, err
+	}
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return nil, err
+	}
+	// Back where it began, the crop is left out; alone it stays, and is the
+	// photo as its file has it.
+	if back, err := Parse(out); err == nil && back.crop == (crop{}) && e.adjust != [toolCount]int{} {
+		delete(fields, "crop")
+		return json.Marshal(fields)
+	}
+	return out, nil
+}
+
 func parseCrop(raw json.RawMessage) (crop, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
