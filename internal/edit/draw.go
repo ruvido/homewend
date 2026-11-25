@@ -159,9 +159,22 @@ func (f frame) sample(row []byte, src *image.NRGBA, x, y int) {
 		bottom := src.Pix[min(max(iy+1, 0), lastY)*src.Stride:]
 		q, r, s := top[4*right:][:4:4], bottom[4*left:][:4:4], bottom[4*right:][:4:4]
 		wp, wq, wr, ws := (256-u)*(256-v), u*(256-v), (256-u)*v, u*v
+		if p[3]&q[3]&r[3]&s[3] != 255 {
+			// Each colour counts for as much as it is opaque.
+			wp, wq, wr, ws = wp*uint32(p[3]), wq*uint32(q[3]), wr*uint32(r[3]), ws*uint32(s[3])
+			sum := uint64(wp + wq + wr + ws)
+			to[3] = byte((sum + 1<<15) >> 16)
+			for c := range 3 {
+				to[c] = 0
+				if sum > 0 {
+					to[c] = byte((uint64(p[c])*uint64(wp) + uint64(q[c])*uint64(wq) + uint64(r[c])*uint64(wr) + uint64(s[c])*uint64(ws) + sum/2) / sum)
+				}
+			}
+			continue
+		}
 		to[0] = byte((uint32(p[0])*wp + uint32(q[0])*wq + uint32(r[0])*wr + uint32(s[0])*ws + 1<<15) >> 16)
 		to[1] = byte((uint32(p[1])*wp + uint32(q[1])*wq + uint32(r[1])*wr + uint32(s[1])*ws + 1<<15) >> 16)
 		to[2] = byte((uint32(p[2])*wp + uint32(q[2])*wq + uint32(r[2])*wr + uint32(s[2])*ws + 1<<15) >> 16)
-		to[3] = byte((uint32(p[3])*wp + uint32(q[3])*wq + uint32(r[3])*wr + uint32(s[3])*ws + 1<<15) >> 16)
+		to[3] = 255
 	}
 }

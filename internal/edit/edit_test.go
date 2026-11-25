@@ -415,6 +415,9 @@ func TestCropSampling(t *testing.T) {
 
 func TestCropEdges(t *testing.T) {
 	src := noise(61, 40)
+	for i := 3; i < len(src.Pix); i += 4 {
+		src.Pix[i] |= 1 // a clear px has no colour once resampled
+	}
 	// Turned and cut on whole px: the same bytes.
 	for turns := range 4 {
 		for _, flip := range []bool{false, true} {
@@ -441,6 +444,13 @@ func TestCropEdges(t *testing.T) {
 	half := Draw(filled(4, 1, func(x, _ int) color.NRGBA { return grey(byte(10 * x)) }), made(t, "", cropJSON(0, false, 0, 0.125, 0, 0.5, 1)))
 	if half.Rect != image.Rect(0, 0, 2, 1) || half.NRGBAAt(0, 0) != grey(15) || half.NRGBAAt(1, 0) != grey(25) {
 		t.Errorf("half a px: %v %v", half.Rect, half.Pix)
+	}
+	// A clear px gives no colour to the one beside it.
+	clear := image.NewNRGBA(image.Rect(0, 0, 4, 1))
+	copy(clear.Pix, []byte{0, 0, 0, 0, 200, 100, 50, 255, 40, 20, 10, 51, 9, 9, 9, 0})
+	clear = Draw(clear, made(t, "", cropJSON(0, false, 0, 0, 0, 0.75, 1)))
+	if want := []byte{200, 100, 50, 128, 173, 87, 43, 153, 40, 20, 10, 26}; !bytes.Equal(clear.Pix, want) {
+		t.Errorf("half a px of clear ones: %v, want %v", clear.Pix, want)
 	}
 	// Outside, the edge goes on: however far the frame is.
 	for _, x := range []float64{2, -2, 3e38, -3e38} {
@@ -567,6 +577,13 @@ func TestEqual(t *testing.T) {
 	}
 }
 
+func TestWholeNumbers(t *testing.T) {
+	whole := `{"turns": 1, "flip": false, "angle": 0, "x": 0, "y": 0, "w": 1, "h": 1, "shape": "Free"}`
+	if made(t, "", whole) != made(t, "", strings.NewReplacer(`"x": 0`, `"x": 0.0`, `"w": 1`, `"w": 1.0`).Replace(whole)) {
+		t.Error("1 is not 1.0")
+	}
+}
+
 func TestNewer(t *testing.T) {
 	for _, text := range []string{`{"tools": 3}`, `{"tools": 99999999999999999999, "adjust": 4}`} {
 		if _, err := Parse([]byte(text)); !errors.Is(err, ErrNewer) {
@@ -593,6 +610,7 @@ func TestRefused(t *testing.T) {
 		{`"w": 0.5, `, ``}, {`"h": 0.5, `, ``}, {`, "shape": "Free"`, ``},
 		{`"turns": 1`, `"turns": 1.5`}, {`"flip": true`, `"flip": 0`}, {`"flip": true`, `"flip": null`},
 		{`"angle": 3`, `"angle": "3"`}, {`"x": 0.1`, `"x": 1e39`}, {`"x": 0.1`, `"x": null`}, {`"x": 0.1`, `"x": NaN`},
+		{`"x": 0.1`, `"x": "0.1"`}, {`"y": 0`, `"y": "0"`}, {`"w": 0.5`, `"w": "0.5"`}, {`"h": 0.5`, `"h": "1"`},
 		{`"w": 0.5`, `"w": 0`}, {`"w": 0.5`, `"w": -0.5`}, {`"w": 0.5`, `"w": 1.01`}, {`"w": 0.5`, `"w": 1e-60`},
 		{`"h": 0.5`, `"h": 0`}, {`"h": 0.5`, `"h": 2`}, {`"Free"`, `4`},
 	} {
