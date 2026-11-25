@@ -367,7 +367,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 			reply(w, nil, err)
 			return
 		}
-		list, err := engine.Takeouts(sess)
+		list, err := engine.WithPast(sess)
 		reply(w, list, err)
 	})
 	// Importing a card or a folder: the cards in now, then a look at what

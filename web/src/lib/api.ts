@@ -237,7 +237,7 @@ export interface Takeout {
 	Expires: string;
 	years?: string[];
 	/** What of it the library holds; absent when it never came here. */
-	local?: { profile: string; parts: number; of: number; declared?: number; present?: number };
+	local?: { profile: string; parts: number; of: number; bytes?: number; declared?: number; present?: number };
 }
 
 export const getTakeouts = (account: string) => call<Takeout[]>('GET', `/api/takeouts?${q({ account })}`);

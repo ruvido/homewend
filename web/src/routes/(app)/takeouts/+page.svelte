@@ -1,6 +1,6 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<!-- C1: the exports on Google Takeout, each account's. -->
+<!-- C1, C5: the exports on Google Takeout, each account's, and those no longer there. -->
 <script module lang="ts">
 	import Icon from '#lib/components/Icon.svelte';
 	import type { Takeout as Seen } from '#lib/api.js';
@@ -11,6 +11,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { onMount, untrack } from 'svelte';
+	import { flip } from 'svelte/animate';
+	import { moving, reveal, swap } from '#lib/motion.js';
 	import ContextMenu, { folderItems, type MenuItem } from '#lib/components/ContextMenu.svelte';
 	import { app, signIn, sidebarOf, signInAgain, signingInAgain, startFailure, startJob, personOfAccount } from '#lib/app.svelte.js';
 	import { ApiError, folderOf, getTakeouts, readContents, type Takeout } from '#lib/api.js';
@@ -83,6 +85,22 @@
 		);
 	});
 
+	const here = $derived(list?.filter((t) => t.status !== 'expired') ?? []);
+	const gone = $derived(list?.filter((t) => t.status === 'expired') ?? []);
+	const line = $derived(
+		[accounts.length === 1 && accounts[0].email, list?.length && text.takeoutsLine(here.length, gone.length)].filter(Boolean).join(' · ')
+	);
+
+	// Its bytes, and its parts under them where the window is narrow.
+	function size(t: Takeout): [string, string] {
+		const b = t.Bytes || t.local?.bytes;
+		const n = t.Parts?.length || t.local?.of;
+		return [b ? bytes(b) : n ? '' : '—', n ? text.parts(n) : ''];
+	}
+	// As its last count said, when its download ended.
+	const inLibrary = (t: Takeout) => (t.local?.declared ? text.nPhotos(t.local.present ?? 0) : '—');
+	const missing = (t: Takeout) => (t.local?.declared ?? 0) - (t.local?.present ?? 0);
+
 	function holds(t: Takeout) {
 		if (t.known) return t.year ? text.holdsYear(t.year) : text.holdsAll;
 		const y = t.years ?? [];
@@ -96,7 +114,7 @@
 	type Act = 'download' | 'resume' | 'retry' | 'timer' | 'more' | '';
 	type Row = { status: string; detail: string; tone: string; act: Act };
 	function rowOf(t: Takeout): Row {
-		const until = t.Expires ? (t.status === 'expired' ? text.since : text.until)(day(new Date(t.Expires))) : '';
+		const until = t.Expires ? text.until(day(new Date(t.Expires))) : '';
 		const l = t.local;
 		const all = l && l.of > 0 && l.parts === l.of;
 		// While Google still prepares it, it is the preparing row; its parts
@@ -104,14 +122,19 @@
 		if (job?.running && job.stage !== 'waiting' && job.export?.startsWith(t.id))
 			return { status: text.statusDownloading, detail: job.of > 0 ? text.partsOf(Math.max(job.parts - 1, 0), part(job).of) : '', tone: 'accent', act: '' };
 		if (t.status === 'preparing') return { status: text.statusPreparing, detail: '', tone: 'warn', act: 'timer' };
-		if (all && (l.present ?? 0) < (l.declared ?? 0)) {
-			const missing = ((l.declared ?? 0) - (l.present ?? 0)).toLocaleString('en');
-			return { status: text.statusMissing(missing), detail: until, tone: 'err', act: t.status === 'expired' ? 'more' : 'retry' };
-		}
+		if (all && missing(t) > 0) return { status: text.statusMissing(missing(t).toLocaleString('en')), detail: until, tone: 'err', act: 'retry' };
 		if (all) return { status: text.statusAllHere, detail: until, tone: 'ok', act: 'more' };
-		if (t.status === 'expired') return { status: text.statusExpired, detail: until, tone: 'faint', act: 'more' };
 		if (l) return { status: text.statusPaused, detail: text.partsOf(l.parts, l.of), tone: 'accent', act: 'resume' };
 		return { status: text.statusReady, detail: until, tone: 'ok', act: 'download' };
+	}
+
+	// One no longer on Google: how it ended, and nothing to do.
+	function pastOf(t: Takeout): { status: string; tone: string } {
+		const l = t.local;
+		// Its library is away: what came is not known.
+		if (!l) return { status: app.overview?.gone ? '—' : text.statusNotDownloaded, tone: 'faint' };
+		if (!l.declared) return { status: l.of ? text.partsOf(l.parts, l.of) : text.parts(l.parts), tone: 'warn' };
+		return missing(t) > 0 ? { status: text.statusMissing(missing(t).toLocaleString('en')), tone: 'warn' } : { status: text.statusAllHere, tone: 'ok' };
 	}
 
 	// Why the last download asked for did not start, said above the list.
@@ -129,10 +152,6 @@
 		app.picked[account] = t.id;
 		return bring({ account, export: t.id, again });
 	};
-	// An expired takeout is asked of Google once more, as it was asked: one
-	// made on Google that held a single year, as that year.
-	const yearOf = (t: Takeout) => (t.known ? t.year : t.years?.length === 1 ? Number(t.years[0]) : 0);
-	const askAgain = (t: Takeout) => bring({ account, year: yearOf(t) || undefined, fresh: true });
 	// The ⋯ of a row: the same menu as a folder's, at the end of the button.
 	// Pressed again, the ⋯ closes it.
 	let menu = $state<{ id: string; anchor: Element; items: MenuItem[] } | null>(null);
@@ -142,10 +161,7 @@
 			return;
 		}
 		const anchor = e.currentTarget as HTMLElement;
-		const items: MenuItem[] =
-			t.status === 'expired'
-				? [{ icon: 'arrow-clockwise', label: text.askAgain, run: () => askAgain(t) }]
-				: [{ icon: 'arrow-clockwise', label: text.downloadAgain, run: () => download(t, true) }];
+		const items: MenuItem[] = [{ icon: 'arrow-clockwise', label: text.downloadAgain, run: () => download(t, true) }];
 		// Where its photos are: the profile it went in, which a rename of the
 		// account's does not move.
 		const local = t.local;
@@ -170,7 +186,7 @@
 	<header>
 		<div>
 			<h1>{text.takeoutsTitle}</h1>
-			{#if accounts.length === 1}<p class="who">{accounts[0].email}</p>{/if}
+			{#if line}<p class="line" in:reveal out:reveal={{ leaving: true }}>{line}</p>{/if}
 		</div>
 	</header>
 
@@ -202,49 +218,83 @@
 		<p class="muted">{text.noTakeouts}</p>
 	{:else}
 		{#if refused}<p class="refused">{refused}</p>{/if}
-		<table>
-			<thead>
-				<tr><th>{text.takeoutCol}</th><th>{text.askedCol}</th><th>{text.sizeCol}</th><th>{text.statusCol}</th><th></th></tr>
-			</thead>
-			<tbody>
-				{#each list as t (t.id)}
-					{@const r = rowOf(t)}
-					<tr>
-						<td>
-							<span class="name"><Icon name="archive" size={16} /><span><b>{holds(t)}</b><small>{t.id}</small></span></span>
-						</td>
-						<td>{day(new Date(t.Created))}, {clock(new Date(t.Created))}</td>
-						<td>{t.Bytes ? bytes(t.Bytes) : '—'}{t.Parts?.length ? ` · ${text.parts(t.Parts.length)}` : ''}</td>
-						<td>
-							<span class="status {r.tone}"><i></i><span><b>{r.status}</b>{#if r.detail}<small>{r.detail}</small>{/if}</span></span>
-						</td>
-						<td class="act {r.tone}">
-							{#if r.act === 'download'}<button class="pill" onclick={() => download(t)}>{text.download}</button>
-							{:else if r.act === 'resume'}<button class="pill" onclick={() => download(t)}>{text.resume}</button>
-							{:else if r.act === 'retry'}<button class="pill" onclick={() => download(t, true)}>{text.retry}</button>
-							{:else if r.act === 'timer'}<span class="slot timer"><Icon name="stopwatch" size={14} />{since(t.Created)}</span>
-							{:else if r.act === 'more'}
-								<span class="slot"
-									><button
-										class="more"
-										aria-haspopup="menu"
-										aria-label={text.moreActions}
-										onclick={(e) => more(e, t)}><Icon name="three-dots" size={16} /></button></span
-								>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+		{#if here.length}
+			<div class="table" in:reveal out:reveal={{ leaving: true }}>
+				<table>
+					{@render head(text.takeoutCol)}
+					<tbody>
+						{#each here as t (t.id)}
+							{@const r = rowOf(t)}
+							<tr in:swap animate:flip={moving()}>
+								{@render facts(t)}
+								<td>
+									<span class="status {r.tone}"><i></i><span><b>{r.status}</b>{#if r.detail}<small>{r.detail}</small>{/if}</span></span>
+								</td>
+								<td class="act {r.tone}">
+									{#if r.act === 'download'}<button class="pill" onclick={() => download(t)}>{text.download}</button>
+									{:else if r.act === 'resume'}<button class="pill" onclick={() => download(t)}>{text.resume}</button>
+									{:else if r.act === 'retry'}<button class="pill" onclick={() => download(t, true)}>{text.retry}</button>
+									{:else if r.act === 'timer'}<span class="slot timer"><Icon name="stopwatch" size={14} />{since(t.Created)}</span>
+									{:else if r.act === 'more'}
+										<span class="slot"
+											><button
+												class="more"
+												aria-haspopup="menu"
+												aria-label={text.moreActions}
+												onclick={(e) => more(e, t)}><Icon name="three-dots" size={16} /></button></span
+										>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
+		{#if gone.length}
+			<div class="table" in:reveal out:reveal={{ leaving: true }}>
+				<table>
+					{@render head(text.goneCol)}
+					<tbody>
+						{#each gone as t (t.id)}
+							{@const r = pastOf(t)}
+							<tr in:swap animate:flip={moving()}>
+								{@render facts(t)}
+								<td><span class="status {r.tone}"><i></i><b>{r.status}</b></span></td>
+								<td class="act"></td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 	{/if}
 </div>
+
+{#snippet head(name: string)}
+	<thead>
+		<tr><th>{name}</th><th>{text.askedCol}</th><th>{text.sizeCol}</th><th>{text.inLibraryCol}</th><th>{text.statusCol}</th><th></th></tr>
+	</thead>
+{/snippet}
+
+{#snippet two(first: string, sep: string, then: string)}
+	{first}{#if first && then}<span class="sep">{sep}</span>{/if}{#if then}<span class="then">{then}</span>{/if}
+{/snippet}
+
+{#snippet facts(t: Takeout)}
+	<td>
+		<span class="name"><Icon name="archive" size={16} /><span><b>{holds(t)}</b><small>{t.id}</small></span></span>
+	</td>
+	<td>{@render two(day(new Date(t.Created)), ', ', clock(new Date(t.Created)))}</td>
+	<td>{@render two(size(t)[0], ' · ', size(t)[1])}</td>
+	<td>{inLibrary(t)}</td>
+{/snippet}
 
 {#if menu}<ContextMenu items={menu.items} anchor={menu.anchor} onclose={() => (menu = null)} />{/if}
 
 <style>
-	.who {
-		margin-top: 8px;
+	.line {
+		margin-top: var(--space-8);
 		color: var(--muted);
 	}
 	.tabs {
@@ -268,12 +318,35 @@
 	th:nth-child(1) {
 		width: 26%;
 	}
-	th:nth-child(2),
-	th:nth-child(3) {
-		width: 17%;
-	}
-	th:nth-child(5) {
+	th:nth-child(6) {
 		width: 96px;
+	}
+	/* Too narrow for six columns on one line: a time and a count of parts go
+	   under what they belong to, as the id is under the name. */
+	.table {
+		container-type: inline-size;
+	}
+	.sep {
+		white-space: pre;
+	}
+	@container (max-width: 860px) {
+		.sep {
+			display: none;
+		}
+		.then {
+			display: block;
+			font-size: var(--text-subheadline);
+			color: var(--faint);
+		}
+		th:nth-child(2) {
+			width: 10%;
+		}
+		th:nth-child(3) {
+			width: 11%;
+		}
+		th:nth-child(4) {
+			width: 17%;
+		}
 	}
 	.refused {
 		color: var(--err);
