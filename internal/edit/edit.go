@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"unicode/utf8"
 )
@@ -106,6 +107,29 @@ func Parse(data []byte) (Edit, error) {
 		}
 	}
 	return e, nil
+}
+
+// Removes says whether data, an edit not refused, is the photo as it came: null,
+// or no tool set and no crop. A crop that changes nothing is an edit: it is the
+// photo as its file has it, not as it was turned here.
+func Removes(data []byte) bool {
+	e, err := Parse(data)
+	if err != nil || !e.None() {
+		return false
+	}
+	var fields, adjust map[string]json.RawMessage
+	if json.Unmarshal(data, &fields) != nil || fields == nil {
+		return true
+	}
+	if _, ok := fields["crop"]; ok || json.Unmarshal(fields["adjust"], &adjust) != nil {
+		return false
+	}
+	for name := range adjust {
+		if !slices.Contains(toolNames[:], name) {
+			return false // a tool not known here may do something elsewhere
+		}
+	}
+	return true
 }
 
 func parseCrop(raw json.RawMessage) (crop, error) {
