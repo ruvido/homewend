@@ -419,6 +419,7 @@ export const text = {
 	infoNoCamera: 'The file does not say',
 	infoFrom: 'From',
 	favorite: 'Favorite',
+	favorites: 'Favorites',
 	backToLibrary: 'Back to the library',
 	infoFile: 'File',
 	estimatedTag: 'Estimated',

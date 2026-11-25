@@ -54,7 +54,9 @@
 						? text.archive
 						: place.kind === 'trash'
 							? text.trash
-							: text.allPhotos
+							: place.kind === 'favorites'
+								? text.favorites
+								: text.allPhotos
 	);
 	let takingOut = $state(false);
 	// The photos the Trash showed as Empty was asked: one put in it meanwhile is not deleted.
@@ -117,6 +119,12 @@
 		show(on);
 		hearts = hearts
 			.then(() => mark([photo], 'favorite', on))
+			.then(() => {
+				// Its heart off, it leaves the Favorites, as one unarchived the Archive.
+				if (on || place.kind !== 'favorites') return;
+				if (open !== null && photos[open]?.id === photo.id) open = null;
+				reload++;
+			})
 			.catch(() => {
 				show(!on);
 				if (open !== null && photos[open]?.id === photo.id) markFailed = text.markFailed;
@@ -133,8 +141,8 @@
 	const actsOf = (ps: GridPhoto[]) =>
 		place.kind === 'trash' ? [restore] : place.kind === 'missing' ? [] : [ps.every((p) => p.archived) ? unarchive : archive, del];
 	const editable = $derived(place.kind !== 'archive' && place.kind !== 'trash');
-	// A photo archived, deleted or back leaves this list (an album keeps
-	// the archived): the list is loaded again, the viewer closed.
+	// A photo archived, deleted or back leaves this list (an album and
+	// the Favorites keep the archived): the list is loaded again, the viewer closed.
 	let asking = $state.raw<{ act: MarkAct; photos: GridPhoto[] } | null>(null);
 	let markFailed = $state('');
 	async function act(a: MarkAct, on: GridPhoto[]) {
@@ -259,7 +267,7 @@
 			try {
 				const began = performance.now();
 				let got: GridPhoto[] | undefined;
-				// The Archive and the Trash are few: whole at once.
+				// A view's photos are few, and read by no index: whole at once.
 				if (!again && !isView(p.kind)) {
 					const start = await getPhotos({ ...q, limit: FIRST });
 					if (stopped) return;

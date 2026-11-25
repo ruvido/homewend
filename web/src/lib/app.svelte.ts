@@ -221,6 +221,7 @@ export function sidebarOf(o: Overview): Sidebar {
 		takeouts: o.takeouts,
 		archived: o.archived,
 		trashed: o.trashed,
+		favorites: o.favorites,
 		missing: missingTotal(o)
 	};
 }

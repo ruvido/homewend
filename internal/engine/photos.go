@@ -202,9 +202,10 @@ func openHere(open func(string) (*library.Catalog, error)) (string, *library.Cat
 
 // The views of the library besides the grid, a year and an album.
 const (
-	ViewMissing = "missing" // the photos not on the disk
-	ViewArchive = "archive"
-	ViewTrash   = "trash"
+	ViewMissing   = "missing" // the photos not on the disk
+	ViewArchive   = "archive"
+	ViewTrash     = "trash"
+	ViewFavorites = "favorites" // those with a heart, as the phone has them
 )
 
 // Photos are the grid's, newest first: all of it, a year ("" for no date),
@@ -239,10 +240,11 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 		isGone[g.Key] = true
 	}
 	f := library.Filter{Year: year, Album: album, AlbumOf: albumOf, NoDate: noDate, Limit: limit, Accounts: shown}
-	// An archived photo is still in its album and still missing.
+	// An archived photo is still in its album, still a favorite and still missing.
 	f.Grid = album == "" && view == ""
 	f.Archived = view == ViewArchive
 	f.Trashed = view == ViewTrash
+	f.Favorite = view == ViewFavorites
 	if view == ViewMissing {
 		f.Only = keysOf(gone)
 	}

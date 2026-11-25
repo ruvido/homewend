@@ -30,9 +30,10 @@ export interface Overview {
 	years: { year: string; count: number }[];
 	albums: { account: string; name: string; count: number }[];
 	takeouts: number;
-	/** The photos of the accounts shown in the Archive and in the Trash. */
+	/** The photos of the accounts shown in the Archive, in the Trash and with a heart. */
 	archived: number;
 	trashed: number;
+	favorites: number;
 	/** Those there are, for an import to choose among; the one it goes to when none is named, "" when asked. */
 	profiles: string[];
 	profile: string;
