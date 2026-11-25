@@ -460,6 +460,46 @@ func TestTheListIsWorkedOutOnce(t *testing.T) {
 	}
 }
 
+// A phone waiting for marks with its list is told of another, and one without
+// never hears the word.
+func TestAPhoneWaitsForAnotherList(t *testing.T) {
+	lib, url := phonesLibrary(t)
+	ron, old := pairWith(t, url, "ron"), pairWith(t, url, "ron")
+	hash := shelve(t, lib, "ron/2026/11/a.jpg", []byte("a"), november)
+	tag, l := ron.list()
+	waits := func(p *testPhone, list string) <-chan string {
+		out := make(chan string, 1)
+		go func() {
+			res, body := p.gets("/v1/marks?shelf=" + l.Shelf + "&after=0" + list)
+			out <- fmt.Sprint(res.StatusCode, " ", strings.TrimSpace(string(body)))
+		}()
+		time.Sleep(150 * time.Millisecond)
+		return out
+	}
+	is := func(what string, got <-chan string, want string) {
+		t.Helper()
+		select {
+		case a := <-got:
+			if a != want {
+				t.Errorf("%s: %s, want %s", what, a, want)
+			}
+		case <-time.After(4 * time.Second):
+			t.Errorf("%s: still held", what)
+		}
+	}
+	const other = `200 {"changed":false,"list":true}`
+	held, olds := waits(ron, "&list="+strings.Trim(tag, `"`)), waits(old, "")
+	if _, err := engine.TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+		t.Fatal(err)
+	}
+	is("turned", held, other)
+	for _, bad := range []string{"", "x", "%00", strings.Trim(tag, `"`)} {
+		is("not this list", waits(ron, "&list="+bad), other)
+	}
+	old.call("POST", "/v1/unpair", "")
+	is("no list", olds, `200 {"changed":false}`)
+}
+
 // Gzip is for who takes it by name, and is the same answer.
 func TestAListIsGzippedForWhoTakesIt(t *testing.T) {
 	lib, url := phonesLibrary(t)

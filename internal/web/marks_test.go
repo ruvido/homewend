@@ -41,6 +41,7 @@ type answered struct {
 	Cursor               *int64
 	Owner                string
 	Other, More, Changed bool
+	List                 bool
 	Said, Marks          []library.Mark
 	Unknown              []string
 	Refused              []int64

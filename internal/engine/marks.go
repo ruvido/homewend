@@ -64,6 +64,18 @@ var (
 	marksEvery = time.Second
 )
 
+// listRest is how long no list is worked out for the phones waiting after one
+// was, or twenty times what it took: an import changes the library without pause.
+var listRest = 2 * time.Second
+
+// walking is the working out of lists for the phones waiting, beside the look.
+var walking struct {
+	sync.Mutex
+	running bool
+	next    time.Time
+	fresh   []string // the profiles whose lists were, since the last look
+}
+
 // waiting are the phones told of the next change, one question each. While
 // there are any, one goroutine looks for changes, at once when there is
 // something in look. Never two: one held by a slow disk is not joined by others.
@@ -79,32 +91,35 @@ type waiter struct {
 	profile, shelf string
 	after          int64
 	states         []library.State
+	list           *string // the tag of the list it has; nil, it does not ask
 	told           chan told
 }
 
 type told struct {
 	changed bool
+	list    bool // its list is another
 	err     error
 }
 
 // tell answers a question, once.
-func (w *waiter) tell(changed bool, err error) {
+func (w *waiter) tell(t told) {
 	select {
-	case w.told <- told{changed, err}:
+	case w.told <- t:
 	default:
 	}
 }
 
 // WaitForMarks waits until phone's library has marks of states past after, or its shelf
-// is not the one named; false when none came in a while, the phone asked
-// again or was unpaired, or ctx ended. The catalog is closed meanwhile.
-func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64, states []library.State) (bool, error) {
+// is not the one named, or its list's tag is not list, when there is one;
+// neither when none came in a while, the phone asked again or was unpaired, or
+// ctx ended. The catalog is closed meanwhile.
+func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64, states []library.State, list *string) (changed, listed bool, err error) {
 	timer := time.NewTimer(marksHeld)
 	defer timer.Stop()
-	w := &waiter{profile: phone.Profile, shelf: shelf, after: after, states: states, told: make(chan told, 1)}
+	w := &waiter{profile: phone.Profile, shelf: shelf, after: after, states: states, list: list, told: make(chan told, 1)}
 	waiting.Lock()
 	if old := waiting.phones[phone.ID]; old != nil {
-		old.tell(false, nil)
+		old.tell(told{})
 	}
 	waiting.phones[phone.ID] = w
 	if !waiting.watching {
@@ -123,18 +138,18 @@ func WaitForMarks(ctx context.Context, phone Phone, shelf string, after int64, s
 	lookNow()
 	select {
 	case t := <-w.told:
-		return t.changed, t.err
+		return t.changed, t.list, t.err
 	case <-timer.C:
 	case <-ctx.Done():
 	}
-	return false, nil
+	return false, false, nil
 }
 
 // watchMarks looks for the phones waiting, while there are any: at once when
-// told to, and by tick when the library changed.
+// told to, and by tick when the library changed or a list is to be worked out.
 func watchMarks(tick *time.Ticker) {
 	defer tick.Stop()
-	seen := ""
+	seen, stale := "", []string(nil)
 	for {
 		asked := false
 		select {
@@ -152,30 +167,78 @@ func watchMarks(tick *time.Ticker) {
 		waiting.Unlock()
 		// One that cannot be told is looked at no more than one unchanged.
 		now, err := LibraryChanges()
-		if !asked && (err != nil || now == seen) {
-			continue
+		if asked || err == nil && now != seen {
+			seen = now
+			stale = lookFor(all)
 		}
-		seen = now
-		lookFor(all)
+		if len(stale) > 0 && walkLists(stale) {
+			stale = nil // it looks again
+		}
 	}
 }
 
 // lookFor tells those of waiters that have something to hear, or why it
-// cannot be known.
-func lookFor(waiters []*waiter) {
+// cannot be known, and says whose lists are to be worked out to know.
+func lookFor(waiters []*waiter) (stale []string) {
 	c, err := openMarks()
 	if c != nil {
 		defer c.Close()
 	}
+	var now library.Written
+	if err == nil && slices.ContainsFunc(waiters, func(w *waiter) bool { return w.list != nil }) {
+		now, err = c.Written()
+	}
+	walking.Lock()
+	fresh := walking.fresh
+	walking.fresh = nil
+	walking.Unlock()
 	for _, w := range waiters {
-		changed := false
+		var t told
 		if err == nil {
-			changed, err = c.Differs(w.profile, w.shelf, w.after, w.states)
+			t.changed, err = c.Differs(w.profile, w.shelf, w.after, w.states)
 		}
-		if err != nil || changed {
-			w.tell(changed, err)
+		t.err = err
+		if err == nil && w.list != nil {
+			kept := listOfProfile(w.profile).Load()
+			here := kept != nil && kept.state.Path == now.Path
+			// One worked out for a phone's own question is told to the others
+			// while it is the library's: as it changes, each would have the
+			// others ask, one after the other, without end.
+			known := here && (kept.state == now || slices.Contains(fresh, w.profile))
+			t.list = !library.IsTag(*w.list) || known && kept.tag != *w.list
+			if !t.list && (!here || kept.state != now) && !slices.Contains(stale, w.profile) {
+				stale = append(stale, w.profile)
+			}
+		}
+		if t != (told{}) {
+			w.tell(t)
 		}
 	}
+	return stale
+}
+
+// walkLists works out the lists of profiles and has the phones waiting looked
+// for again; false when it is too early to. The answers wait for none of it.
+func walkLists(profiles []string) bool {
+	walking.Lock()
+	defer walking.Unlock()
+	if walking.running || time.Now().Before(walking.next) {
+		return false
+	}
+	walking.running = true
+	go func() {
+		began := time.Now()
+		for _, p := range profiles {
+			// One that fails is worked out again after the rest; why it did, the
+			// look says.
+			_, _, _ = PhoneList(context.Background(), Phone{Profile: p})
+		}
+		walking.Lock()
+		walking.running, walking.fresh, walking.next = false, profiles, time.Now().Add(max(listRest, 20*time.Since(began)))
+		walking.Unlock()
+		lookNow()
+	}()
+	return true
 }
 
 // lookNow has the phones waiting looked for, at once.
@@ -191,6 +254,6 @@ func stopWaiting(id string) {
 	waiting.Lock()
 	defer waiting.Unlock()
 	if w := waiting.phones[id]; w != nil {
-		w.tell(false, nil)
+		w.tell(told{})
 	}
 }

@@ -238,6 +238,12 @@ func tagOf(answer []byte) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// IsTag is whether tag may be one.
+func IsTag(tag string) bool {
+	b, err := hex.DecodeString(tag)
+	return err == nil && len(b) == 16
+}
+
 // album is an album of a shelf: its id is a phone's, of the two.
 type album struct{ id, name string }
 

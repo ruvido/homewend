@@ -481,6 +481,7 @@ func markIn(c *library.Catalog, state library.State, photos []library.Key, on bo
 	}
 	done, err := c.Mark(state, photos, on)
 	c.Close()
+	lookNow()
 	// A photo in the Trash is not missing.
 	if state == library.Trashed && on {
 		offMissing(done)
@@ -514,9 +515,7 @@ func TurnLeft(k library.Key) (Turned, error) {
 	}
 	defer c.Close()
 	turn, digest, err := c.TurnLeft(k)
-	if digest != "" {
-		lookNow()
-	}
+	lookNow()
 	return Turned{turn, digest}, err
 }
 

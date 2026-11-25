@@ -64,6 +64,7 @@ var (
 // one takes its place.
 type phoneList struct {
 	state  library.Written
+	began  time.Time // when it began to be worked out
 	tag    string
 	answer []byte
 	hashes map[library.Hash]struct{}
@@ -133,8 +134,10 @@ func orAway(err error) error {
 }
 
 // PhoneList is the listing of phone's library and its tag, worked out once
-// for each state of the library, whoever asks.
+// for each state of the library, whoever asks; those who asked before it began
+// to be, share one.
 func PhoneList(ctx context.Context, phone Phone) (tag string, answer []byte, err error) {
+	asked := time.Now()
 	end, err := listing.take(ctx, phone.Profile)
 	if err != nil {
 		return "", nil, err
@@ -151,15 +154,16 @@ func PhoneList(ctx context.Context, phone Phone) (tag string, answer []byte, err
 		return "", nil, orAway(err)
 	}
 	kept := listOfProfile(phone.Profile)
-	if l := kept.Load(); l != nil && l.state == state {
+	if l := kept.Load(); l != nil && (l.state == state || l.state.Path == state.Path && l.began.After(asked)) {
 		return l.tag, l.answer, nil
 	}
+	began := time.Now()
 	list, hashes, err := c.Listing(phone.Profile)
 	if err != nil {
 		return "", nil, orAway(err)
 	}
 	if tag, answer, err = list.Tag(); err == nil {
-		kept.Store(&phoneList{state, tag, answer, hashes})
+		kept.Store(&phoneList{state, began, tag, answer, hashes})
 	}
 	return tag, answer, err
 }

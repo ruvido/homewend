@@ -24,8 +24,8 @@ import (
 func waits(ctx context.Context, phone Phone, shelf library.Shelf) <-chan told {
 	out := make(chan told, 1)
 	go func() {
-		changed, err := WaitForMarks(ctx, phone, shelf.ID, shelf.Cursor, nil)
-		out <- told{changed, err}
+		changed, list, err := WaitForMarks(ctx, phone, shelf.ID, shelf.Cursor, nil, nil)
+		out <- told{changed, list, err}
 	}()
 	return out
 }
@@ -152,7 +152,7 @@ func TestAQuestionIsHeldUntilAHeart(t *testing.T) {
 	if err := answer(t, "the disk away", anns, false, 5*time.Second); !errors.As(err, new(LibraryGoneError)) {
 		t.Errorf("the disk away: %v", err)
 	}
-	if _, err := WaitForMarks(context.Background(), ann, "", 0, nil); !errors.As(err, new(LibraryGoneError)) {
+	if _, _, err := WaitForMarks(context.Background(), ann, "", 0, nil, nil); !errors.As(err, new(LibraryGoneError)) {
 		t.Errorf("asked with the disk away: %v", err)
 	}
 	if err := os.Rename(root+"-away", root); err != nil {
@@ -195,7 +195,7 @@ func TestHowAQuestionEnds(t *testing.T) {
 	answer(t, "unpaired", second, false, time.Second)
 	held(t, 0)
 	marksHeld = 100 * time.Millisecond
-	if changed, err := WaitForMarks(ctx, ron, shelf.ID, shelf.Cursor, nil); changed || err != nil {
+	if changed, _, err := WaitForMarks(ctx, ron, shelf.ID, shelf.Cursor, nil, nil); changed || err != nil {
 		t.Errorf("nothing came: %v %v", changed, err)
 	}
 	marksHeld = held55
@@ -247,7 +247,7 @@ func TestManyPhonesWait(t *testing.T) {
 			s := library.Shelf{}
 			for range 20 {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-				_, err := WaitForMarks(ctx, phone, s.ID, s.Cursor, nil)
+				_, _, err := WaitForMarks(ctx, phone, s.ID, s.Cursor, nil, nil)
 				cancel()
 				if err != nil {
 					done <- err

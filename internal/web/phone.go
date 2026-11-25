@@ -266,8 +266,16 @@ func phoneRoutes(l *phoneListener) http.Handler {
 		for _, s := range strings.FieldsFunc(r.URL.Query().Get("states"), func(r rune) bool { return r == ',' }) {
 			states = append(states, library.State(s))
 		}
-		changed, err := engine.WaitForMarks(r.Context(), phone, r.URL.Query().Get("shelf"), after, states)
-		phoneReply(w, map[string]bool{"changed": changed}, err)
+		var list *string
+		if r.URL.Query().Has("list") {
+			list = new(r.URL.Query().Get("list"))
+		}
+		changed, listed, err := engine.WaitForMarks(r.Context(), phone, r.URL.Query().Get("shelf"), after, states, list)
+		answer := map[string]bool{"changed": changed}
+		if listed {
+			answer["list"] = true
+		}
+		phoneReply(w, answer, err)
 	}))
 	// What the phone's owner sets on its photos: the call, the state, on or
 	// off, and the reply's key.
