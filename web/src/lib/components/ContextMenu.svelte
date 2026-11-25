@@ -38,6 +38,7 @@
 </script>
 
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { swap } from '#lib/motion.js';
 	let {
 		items,
@@ -56,7 +57,12 @@
 	// takes its place. Where the window ends, the bubble opens to the left of
 	// the opener instead.
 	const WIDTH = 208;
-	const at = $derived(anchor.getBoundingClientRect());
+	// Kept here: while the menu fades out its parent's anchor is gone already.
+	let opener = $state.raw(untrack(() => anchor));
+	$effect.pre(() => {
+		opener = anchor;
+	});
+	const at = $derived(opener.getBoundingClientRect());
 	const x = $derived(at.right);
 	const y = $derived(at.top + at.height / 2);
 	let innerWidth = $state(Infinity);
@@ -75,11 +81,11 @@
 	// as any other click.
 	const outside = (target: EventTarget | null) =>
 		!bubble?.contains(target as Node) &&
-		!(anchor.hasAttribute('aria-haspopup') && anchor.contains(target as Node));
+		!(opener.hasAttribute('aria-haspopup') && opener.contains(target as Node));
 	// Its opener gone from the page, a row read again or scrolled away, the
 	// menu goes too, rather than point at nothing.
 	$effect(() => {
-		const gone = new MutationObserver(() => !anchor.isConnected && onclose());
+		const gone = new MutationObserver(() => !opener.isConnected && onclose());
 		gone.observe(document.body, { childList: true, subtree: true });
 		return () => gone.disconnect();
 	});
@@ -93,13 +99,12 @@
 		buttons[next]?.focus();
 	}
 	// Closed by the keyboard or by a choice, the keyboard goes back to what
-	// opened it. Read before closing: closed, its props are gone with it.
+	// opened it.
 	function back() {
-		const opener = anchor as HTMLElement;
 		onclose();
 		// Where the person scrolled to stays: the opener gets the keyboard, not
 		// the view.
-		opener.focus({ preventScroll: true });
+		(opener as HTMLElement).focus({ preventScroll: true });
 	}
 
 	async function pick(item: MenuItem) {
@@ -111,6 +116,8 @@
 <svelte:window
 	bind:innerWidth
 	onkeydown={(e) => {
+		// Fading out, the keys are no longer its.
+		if (bubble?.inert) return;
 		if (e.key === 'Escape' || (e.key === 'Tab' && bubble?.contains(document.activeElement))) {
 			e.preventDefault();
 			back();

@@ -122,7 +122,7 @@
 	<header>
 		<div>
 			<h1>{text.phones}</h1>
-			{#if phones?.length}<p>{text.phonesLine(counts)}</p>{/if}
+			{#if phones}{#if phones.length}<p in:reveal out:reveal={{ leaving: true }}>{text.phonesLine(counts)}</p>{/if}{/if}
 		</div>
 		{#if !adding}<PrimaryButton onclick={() => (asking = true)}><Icon name="plus-lg" size={16} />{text.addPhone}</PrimaryButton>{/if}
 	</header>
@@ -149,36 +149,39 @@
 			{/snippet}
 		</Dialog>
 	{/if}
-	{#if phones?.length === 0 && !adding}
+	{#if phones?.length === 0 && !unpaired.length && !adding}
 		<p class="muted">{text.noPhones}</p>
-	{:else if phones?.length}
-		<table>
-			<thead>
-				<tr><th>{text.phoneCol}</th><th>{text.accountCol}</th><th>{text.lastBackupCol}</th><th>{text.backedUpCol}</th><th>{text.statusCol}</th><th></th></tr>
-			</thead>
-			<tbody>
-				{#each phones as p (p.id)}
-					{@const s = states[stateOf(p)]}
-					<tr animate:flip={moving()}>
-						<td><span class="name"><Icon name="phone" size={16} /><b>{p.name}</b></span></td>
-						<td>{p.profile}</td>
-						<td>{p.backup ? `${day(new Date(p.backup))}, ${clock(new Date(p.backup))}` : '—'}</td>
-						<td>{p.photos.toLocaleString('en')}</td>
-						<td><span class="status {s.tone}"><i></i><b>{s.status}</b></span></td>
-						<td class="act">
-							<span class="slot"
-								><button class="more" aria-haspopup="menu" aria-label={text.moreActions} onclick={(e) => more(e, p)}
-									><Icon name="three-dots" size={16} /></button
-								></span
-							>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</table>
 	{/if}
-	<!-- Inside the first answer's block: only a phone unpaired here moves in. -->
+	<!-- Inside the first answer's block: what it brings does not move in. -->
 	{#if phones}
+		{#if phones.length}
+			<div in:reveal out:reveal={{ leaving: true }}>
+				<table>
+					<thead>
+						<tr><th>{text.phoneCol}</th><th>{text.accountCol}</th><th>{text.lastBackupCol}</th><th>{text.backedUpCol}</th><th>{text.statusCol}</th><th></th></tr>
+					</thead>
+					<tbody>
+						{#each phones as p (p.id)}
+							{@const s = states[stateOf(p)]}
+							<tr out:swap={{ leaving: true }} animate:flip={moving()}>
+								<td><span class="name"><Icon name="phone" size={16} /><b>{p.name}</b></span></td>
+								<td>{p.profile}</td>
+								<td>{p.backup ? `${day(new Date(p.backup))}, ${clock(new Date(p.backup))}` : '—'}</td>
+								<td>{p.photos.toLocaleString('en')}</td>
+								<td><span class="status {s.tone}"><i></i><b>{s.status}</b></span></td>
+								<td class="act">
+									<span class="slot"
+										><button class="more" aria-haspopup="menu" aria-label={text.moreActions} onclick={(e) => more(e, p)}
+											><Icon name="three-dots" size={16} /></button
+										></span
+									>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+		{/if}
 		{#if unpaired.length}
 			<div class="unpaired" in:reveal>
 				<table>
@@ -229,10 +232,16 @@
 	.err {
 		color: var(--err);
 	}
-	th:nth-child(1) {
+	/* Leaving, a row is taken out of the table to fade where it was (svelte's
+	   flip): it keeps its columns as a table of its own. */
+	tr:global([inert]) {
+		display: table;
+		table-layout: fixed;
+	}
+	:is(th, td):nth-child(1) {
 		width: 26%;
 	}
-	th:nth-child(6) {
+	:is(th, td):nth-child(6) {
 		width: 96px;
 	}
 	/* Too narrow for equal columns to hold the two dates (135px with their
@@ -248,7 +257,7 @@
 		.unpaired table {
 			table-layout: auto;
 		}
-		.unpaired th:nth-child(6) {
+		.unpaired :is(th, td):nth-child(6) {
 			width: 0;
 			padding-right: 0;
 		}

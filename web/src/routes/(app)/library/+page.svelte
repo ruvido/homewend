@@ -160,7 +160,10 @@
 			return;
 		}
 		if (e.key !== 'Escape') return;
-		if (asking) return void (asking = null);
+		if (asking) {
+			e.preventDefault();
+			return void (asking = null);
+		}
 		if (emptying) return void (emptyBusy || (emptying = null));
 		if (open !== null) return;
 		if (dating) dating = false;

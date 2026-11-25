@@ -205,7 +205,8 @@
 		if (index !== null) index = Math.max(0, Math.min(photos.length - 1, index + d));
 	};
 	function key(e: KeyboardEvent) {
-		if (held) return;
+		// A key the page's dialog took is not the viewer's, its dialog closed by it.
+		if (held || e.defaultPrevented) return;
 		if (index === null) return;
 		// A dialog over it takes the keys; Esc closes it.
 		if (dating || takingOut) {
@@ -295,7 +296,7 @@
 								src={pictureOf(p, 'preview')}
 								alt=""
 								bind:this={fitted}
-								onload={() => (ready = p!.id)}
+								onload={() => p && (ready = p.id)}
 								onclick={zoomIn}
 							/>
 							{#if asked}
