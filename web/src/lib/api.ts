@@ -26,7 +26,7 @@ export interface AccountInfo {
 }
 
 export interface Overview {
-	accounts: (AccountInfo & { photos: number })[];
+	accounts: AccountInfo[];
 	total: number;
 	years: { year: string; count: number }[];
 	albums: { account: string; name: string; count: number }[];

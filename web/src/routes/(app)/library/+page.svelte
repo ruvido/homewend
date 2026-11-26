@@ -37,7 +37,9 @@
 	const badges = $derived(badgesOf(counts, filter.badges));
 	const photos = $derived(search(list, filter, badges));
 	const dated = $derived(!(place.kind === 'year' && place.label === text.noDate));
-	const empty = $derived(!app.overview || app.overview.gone || app.overview.total + app.overview.archived + app.overview.trashed === 0);
+	// Every person unchecked shows nothing, as the checkboxes say: not an empty library.
+	const nobody = $derived(!!app.overview?.profiles.length && app.overview.profiles.every((p) => app.settings.hidden?.includes(p)));
+	const empty = $derived(!app.overview || app.overview.gone || (!nobody && app.overview.total + app.overview.archived + app.overview.trashed === 0));
 	// The photos not on the disk are all taken out, or none: no search there.
 	$effect(() => {
 		finder.offered = !empty && place.kind !== 'missing';
@@ -218,7 +220,7 @@
 	// they are is the sidebar's. The photos with no date say why they have none.
 	const subtitle = $derived.by(() => {
 		const n = photos.length.toLocaleString('en');
-		if (loaded && photos.length === 0 && isFiltering(filter)) return text.searchNone;
+		if (loaded && photos.length === 0 && (isFiltering(filter) || nobody)) return text.searchNone;
 		if (place.kind === 'missing') return text.missingDetail;
 		if (place.kind === 'archive') return text.archiveSub(photos.length);
 		if (place.kind === 'trash') return text.trashSub(photos.length);

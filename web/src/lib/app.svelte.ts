@@ -211,7 +211,7 @@ export function sidebarOf(o: Overview): Sidebar {
 	return {
 		people: o.profiles.map((p, index) => ({ id: p, name: p, email: '', shown: !app.settings.hidden?.includes(p), index })),
 		// An account is its address: Homewend asks Google for nothing more.
-		accounts: o.accounts.map((a) => ({ id: a.id, email: a.email, name: a.email, photos: a.photos, index: o.profiles.indexOf(a.profile) })),
+		accounts: o.accounts.map((a) => ({ id: a.id, email: a.email, name: a.email, index: o.profiles.indexOf(a.profile) })),
 		total: o.total,
 		years: o.years.map((y) => ({
 			label: y.year || text.noDate,

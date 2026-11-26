@@ -16,11 +16,11 @@ import (
 // and albums of the library folder chosen once (DefaultLibrary), of the
 // profiles shown.
 type Overview struct {
-	Accounts []AccountCount `json:"accounts"`
-	Total    int            `json:"total"`
-	Years    []YearCount    `json:"years"`
-	Albums   []AlbumCount   `json:"albums"`
-	Takeouts int            `json:"takeouts"`
+	Accounts []AccountInfo `json:"accounts"`
+	Total    int           `json:"total"`
+	Years    []YearCount   `json:"years"`
+	Albums   []AlbumCount  `json:"albums"`
+	Takeouts int           `json:"takeouts"`
 	// Archived, Trashed and Favorites count the photos of the profiles shown
 	// in the Archive, in the Trash and with a heart.
 	Archived  int `json:"archived"`
@@ -37,12 +37,6 @@ type Overview struct {
 	// unplugged, its share not mounted. Its catalog is in it, so nothing is
 	// counted.
 	Gone string `json:"gone,omitempty"`
-}
-
-// AccountCount is an account and how many photos of the library it brought.
-type AccountCount struct {
-	AccountInfo
-	Photos int `json:"photos"`
 }
 
 // YearCount is a year, newest first, or "" for photos with no date.
@@ -135,7 +129,7 @@ func LibraryOverview(s Settings) (Overview, error) {
 }
 
 func overview(root string, accounts []AccountInfo, hidden []string, filled string) (Overview, error) {
-	o := Overview{Profiles: []string{}, Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []AccountCount{}, Missing: map[string]int{}}
+	o := Overview{Profiles: []string{}, Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []AccountInfo{}, Missing: map[string]int{}}
 	idOf := map[string]string{}
 	for _, a := range accounts {
 		// A profile that is signed out is nobody yet.
@@ -143,7 +137,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 			continue
 		}
 		idOf[a.ID] = a.ID
-		o.Accounts = append(o.Accounts, AccountCount{AccountInfo: a})
+		o.Accounts = append(o.Accounts, a)
 		if notes, err := loadNotes(a.Dir); err == nil {
 			o.Takeouts += len(asked(notes))
 		}
@@ -170,18 +164,11 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	if err != nil {
 		return o, err
 	}
-	owned, err := c.CountsByOwner()
-	if err != nil {
-		return o, err
-	}
 	if o.Archived, o.Trashed, o.Favorites, err = c.CountsByState(hidden); err != nil {
 		return o, err
 	}
 	for _, g := range shownOf(missingIn(root), hidden) {
 		o.Missing[g.Year]++
-	}
-	for i := range o.Accounts {
-		o.Accounts[i].Photos = owned[o.Accounts[i].ID]
 	}
 	for y, n := range years {
 		o.Years = append(o.Years, YearCount{Year: y, Count: n})

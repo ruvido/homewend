@@ -9,8 +9,6 @@ export interface Account {
 	email: string;
 	/** A person's: whether their photos are in what the window shows. */
 	shown?: boolean;
-	/** Photos in the library this account brought. */
-	photos?: number;
 	/** The person's place in the engine's profiles: their colour. */
 	index?: number;
 }

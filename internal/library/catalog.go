@@ -778,25 +778,6 @@ func (c *Catalog) CountsByYear(hidden []string) (map[string]int, error) {
 	return counts, rows.Err()
 }
 
-// CountsByOwner is how many photos each account brought, by address.
-func (c *Catalog) CountsByOwner() (map[string]int, error) {
-	rows, err := c.db.Query(`SELECT account, COUNT(*) FROM owners WHERE photo NOT IN (SELECT id FROM library_photos WHERE ` + away + `) GROUP BY account`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	counts := map[string]int{}
-	for rows.Next() {
-		var a string
-		var n int
-		if err := rows.Scan(&a, &n); err != nil {
-			return nil, err
-		}
-		counts[a] = n
-	}
-	return counts, rows.Err()
-}
-
 // Latest are the photos recorded last, newest first: the first to arrive in
 // a download are the last of these once it is over, the latest while it runs.
 func (c *Catalog) Latest(n int) ([]Photo, error) {

@@ -93,7 +93,7 @@ func TestAnOlderCatalogIsBroughtUpToDate(t *testing.T) {
 					t.Errorf("about a: %v %v %v", albums, sources, err)
 				}
 				if c.sources {
-					by, err := cat.CountsByOwner()
+					by, err := countsByOwner(cat)
 					want := map[string]int{"google/ron@x": 1, "google/sam@x": 1, "local/CARD": 1}
 					if c.columns { // sam's is in the Trash
 						want = map[string]int{"google/ron@x": 1}
@@ -793,4 +793,23 @@ func TestAPhotoKeptOutBringsNothingBack(t *testing.T) {
 	if err := c.db.QueryRow(`SELECT trashed FROM library_photos WHERE profile = 'ron'`).Scan(&trashed); err != nil || !trashed {
 		t.Errorf("trashed %v %v, want it kept in the Trash", trashed, err)
 	}
+}
+
+// countsByOwner is how many photos each account brought, those away aside.
+func countsByOwner(c *Catalog) (map[string]int, error) {
+	rows, err := c.db.Query(`SELECT account, COUNT(*) FROM owners WHERE photo NOT IN (SELECT id FROM library_photos WHERE ` + away + `) GROUP BY account`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var a string
+		var n int
+		if err := rows.Scan(&a, &n); err != nil {
+			return nil, err
+		}
+		counts[a] = n
+	}
+	return counts, rows.Err()
 }
