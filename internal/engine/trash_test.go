@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/thumb"
@@ -310,5 +311,31 @@ func TestAPhotoInTransit(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, rons.Path)); err != nil {
 		t.Error(err)
+	}
+}
+
+// While an Empty runs, how far it is is told; none runs, nothing is.
+func TestHowFarAnEmptyIs(t *testing.T) {
+	root, _, _, hash, _ := twoPhones(t)
+	k := []library.Key{{Hash: hash, Profile: "ron"}, {Hash: "none", Profile: "ron"}}
+	if _, err := Mark(library.Trashed, k[:1], true); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() { _, err := EmptyTrash(k); done <- err }()
+	time.Sleep(300 * time.Millisecond) // waiting for its turn
+	if e := EmptyingNow(); e != (Emptying{0, 2}) {
+		t.Errorf("%+v", e)
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if e := EmptyingNow(); e != (Emptying{}) {
+		t.Errorf("%+v after", e)
 	}
 }

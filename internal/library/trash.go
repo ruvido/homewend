@@ -352,7 +352,7 @@ func TidyTrash(root, catalog string, keys []Key, turn Turn, write Write) (gone [
 		failed = append(failed, with(catalog, func(c *Catalog) error { return settle(root, c, few, write) }))
 		unlock()
 	}
-	_, gone, err = erase(root, catalog, claimed, erasing, turn)
+	_, gone, err = erase(root, catalog, claimed, erasing, turn, nil)
 	return gone, errors.Join(append(failed, err)...)
 }
 
@@ -582,7 +582,7 @@ func rename(from, to string) error {
 // library has, stays in the Trash with it, and so does one whose file is not
 // there with nothing to say it is not only away. It says those left there, and
 // the contents no library has any more.
-func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write) (left []Key, gone []string, err error) {
+func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write, told func(done int)) (left []Key, gone []string, err error) {
 	// Files not where they belong first.
 	if gone, err = TidyTrash(root, catalog, photos, turn, write); err != nil && !exists(catalog) {
 		return photos, gone, err
@@ -602,12 +602,12 @@ func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write) (lef
 		return photos, gone, err
 	}
 	// Before any folder that proves them gone goes.
-	_, more, err := erase(root, catalog, claimed, erasing, turn)
+	_, more, err := erase(root, catalog, claimed, erasing, turn, nil)
 	gone = append(gone, more...)
 	if err != nil {
 		return photos, gone, err
 	}
-	done, more, err := erase(root, catalog, rows, 0, turn)
+	done, more, err := erase(root, catalog, rows, 0, turn, told)
 	gone = append(gone, more...)
 	left = []Key{}
 	for _, p := range rows {
@@ -616,7 +616,7 @@ func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write) (lef
 		}
 	}
 	if err == nil {
-		_, more, err = erase(root, catalog, stray, erased, turn)
+		_, more, err = erase(root, catalog, stray, erased, turn, nil)
 		gone = append(gone, more...)
 	}
 	return left, gone, err
@@ -644,6 +644,8 @@ type doomed struct {
 	files []seen
 	// with are the photos that are no holder only as they go with it.
 	with []Key
+	// edited: its file is not its content any more, changed by another program.
+	edited bool
 }
 
 // seen is a file as it was read. The photo's own is the first, then its names.
@@ -670,7 +672,7 @@ func (f seen) still(root string) bool {
 // be as they were, claimed in one write, deleted, and recorded. One restored
 // before the claim is not deleted; after it, it cannot be restored. A run
 // killed leaves them claimed, and TidyTrash comes back to them.
-func erase(root, catalog string, rows []Photo, was int, turn Turn) (done map[Key]bool, gone []string, err error) {
+func erase(root, catalog string, rows []Photo, was int, turn Turn, told func(done int)) (done map[Key]bool, gone []string, err error) {
 	done = map[Key]bool{}
 	if len(rows) == 0 {
 		return done, nil, nil
@@ -683,6 +685,7 @@ func erase(root, catalog string, rows []Photo, was int, turn Turn) (done map[Key
 	}
 	in := entries{}
 	folders := map[string]bool{}
+	handled := 0
 	for len(rows) > 0 {
 		n := min(fewErased, len(rows))
 		for n < len(rows) && rows[n].Hash == rows[n-1].Hash {
@@ -693,6 +696,9 @@ func erase(root, catalog string, rows []Photo, was int, turn Turn) (done map[Key
 			return done, gone, err
 		}
 		gone = append(gone, forgotten...)
+		if handled += n; told != nil {
+			told(handled)
+		}
 		for _, p := range few {
 			done[p.Key()] = true
 			folders[path.Dir(p.Path)] = true
@@ -731,14 +737,15 @@ func eraseFew(root, catalog string, rows []Photo, was int, albums map[Key][]stri
 	}
 	own := map[Key]doomed{}
 	for _, p := range rows {
-		if d, err := ownFiles(root, p, albums[p.Key()], in); err == nil && taken[p.Path] == 1 {
+		// A file put back where one was deleted for good goes only if it is the photo.
+		if d, err := ownFiles(root, p, albums[p.Key()], in); err == nil && taken[p.Path] == 1 && !(d.edited && was == erased) {
 			own[p.Key()] = d
 		}
 	}
 	for _, p := range rows {
 		d, ok := own[p.Key()]
 		for _, o := range copies {
-			if !ok || o.Key() == p.Key() || o.Hash != p.Hash || d.files[0].info == nil {
+			if !ok || o.Key() == p.Key() || o.Hash != p.Hash || d.files[0].info == nil || d.edited {
 				continue
 			}
 			// Going too, its file its own: nobody is left without.
@@ -823,16 +830,26 @@ func eraseRead(root string, c *Catalog, rows []Photo, read []doomed, was int) (e
 		// One that was to go with it was restored, or changed, with no file.
 		going[k] = !slices.ContainsFunc(files[k].with, func(o Key) bool {
 			d, ok := files[o]
-			return !claimed[o] && (!ok || d.files[0].info == nil)
+			return !claimed[o] && (!ok || d.files[0].info == nil || d.edited)
 		})
 	}
+	// One that goes with an edited one, which holds not its content, goes after it.
+	after := func(k Key) bool {
+		return slices.ContainsFunc(files[k].with, func(o Key) bool { return files[o].edited })
+	}
+	removed := map[Key]bool{}
 	var stay []Photo
-	for _, p := range rows {
-		k := p.Key()
-		if going[k] && remove(root, c, files[k]) == nil {
-			ended = append(ended, p)
-		} else if claimed[k] || was == erasing {
-			stay = append(stay, p)
+	for _, late := range []bool{false, true} {
+		for _, p := range rows {
+			k := p.Key()
+			if after(k) != late {
+				continue
+			}
+			if going[k] && (!late || !slices.ContainsFunc(files[k].with, func(o Key) bool { return files[o].edited && !removed[o] })) && remove(root, c, files[k]) == nil {
+				ended, removed[k] = append(ended, p), true
+			} else if claimed[k] || was == erasing {
+				stay = append(stay, p)
+			}
 		}
 	}
 	back := was
@@ -888,12 +905,15 @@ func ownFiles(root string, p Photo, albums []string, in entries) (doomed, error)
 		}
 		return d, nil
 	}
-	if !inTrash(p.Path) || info.Size() != p.Bytes {
+	// Homewend put it there and the person deleted it: an edit of it goes too.
+	if !inTrash(p.Path) {
 		return d, errNotIts
 	}
-	if hash, err := hashOf(under(root, p.Path)); err != nil || hash != p.Hash {
-		return d, errors.Join(err, errNotIts)
+	hash, err := hashOf(under(root, p.Path))
+	if err != nil {
+		return d, err
 	}
+	d.edited = hash != p.Hash
 	for _, album := range albums {
 		dir := path.Join(p.Profile, "albums", album)
 		if direct(root, dir+"/x") != nil {

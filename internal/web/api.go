@@ -64,7 +64,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 	// moves. The thumbnails being made go with it.
 	mux.HandleFunc("GET /api/changes", func(w http.ResponseWriter, r *http.Request) {
 		n, err := engine.LibraryChanges()
-		reply(w, map[string]any{"changes": n, "thumbs": engine.ThumbsMade()}, err)
+		reply(w, map[string]any{"changes": n, "thumbs": engine.ThumbsMade(), "emptying": engine.EmptyingNow()}, err)
 	})
 	// Sign-in happens in the system browser; the request waits for it. With
 	// no account named it signs in a new one.

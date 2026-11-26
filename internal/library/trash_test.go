@@ -90,7 +90,7 @@ func (l *trashing) trash(keys ...Key) {
 // empty empties keys and wants those left.
 func (l *trashing) empty(keys []Key, left ...Key) (gone []string) {
 	l.Helper()
-	got, gone, err := EmptyTrash(l.root, l.db(), keys, anyTurn, plainly)
+	got, gone, err := EmptyTrash(l.root, l.db(), keys, anyTurn, plainly, nil)
 	if err != nil || len(got) != len(left) {
 		l.Fatalf("left %v %v, want %v", got, err, left)
 	}
@@ -226,7 +226,7 @@ func TestAPhotoRestoredAsEmptyReads(t *testing.T) {
 			os.Chtimes(under(l.root, ".trash/ron/b.jpg"), time.Now(), time.Now().Add(time.Second))
 		}
 		return func() {}, nil
-	}, plainly)
+	}, plainly, nil)
 	if err != nil || turns != 1 || len(left) != 4 {
 		t.Fatalf("left %v %v in %d turns, want all", left, err, turns)
 	}
@@ -424,21 +424,28 @@ func TestALinkInTheTrash(t *testing.T) {
 	l.at(b, "ron/a.jpg")
 }
 
-// An Empty killed after its claim is finished, the file deleted or not yet;
-// one whose file changed since is back in the Trash, untouched.
+// An Empty killed after its claim is finished, the file deleted or not yet,
+// or edited since; one whose file is now a link is back in the Trash, untouched.
 func TestAnEmptyKilledIsFinished(t *testing.T) {
 	l := newTrashing(t)
-	a, b, d := l.add("ron/a.jpg", "a photo"), l.add("ron/b.jpg", "another"), l.add("ron/d.jpg", "a third")
-	l.trash(a, b, d)
+	a, b, d, e := l.add("ron/a.jpg", "a photo"), l.add("ron/b.jpg", "another"), l.add("ron/d.jpg", "a third"), l.add("ron/e.jpg", "a fourth")
+	l.trash(a, b, d, e)
 	l.exec(`UPDATE library_photos SET out = 2`)
 	os.Remove(under(l.root, ".trash/ron/a.jpg"))
-	write(t, l.root, ".trash/ron/d.jpg", []byte("other bytes"))
+	write(t, l.root, ".trash/ron/e.jpg", []byte("other bytes"))
+	os.Remove(under(l.root, ".trash/ron/d.jpg"))
+	outside := t.TempDir()
+	write(t, outside, "d.jpg", []byte("a third"))
+	if err := os.Symlink(filepath.Join(outside, "d.jpg"), under(l.root, ".trash/ron/d.jpg")); err != nil {
+		t.Skip(err)
+	}
 	l.isErased(a) // what is claimed is out already
-	if gone := l.tidy(); len(gone) != 2 {
+	if gone := l.tidy(); len(gone) != 3 {
 		t.Errorf("gone %v", gone)
 	}
 	l.isErased(a)
 	l.isErased(b)
+	l.isErased(e)
 	l.file(".trash/ron/b.jpg", false)
 	if n, err := l.c.Count(Filter{Trashed: true}); err != nil || n != 1 {
 		t.Errorf("in the Trash %d %v, want d", n, err)
@@ -512,10 +519,23 @@ func TestTheOthersPhotoIsNotTouched(t *testing.T) {
 			l.isErased(rons)
 			l.isErased(anns)
 		},
-		"both emptied, her file changed, his is the last": func(l *trashing, rons, anns Key) {
+		"both emptied, her file changed": func(l *trashing, rons, anns Key) {
 			os.Remove(under(l.root, "ann/a.jpg"))
 			write(l.T, l.root, "ann/a.jpg", []byte("an edit, hers "))
 			l.trash(rons, anns)
+			l.empty([]Key{rons, anns})
+			l.isErased(rons)
+			l.isErased(anns)
+		},
+		"both emptied, her edit cannot go: his is the last": func(l *trashing, rons, anns Key) {
+			os.Remove(under(l.root, "ann/a.jpg"))
+			write(l.T, l.root, "ann/a.jpg", []byte("an edit, hers "))
+			l.trash(rons, anns)
+			lock := under(l.root, ".trash/ann")
+			if err := os.Chmod(lock, 0o555); err != nil || os.Geteuid() == 0 {
+				l.Skip("a mode takes no one's writing away")
+			}
+			defer os.Chmod(lock, 0o755)
 			l.empty([]Key{rons, anns}, rons, anns)
 			l.at(rons, ".trash/ron/a.jpg")
 		},
@@ -583,10 +603,6 @@ func TestAFileNotItsOwnIsLeft(t *testing.T) {
 		"another file in its place": func(l *trashing) string {
 			write(l.T, l.root, "ron/a.jpg", []byte("quite another photo"))
 			return "ron/a.jpg"
-		},
-		"another of its size": func(l *trashing) string {
-			write(l.T, l.root, "ron/a.jpg", []byte("b photo"))
-			return ".trash/ron/a.jpg"
 		},
 		"its name a link": func(l *trashing) string {
 			write(l.T, outside, "kept.jpg", []byte("a photo"))
@@ -697,7 +713,7 @@ func TestAFileGoneAlready(t *testing.T) {
 	if err := os.Rename(l.root, whole); err != nil {
 		t.Skip(err)
 	}
-	if left, _, err := EmptyTrash(l.root, l.db(), []Key{e}, anyTurn, plainly); err == nil || len(left) != 1 {
+	if left, _, err := EmptyTrash(l.root, l.db(), []Key{e}, anyTurn, plainly, nil); err == nil || len(left) != 1 {
 		t.Errorf("emptied with the disk away: %v %v", left, err)
 	}
 	if err := os.Rename(whole, l.root); err != nil {
@@ -801,7 +817,7 @@ func TestAFolderThatCannotBeWritten(t *testing.T) {
 	d := l.add("ron/d.jpg", "a third")
 	l.trash(d)
 	l.exec(`CREATE TRIGGER full BEFORE UPDATE OF out, path ON library_photos BEGIN SELECT RAISE(ABORT, 'full'); END`)
-	if left, _, err := EmptyTrash(l.root, l.db(), []Key{d}, anyTurn, plainly); err == nil || len(left) != 1 {
+	if left, _, err := EmptyTrash(l.root, l.db(), []Key{d}, anyTurn, plainly, nil); err == nil || len(left) != 1 {
 		t.Errorf("left %v %v", left, err)
 	}
 	l.at(d, ".trash/ron/d.jpg")
@@ -992,7 +1008,7 @@ func TestKilledAtAnyMoment(t *testing.T) {
 		for n := 0; ; n++ {
 			c.Mark(Trashed, keys, true)
 			TidyTrash(root, db, keys, anyTurn, plainly)
-			EmptyTrash(root, db, keys[:min(n, len(keys))], anyTurn, plainly)
+			EmptyTrash(root, db, keys[:min(n, len(keys))], anyTurn, plainly, nil)
 			c.Mark(Trashed, keys, false)
 			TidyTrash(root, db, nil, anyTurn, plainly)
 		}
@@ -1062,7 +1078,7 @@ func TestEmptyTakesItsTurnForAFew(t *testing.T) {
 		}
 		turns++
 		return func() {}, nil
-	}, plainly)
+	}, plainly, nil)
 	if err != nil || len(left) != 0 || len(gone) != len(keys) || turns != 3 {
 		t.Errorf("left %v, %d gone, %d turns, %v", left, len(gone), turns, err)
 	}
@@ -1079,7 +1095,7 @@ func TestEmptyTakesItsTurnForAFew(t *testing.T) {
 			return nil, busy
 		}
 		return func() {}, nil
-	}, plainly)
+	}, plainly, nil)
 	if !errors.Is(err, busy) || len(left) != 1 {
 		t.Errorf("left %v %v, want one", left, err)
 	}
@@ -1199,4 +1215,33 @@ func TestAJournalThatDoesNotRead(t *testing.T) {
 		l.at(b, "ron/b.jpg")
 		l.at(d, "ron/d.jpg")
 	}
+}
+
+// A file another program edited is the photo all the same, once Homewend has
+// put it in the Trash's folder at its own path: the person deleted it. Not
+// moved yet, at another photo's path, or where one deleted for good was, it stays.
+func TestAnEditedPhotoIsEmptied(t *testing.T) {
+	l := newTrashing(t)
+	a, b, d := l.add("ron/a.jpg", "a photo"), l.add("ron/b.jpg", "another"), l.add("ron/d.jpg", "a third")
+	l.trash(a, d)
+	write(t, l.root, ".trash/ron/a.jpg", []byte("a photo, edited by another program"))
+	write(t, l.root, "ron/b.jpg", []byte("b, edited before its Delete"))
+	l.mark(true, b)
+	l.tidy()
+	l.at(b, "ron/b.jpg") // another size: not moved
+	write(t, l.root, ".trash/ron/d.jpg", []byte("a third, edited"))
+	l.add(".trash/ron/d.jpg", "a third, edited") // the same path is another photo's too
+	var told []int
+	left, _, err := EmptyTrash(l.root, l.db(), []Key{a, b, d}, anyTurn, plainly, func(n int) { told = append(told, n) })
+	if err != nil || len(left) != 2 || slices.Contains(left, a) || !slices.Equal(told, []int{3}) {
+		t.Errorf("left %v %v, told %v", left, err, told)
+	}
+	l.isErased(a)
+	l.file(".trash/ron/a.jpg", false)
+	l.at(b, "ron/b.jpg")
+	l.file(".trash/ron/d.jpg", true)
+	// Emptied, then an edit put back at its place.
+	write(t, l.root, ".trash/ron/a.jpg", []byte("not it"))
+	l.empty([]Key{b}, b)
+	l.file(".trash/ron/a.jpg", true)
 }

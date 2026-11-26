@@ -20,7 +20,8 @@ import {
 	type JobState,
 	type Overview,
 	type Settings,
-	type Thumbs
+	type Thumbs,
+	type Emptying
 } from './api.js';
 import type { Sidebar, YearState } from './library.js';
 import { chooseUrl } from './places.js';
@@ -44,6 +45,8 @@ export const app = $state<{
 	libraryMoved: number;
 	/** Thumbnails being made in the background, when they take a while. */
 	thumbs: Thumbs | null;
+	/** An Empty Trash under way, for its dialog to show; null when none runs. */
+	emptying: Emptying | null;
 }>({
 	settings: {},
 	overview: null,
@@ -54,7 +57,8 @@ export const app = $state<{
 	updating: false,
 	picked: {},
 	libraryMoved: 0,
-	thumbs: null
+	thumbs: null,
+	emptying: null
 });
 
 function measure(account: string, j: JobState) {
@@ -120,6 +124,7 @@ export function watchJobs(): () => void {
 		const making = !!got && got.thumbs.done < got.thumbs.of;
 		app.thumbs = making && wasMaking ? got.thumbs : null;
 		wasMaking = making;
+		app.emptying = got && got.emptying.of > 0 ? got.emptying : null;
 		const moved = changes !== undefined && now !== changes;
 		changes = now;
 		if (moved) app.libraryMoved++;

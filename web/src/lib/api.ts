@@ -70,7 +70,9 @@ export const putProfile = (account: string, profile: string) =>
 	call<{ profile: string }>('PUT', `/api/profile?account=${encodeURIComponent(account)}`, { profile });
 export const getOverview = () => call<Overview>('GET', '/api/overview');
 /** Moves each time the library's catalog changes, whoever changed it; with it, the thumbnails being made. */
-export const getChanges = () => call<{ changes: string; thumbs: Thumbs }>('GET', '/api/changes');
+export const getChanges = () => call<{ changes: string; thumbs: Thumbs; emptying: Emptying }>('GET', '/api/changes');
+/** How many of the photos an Empty Trash was asked for it has done; of is 0 while none runs. */
+export type Emptying = { done: number; of: number };
 /** How many photos of the library have their thumbnail: made in the background. */
 export type Thumbs = { done: number; of: number };
 /** Opens the system browser on Google's sign-in and waits for it. */

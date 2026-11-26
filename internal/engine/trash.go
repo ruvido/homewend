@@ -114,6 +114,8 @@ func tidyTrashOnce(root string) {
 // EmptyTrash deletes for good those of photos that are in the Trash, and says
 // those it left there: the ones shown to the person who asked, no others.
 func EmptyTrash(photos []library.Key) ([]library.Key, error) {
+	setEmptying(Emptying{0, len(photos)})
+	defer setEmptying(Emptying{})
 	root, err := LibraryHere()
 	if err != nil {
 		return nil, err
@@ -128,7 +130,7 @@ func EmptyTrash(photos []library.Key) ([]library.Key, error) {
 		return nil, err
 	}
 	unlock()
-	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, turn, unlisted)
+	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, turn, unlisted, func(n int) { setEmptying(Emptying{n, len(photos)}) })
 	forgetPictures(gone)
 	if err != nil {
 		lookAgain(root) // what it claimed and could not record
@@ -138,6 +140,31 @@ func EmptyTrash(photos []library.Key) ([]library.Key, error) {
 		err = nil
 	}
 	return left, err
+}
+
+// Emptying is how many of the photos an Empty was asked for it has done; Of is
+// 0 while none runs.
+type Emptying struct {
+	Done int `json:"done"`
+	Of   int `json:"of"`
+}
+
+var emptying struct {
+	sync.Mutex
+	Emptying
+}
+
+// EmptyingNow is where the Empty under way is.
+func EmptyingNow() Emptying {
+	emptying.Lock()
+	defer emptying.Unlock()
+	return emptying.Emptying
+}
+
+func setEmptying(e Emptying) {
+	emptying.Lock()
+	emptying.Emptying = e
+	emptying.Unlock()
 }
 
 // forgetPictures deletes the pictures kept of contents no library has, those
