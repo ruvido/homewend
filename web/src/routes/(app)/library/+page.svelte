@@ -20,6 +20,7 @@
 	import GiveDate from '#lib/components/GiveDate.svelte';
 	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
 	import LibraryFilter from '#lib/components/LibraryFilter.svelte';
+	import { finder } from '#lib/finder.svelte.js';
 	import { badgesOf, countBadges, isFiltering, noFilter, search } from '#lib/filter.js';
 
 	let open = $state<number | null>(null);
@@ -30,12 +31,18 @@
 	// Raw: a hundred thousand photos are replaced whole, never each watched.
 	let list = $state.raw<GridPhoto[]>([]);
 	let loaded = $state(false);
-	let filter = $state.raw({ ...noFilter });
+	const filter = $derived(finder.filter);
 	// Counted once the list is whole.
 	const counts = $derived(loaded ? countBadges(list) : {});
 	const badges = $derived(badgesOf(counts, filter.badges));
 	const photos = $derived(search(list, filter, badges));
 	const dated = $derived(!(place.kind === 'year' && place.label === text.noDate));
+	const empty = $derived(!app.overview || app.overview.gone || app.overview.total + app.overview.archived + app.overview.trashed === 0);
+	// The photos not on the disk are all taken out, or none: no search there.
+	$effect(() => {
+		finder.offered = !empty && place.kind !== 'missing';
+		return () => (finder.offered = false);
+	});
 	// The first and the last day; with none, today by this computer's clock.
 	function bounds() {
 		const now = new Date();
@@ -159,15 +166,22 @@
 		reload++;
 		await refresh();
 	}
-	// Esc closes the date's dialog, else lets the photos go; the viewer has its own.
-	// Ctrl+A or ⌘A picks all the photos shown.
+	// Esc closes the date's dialog, else lets the photos go, else closes the search; the viewer has its own.
+	// Ctrl+A or ⌘A picks all the photos shown, Ctrl+F or ⌘F searches them.
 	function key(e: KeyboardEvent) {
-		if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey) && open === null && !dating && !asking && !takingOut && !emptying && place.kind !== 'missing' && !(e.target instanceof HTMLInputElement)) {
+		const free = open === null && !dating && !asking && !takingOut && !emptying && place.kind !== 'missing';
+		const ctrl = e.ctrlKey || e.metaKey;
+		if (e.key.toLowerCase() === 'f' && ctrl && free && finder.offered) {
+			e.preventDefault();
+			return finder.show();
+		}
+		if (e.key.toLowerCase() === 'a' && ctrl && free && !(e.target instanceof HTMLInputElement)) {
 			e.preventDefault();
 			selected = new Set(photos.map((p) => p.id));
 			return;
 		}
-		if (e.key !== 'Escape') return;
+		// A menu open takes its own Esc.
+		if (e.key !== 'Escape' || e.defaultPrevented || (e.target as Element).closest?.('[role=menu]')) return;
 		if (asking) {
 			e.preventDefault();
 			return void (asking = null);
@@ -175,6 +189,7 @@
 		if (emptying) return void (emptyBusy || (emptying = null));
 		if (open !== null) return;
 		if (dating) dating = false;
+		else if (finder.open && (selected.size === 0 || e.target === finder.input)) finder.close();
 		else if (selected.size > 0) selected = new Set();
 	}
 
@@ -254,7 +269,7 @@
 		// the first alone would shorten the grid under the finger.
 		const here = urlOf(p);
 		const again = here === shown;
-		if (!again) ((list = []), (filter = { ...noFilter }), (shown = here), (loaded = false));
+		if (!again) ((list = []), (finder.open = false), (finder.filter = { ...noFilter }), (shown = here), (loaded = false));
 		reading = true;
 		(async () => {
 			const q =
@@ -310,11 +325,14 @@
 
 {#if app.overview?.gone}
 	<!-- The strip under the titlebar says it (G4); there is nothing to show. -->
-{:else if app.overview && app.overview.total + app.overview.archived + app.overview.trashed === 0}
+{:else if app.overview && empty}
 	<EmptyLibrary />
 {:else}
 	<!-- The bar over the grid, the grid in what is left. -->
 	<div class="lib">
+	{#if finder.open && (dated || badges.length > 0)}
+		<LibraryFilter bind:filter={finder.filter} {badges} {bounds} {dated} />
+	{/if}
 	{#if selected.size > 0}
 		<div class="selbar">
 			<button class="close" aria-label={text.clearSelection} onclick={() => (selected = new Set())}><Icon name="x-lg" size={20} /></button>
@@ -349,12 +367,6 @@
 						</span>
 					{/if}
 				</p>
-				<!-- The photos not on the disk are all taken out, or none; with no date and no badge there is nothing to search by. -->
-				{#if place.kind !== 'missing' && (dated || badges.length > 0)}
-					{#key urlOf(place)}
-						<LibraryFilter bind:filter {badges} {bounds} {dated} />
-					{/key}
-				{/if}
 				{#if place.kind === 'missing' && list.length > 0}
 					<div class="out">
 						<PrimaryButton onclick={() => (takingOut = true)}>{text.takeOutAll}</PrimaryButton>

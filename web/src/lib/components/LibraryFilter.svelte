@@ -1,10 +1,10 @@
 <!-- homewend — Copyright (C) 2026 ruvido -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
-<!-- S1–S8: the library's search. The field grows to show the dates and the
-     badges, and the grid moves down; closed, it holds what is picked. -->
+<!-- X2, X3: the search's dates and badges, in a row under the title bar; the
+     grid moves down. The name is typed in the title bar. -->
 <script lang="ts">
-	import { noFilter, isFiltering, type Badge, type Filter } from '#lib/filter.js';
-	import { takenDay } from '#lib/format.js';
+	import type { Badge, Filter } from '#lib/filter.js';
+	import { day } from '#lib/format.js';
 	import { reveal, swap } from '#lib/motion.js';
 	import { text } from '#lib/strings.js';
 	import AppBadge from './AppBadge.svelte';
@@ -28,13 +28,16 @@
 		bounds: () => { start: string; end: string };
 	} = $props();
 
-	let open = $state(false);
 	// The calendar shown, and the day on it.
 	let asking = $state<'start' | 'end' | null>(null);
 	let value = $state('');
-	const picked = $derived(badges.filter((b) => filter.badges.includes(b.id)));
-	const say = (day: string) => (day ? takenDay(new Date(day)) : '…');
-	const range = $derived(filter.start || filter.end ? `${say(filter.start)} – ${say(filter.end)}` : '');
+	// 1 Jan 2025; the year once when it is both days'.
+	const say = (which: 'start' | 'end') => {
+		const on = filter[which];
+		const once = which === 'start' && on.slice(0, 4) === filter.end.slice(0, 4);
+		return day(new Date(on + 'T00:00')) + (once ? '' : ` ${on.slice(0, 4)}`);
+	};
+	const label = { start: text.searchFrom, end: text.searchTo };
 
 	function flip(id: string) {
 		const on = filter.badges.includes(id);
@@ -52,68 +55,43 @@
 		filter = next;
 		asking = null;
 	}
-	// The calendar takes the page's keys; Esc closes it, or the field when
-	// the focus is in it.
-	let field = $state<HTMLElement>();
+	// The calendar takes the page's keys; Esc closes it.
 	function key(e: KeyboardEvent) {
-		if (asking) {
-			e.stopPropagation();
-			if (e.key === 'Escape') asking = null;
-		} else if (e.key === 'Escape' && open && field?.contains(document.activeElement)) {
-			e.stopPropagation();
-			open = false;
-			field.querySelector<HTMLElement>('.toggle')?.focus();
-		}
+		if (!asking) return;
+		e.stopPropagation();
+		if (e.key === 'Escape') asking = null;
 	}
-	const said = $derived([range, ...picked.map((b) => b.label)].filter(Boolean).join(', '));
 </script>
 
 <svelte:window onkeydowncapture={key} />
 
-{#snippet day(which: 'start' | 'end', label: string)}
-	<button class="field" class:on={!!filter[which]} aria-label={filter[which] ? text.searchDay(label, say(filter[which])) : label} onclick={() => ask(which)}><Icon name="calendar3" size={14} />{filter[which] ? say(filter[which]) : label}</button>
-	{#if filter[which]}
-		<button class="drop" in:swap aria-label={text.dropDate(label)} onclick={() => (filter = { ...filter, [which]: '' })}><Icon name="x-lg" size={12} /></button>
-	{/if}
+{#snippet pick(which: 'start' | 'end')}
+	<button aria-label={text.searchDay(label[which], say(which))} onclick={() => ask(which)}>{say(which)}</button>
+{/snippet}
+{#snippet chip(days: ('start' | 'end')[])}
+	<span class="field on" in:swap>
+		<Icon name="calendar3" size={14} />
+		{@render pick(days[0])}
+		{#if days[1]}–{@render pick(days[1])}{/if}
+		<button class="drop" aria-label={text.dropDate(days.map(say).join(' – '))} onclick={() => (filter = { ...filter, ...Object.fromEntries(days.map((d) => [d, ''])) })}><Icon name="x-lg" size={12} /></button>
+	</span>
+{/snippet}
+{#snippet side(which: 'start' | 'end')}
+	{#if filter[which]}{@render chip([which])}{:else}<button class="field" in:swap onclick={() => ask(which)}><Icon name="calendar3" size={14} />{label[which]}</button>{/if}
 {/snippet}
 
-<div class="search" bind:this={field}>
-	<div class="input">
-		<button class="toggle" aria-label={said ? text.searchPicked(said) : text.search} aria-expanded={open} onclick={() => (open = !open)}></button>
-		<Icon name="search" size={16} />
-		{#if !open}
-			{#if range}
-				<span class="field on" in:swap>
-					<Icon name="calendar3" size={14} />{range}
-					<button class="drop" aria-label={text.dropDate(range)} onclick={() => (filter = { ...filter, start: '', end: '' })}><Icon name="x-lg" size={12} /></button>
-				</span>
-			{/if}
-			{#each picked as b (b.id)}<span in:swap><AppBadge id={b.id} label={b.label} icon={b.icon} on /></span>{/each}
-		{/if}
-		{#if open || !isFiltering(filter)}<span in:swap>{text.search}</span>{/if}
-		{#if isFiltering(filter)}<button class="clear" in:swap onclick={() => (filter = { ...noFilter })}>{text.clearSearch}</button>{/if}
-	</div>
-	{#if open}
-		<div in:reveal out:reveal={{ leaving: true }}>
-			<dl>
-				{#if dated}
-					<dt>{text.searchDate}</dt>
-					<dd>{@render day('start', text.searchFrom)}<em>–</em>{@render day('end', text.searchTo)}</dd>
-				{/if}
-				{#if badges.length > 0}
-					<dt>{text.searchBadge}</dt>
-					<dd>
-						{#each badges as b (b.id)}
-							<AppBadge id={b.id} label={b.label} icon={b.icon} count={b.count} on={filter.badges.includes(b.id)} onclick={() => flip(b.id)} />
-						{/each}
-					</dd>
-				{/if}
-			</dl>
-		</div>
+<div class="bar" in:reveal out:reveal={{ leaving: true }}>
+	{#if dated}
+		{#if filter.start && filter.end}{@render chip(['start', 'end'])}{:else}{@render side('start')}<em>–</em>{@render side('end')}{/if}
+		{#if badges.length > 0}<i></i>{/if}
 	{/if}
+	{#each badges as b (b.id)}
+		{@const on = filter.badges.includes(b.id)}
+		<AppBadge id={b.id} label={b.label} icon={b.icon} count={on ? undefined : b.count} {on} onclick={() => flip(b.id)} />
+	{/each}
 </div>
 {#if asking}
-	<Dialog title={asking === 'start' ? text.searchFrom : text.searchTo}>
+	<Dialog title={label[asking]}>
 		<DatePicker bind:value time={false} />
 		{#snippet actions()}
 			<SecondaryButton onclick={() => (asking = null)}>{text.cancel}</SecondaryButton>
@@ -123,61 +101,21 @@
 {/if}
 
 <style>
-	.search {
-		margin-top: var(--space-16);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-12);
-	}
-	.input {
-		position: relative;
-		min-height: var(--size-segmented);
-		padding: var(--space-4) var(--space-12);
+	.bar {
+		padding: var(--space-8) var(--space-40);
 		display: flex;
 		flex-wrap: wrap;
+		flex-shrink: 0;
 		align-items: center;
 		gap: var(--space-8);
-		color: var(--muted);
-		font-size: var(--text-body);
+		border-bottom: 1px solid var(--line);
 	}
-	/* The whole field is pressed; what is in it lies over, and lets it through. */
-	.toggle {
-		position: absolute;
-		inset: 0;
-		border-radius: var(--radius-12);
+	:global(.narrow) .bar {
+		padding-inline: var(--space-24);
 	}
-	.input > :global(*:not(.toggle)) {
-		position: relative;
-		pointer-events: none;
-	}
-	.input .drop,
-	.input > .clear {
-		pointer-events: auto;
-	}
-	.clear {
-		margin-left: auto;
-		color: var(--accent);
-		font-size: var(--text-callout);
-		font-weight: var(--weight-semibold);
-	}
-	dl {
-		margin: 0;
-		padding: var(--space-12);
-		display: grid;
-		grid-template-columns: auto 1fr;
-		gap: var(--space-12) var(--space-24);
-		align-items: center;
-		border-top: 1px solid var(--line);
-	}
-	dt {
-		color: var(--muted);
-		font-size: var(--text-callout);
-	}
-	dd {
-		margin: 0;
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--space-8);
+	/* The dates, then the badges. */
+	i {
+		width: var(--space-16);
 	}
 	em {
 		font-style: normal;
