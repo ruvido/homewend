@@ -510,9 +510,9 @@ type Turned struct {
 	Edit string `json:"edit,omitempty"`
 }
 
-// TurnLeft gives a photo of the library a quarter turn anticlockwise, kept in
-// the catalog, and says how it is shown now.
-func TurnLeft(k library.Key) (Turned, error) {
+// Turn gives a photo of the library a quarter turn, anticlockwise or with
+// right clockwise, kept in the catalog, and says how it is shown now.
+func Turn(k library.Key, right bool) (Turned, error) {
 	c, _, err := openLibrary()
 	if err != nil {
 		return Turned{}, err
@@ -521,7 +521,11 @@ func TurnLeft(k library.Key) (Turned, error) {
 		return Turned{}, fs.ErrNotExist
 	}
 	defer c.Close()
-	turn, digest, err := c.TurnLeft(k)
+	quarters := 1
+	if right {
+		quarters = 3
+	}
+	turn, digest, err := c.Turn(k, quarters)
 	lookNow()
 	return Turned{turn, digest}, err
 }

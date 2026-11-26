@@ -148,7 +148,7 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []int{1, 2, 3, 0, 1} {
-		if got, _, err := c.TurnLeft(Key{Hash: "a"}); err != nil || got != want {
+		if got, _, err := c.Turn(Key{Hash: "a"}, 1); err != nil || got != want {
 			t.Fatalf("turned to %d, %v; want %d", got, err, want)
 		}
 	}
@@ -159,7 +159,7 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 	if page, err := c.Page(Filter{}); err != nil || len(page) != 1 || page[0].Turn != 1 {
 		t.Fatalf("%+v, %v: want one photo turned once", page, err)
 	}
-	if _, _, err := c.TurnLeft(Key{Hash: "nope"}); !errors.Is(err, fs.ErrNotExist) {
+	if _, _, err := c.Turn(Key{Hash: "nope"}, 1); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("an unknown photo turned: %v", err)
 	}
 }

@@ -8,7 +8,7 @@
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { pane, swap } from '#lib/motion.js';
-	import { getAbout, getFile, originalOf, pathOf, pictureOf, turnLeft, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile, type Shown } from '#lib/api.js';
+	import { getAbout, getFile, originalOf, pathOf, pictureOf, turn as turnPhoto, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile, type Shown } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
@@ -95,12 +95,12 @@
 				? `width:${stageH}px;height:${stageW}px;left:${(stageW - stageH) / 2}px;top:${(stageH - stageW) / 2}px;transform:rotate(${-90 * turn}deg)`
 				: `transform:rotate(${-90 * turn}deg)`
 	);
-	// A quarter turn anticlockwise more, kept in the catalog: the grid shows it too.
-	async function turnIt() {
+	// A quarter turn more, anticlockwise or clockwise, kept in the catalog: the grid shows it too.
+	async function turnIt(right: boolean) {
 		if (!p) return;
 		const photo = p;
 		zoomed = asked = null;
-		onturned?.(photo.id, await turnLeft(photo));
+		onturned?.(photo.id, await turnPhoto(photo, right));
 	}
 	let pan = $state<HTMLDivElement>();
 	let asked = $state<{ src: string; fx: number; fy: number } | null>(null);
@@ -261,7 +261,10 @@
 				{#if failed}<span class="failed">{failed}</span>{/if}
 				{#if editable}
 					<!-- An edit not known here cannot be turned: the photo stays as it came. -->
-					{#if !video && !p.newer}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
+					{#if !video && !p.newer}
+						<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt(false))}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>
+						<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt(true))}><Icon name="arrow-clockwise" size={14} />{text.rotateRight}</button>
+					{/if}
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
 				{/if}
 				{#each actsOf([p]) as a (a.label)}

@@ -116,7 +116,7 @@ func TestAnEditIsShown(t *testing.T) {
 		return files
 	}
 
-	if _, err := TurnLeft(k); err != nil {
+	if _, err := Turn(k, false); err != nil {
 		t.Fatal(err)
 	}
 	const (
@@ -146,7 +146,7 @@ func TestAnEditIsShown(t *testing.T) {
 
 	// Turned left, it is another edit: the last one's pictures go.
 	was := p.Edit
-	now, err := TurnLeft(k)
+	now, err := Turn(k, false)
 	if err != nil || now.Turn != 0 || now.Edit == "" || now.Edit == was || tile(k).Edit != now.Edit {
 		t.Fatalf("%+v %v", now, err)
 	}
@@ -170,7 +170,7 @@ func TestAnEditIsShown(t *testing.T) {
 		t.Errorf("%+v", p)
 	}
 	thumbnail("a newer one's", k, "00", false, 256, 170, red)
-	if got, err := TurnLeft(k); err != nil || got != (Turned{Turn: 1}) {
+	if got, err := Turn(k, false); err != nil || got != (Turned{Turn: 1}) {
 		t.Errorf("%+v %v", got, err)
 	}
 	say(ron, "null")

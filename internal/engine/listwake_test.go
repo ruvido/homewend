@@ -106,7 +106,7 @@ func TestAQuestionIsHeldUntilTheListIsAnother(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer c.Close()
-		if _, _, err := c.TurnLeft(library.Key{Hash: os.Getenv("HOMEWEND_TEST_HASH"), Profile: "ron"}); err != nil {
+		if _, _, err := c.Turn(library.Key{Hash: os.Getenv("HOMEWEND_TEST_HASH"), Profile: "ron"}, 1); err != nil {
 			t.Fatal(err)
 		}
 		return
@@ -137,7 +137,7 @@ func TestAQuestionIsHeldUntilTheListIsAnother(t *testing.T) {
 			}
 		}
 	}
-	if _, err := TurnLeft(key); err != nil {
+	if _, err := Turn(key, false); err != nil {
 		t.Fatal(err)
 	}
 	rons.told("turned", r, 5*time.Second)
@@ -186,7 +186,7 @@ func TestAQuestionIsHeldUntilTheListIsAnother(t *testing.T) {
 	// One that says no list is told of none.
 	old := waits(context.Background(), ron, shelfOf(t, ron))
 	held(t, 1)
-	if _, err := TurnLeft(key); err != nil {
+	if _, err := Turn(key, false); err != nil {
 		t.Fatal(err)
 	}
 	quiet(t, "no list asked of", old)
@@ -246,7 +246,7 @@ func TestAnImportDoesNotWorkTheListOutAtEachPhoto(t *testing.T) {
 	held(t, 1)
 	began := time.Now()
 	for time.Since(began) < 2*time.Second {
-		if _, err := TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+		if _, err := Turn(library.Key{Hash: hash, Profile: "ron"}, false); err != nil {
 			t.Fatal(err)
 		}
 		// A heart of another beside it has the list looked at as often.
@@ -269,7 +269,7 @@ func TestAnImportDoesNotWorkTheListOutAtEachPhoto(t *testing.T) {
 	r = rons.waits()
 	held(t, 1)
 	for range 3 {
-		if _, err := TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+		if _, err := Turn(library.Key{Hash: hash, Profile: "ron"}, false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -288,7 +288,7 @@ func TestPhonesDoNotHaveEachOtherAskWithoutEnd(t *testing.T) {
 	rons := listerOf(t, ron)
 	has := rons.tag
 	for range 2 {
-		if _, err := TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+		if _, err := Turn(library.Key{Hash: hash, Profile: "ron"}, false); err != nil {
 			t.Fatal(err)
 		}
 		if has == rons.tag {

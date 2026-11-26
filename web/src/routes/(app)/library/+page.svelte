@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
-	import { copiesOf, getPhotos, holds, mark, patched, photosIn, turnLeft, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
+	import { copiesOf, getPhotos, holds, mark, patched, photosIn, turn, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
 	import { isView } from '#lib/library.js';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
@@ -65,7 +65,9 @@
 							? text.trash
 							: place.kind === 'favorites'
 								? text.favorites
-								: text.allPhotos
+								: place.kind === 'videos'
+									? text.videos
+									: text.allPhotos
 	);
 	let takingOut = $state(false);
 	// The photos the Trash showed as Empty was asked: one put in it meanwhile is not deleted.
@@ -108,13 +110,13 @@
 	const picked = $derived(photos.filter((p) => selected.has(p.id)));
 	// What the bar acts on: a tile of two people is both their copies.
 	const pickedCopies = $derived(copiesOf(picked));
-	async function turnPicked() {
+	async function turnPicked(right: boolean) {
 		// Shown a few times a second: each showing lays the whole grid out.
 		const turns = new Map<string, Shown>();
 		let shownAt = 0;
 		try {
 			for (const p of pickedCopies) {
-				turns.set(p.id, await turnLeft(p));
+				turns.set(p.id, await turn(p, right));
 				if (performance.now() - shownAt < 200) continue;
 				turned(turns);
 				shownAt = performance.now();
@@ -347,7 +349,8 @@
 			<b>{text.selected(selected.size)}</b>
 			{#if markFailed && !asking}<span class="failed">{markFailed}</span>{/if}
 			{#if editable}
-				<SecondaryButton small onclick={turnPicked}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
+				<SecondaryButton small onclick={() => turnPicked(false)}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
+				<SecondaryButton small onclick={() => turnPicked(true)}><Icon name="arrow-clockwise" size={14} />{text.rotateRight}</SecondaryButton>
 				<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
 			{/if}
 			{#each actsOf(pickedCopies) as a (a.label)}

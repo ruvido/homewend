@@ -499,7 +499,7 @@ func TestAListSaysTheEdits(t *testing.T) {
 		addPhotos(t, c, "ann", n)
 		for i := range 4 {
 			for _, profile := range []string{"ron", "ann"} {
-				if _, _, err := c.TurnLeft(Key{hashed(i), profile}); err != nil {
+				if _, _, err := c.Turn(Key{hashed(i), profile}, 1); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -546,7 +546,7 @@ func TestRotateIsAnEdit(t *testing.T) {
 	c, _ := marking(t, 1)
 	k := Key{hashed(0), "ron"}
 	a := tell(t, c, "A", 0, edited(7, bright, 100))
-	turn, digest, err := c.TurnLeft(k)
+	turn, digest, err := c.Turn(k, 1)
 	edits, _ := c.Edits([]Key{k})
 	turned := edits[k]
 	if err != nil || turn != 0 || digest == "" || digest != EditDigest(turned) || !strings.Contains(turned, `"turns":3`) {
@@ -564,15 +564,33 @@ func TestRotateIsAnEdit(t *testing.T) {
 	editIs(t, c, "ron", turned)
 	time.Sleep(2 * time.Millisecond)
 	tell(t, c, "A", 0, edited(9, newer, 0))
-	if turn, digest, err := c.TurnLeft(k); turn != 0 || digest != "" || err != nil {
+	if turn, digest, err := c.Turn(k, 1); turn != 0 || digest != "" || err != nil {
 		t.Errorf("%d %q %v", turn, digest, err)
 	}
 	editIs(t, c, "ron", newer)
 	// Removed, and turned: its turn.
 	time.Sleep(2 * time.Millisecond)
 	tell(t, c, "A", 0, edited(10, "null", 0))
-	if turn, digest, err := c.TurnLeft(k); turn != 1 || digest != "" || err != nil {
+	if turn, digest, err := c.Turn(k, 1); turn != 1 || digest != "" || err != nil {
 		t.Errorf("%d %q %v", turn, digest, err)
+	}
+	// Right is the other way: a quarter left undoes it.
+	if turn, _, err := c.Turn(k, 3); turn != 0 || err != nil {
+		t.Errorf("right: %d %v", turn, err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	tell(t, c, "A", 0, edited(11, bright, 0))
+	if _, _, err := c.Turn(k, 3); err != nil {
+		t.Fatal(err)
+	}
+	edits, _ = c.Edits([]Key{k})
+	if !strings.Contains(edits[k], `"turns":1`) {
+		t.Errorf("right: %s", edits[k])
+	}
+	c.Turn(k, 1)
+	edits, _ = c.Edits([]Key{k})
+	if strings.Contains(edits[k], `"turns":1`) || strings.Contains(edits[k], `"turns":3`) {
+		t.Errorf("back: %s", edits[k])
 	}
 }
 

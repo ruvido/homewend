@@ -865,11 +865,11 @@ func setState(tx *sql.Tx, state State, photos []Key, on bool) ([]Key, error) {
 	return done, nil
 }
 
-// TurnLeft gives a photo a quarter turn more, anticlockwise, and says how it
-// is shown now, its turn and its edit; fs.ErrNotExist for one the catalog
+// Turn gives a photo quarters more quarter turns anticlockwise (3: one
+// clockwise), and says how it is shown now, its turn and its edit; fs.ErrNotExist for one the catalog
 // lacks. Of a photo with an edit it is the edit that turns, and a phone hears
 // of it; one this program cannot draw stays as it is, and so does the photo.
-func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
+func (c *Catalog) Turn(k Key, quarters int) (turn int, digest string, err error) {
 	err = c.inTx(func(tx *sql.Tx) error {
 		var name string
 		err := tx.QueryRow(`SELECT name, turn FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&name, &turn)
@@ -887,13 +887,15 @@ func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
 			return err
 		}
 		if !was.on() || IsVideo(name) {
-			turn = (turn + 1) % 4
+			turn = (turn + quarters) % 4
 			_, err := tx.Exec(`UPDATE library_photos SET turn = ? WHERE id = ?`, turn, was.id)
 			return err
 		}
-		turned, err := edit.TurnLeft([]byte(was.value))
-		if err != nil {
-			return nil
+		turned := []byte(was.value)
+		for range quarters {
+			if turned, err = edit.TurnLeft(turned); err != nil {
+				return nil
+			}
 		}
 		turn, digest = 0, EditDigest(string(turned))
 		_, err = edits.give(k, "", was, mark{value: string(turned), at: time.Now().UnixMilli()})

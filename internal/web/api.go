@@ -218,7 +218,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, nil, engine.Unpair(r.PathValue("id"), "computer"))
 	})
 	mux.HandleFunc("POST /api/turn/{hash}", func(w http.ResponseWriter, r *http.Request) {
-		turned, err := engine.TurnLeft(photoOf(r))
+		turned, err := engine.Turn(photoOf(r), r.URL.Query().Has("right"))
 		reply(w, turned, err)
 	})
 	mux.HandleFunc("GET /api/latest", func(w http.ResponseWriter, r *http.Request) {

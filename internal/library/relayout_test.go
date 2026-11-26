@@ -221,7 +221,7 @@ func TestAnOldPhotoImportedSinceIsOne(t *testing.T) {
 			for _, s := range []State{Favorite, Archived} {
 				c.Mark(s, []Key{{Hash: hash}}, true)
 			}
-			c.TurnLeft(Key{Hash: hash})
+			c.Turn(Key{Hash: hash}, 1)
 			c.addAlbum("Greece", Key{Hash: hash}, "google/ron@x")
 			if err := Relayout(root, c, nil, ronsAccount, "ron", time.UTC); err != nil {
 				t.Fatal(err)
