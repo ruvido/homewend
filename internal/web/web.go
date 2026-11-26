@@ -51,6 +51,8 @@ type Server struct {
 	// the phones' listener; nil when it could not start, and the window
 	// runs without it
 	phones *phoneListener
+	// why it could not
+	phonesFailed error
 	// stop ends every request's context: Shutdown waits for the requests in
 	// flight, and a sign-in is one until the person has signed in.
 	stop context.CancelFunc
@@ -92,6 +94,7 @@ func (s *Server) KeepThumbnails() { go engine.KeepThumbnails(s.ctx) }
 func (s *Server) ListenPhones() error {
 	var err error
 	if s.phones, err = listenPhones(); err != nil {
+		s.phonesFailed = err
 		return err
 	}
 	// Quitting ends an upload under way too: the phone sends it again.
@@ -132,7 +135,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) handler() http.Handler {
 	files, _ := fs.Sub(dist, "dist")
-	api := apiRoutes(s.jobs, s.importing, func() *phoneListener { return s.phones })
+	api := apiRoutes(s.jobs, s.importing, func() *phoneListener { return s.phones }, func() error { return s.phonesFailed })
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A page on another site can resolve its own name to 127.0.0.1;
 		// the Host header is what tells that request apart from ours.

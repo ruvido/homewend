@@ -209,7 +209,7 @@ export const countYears = (account: string) => call<Record<string, never>>('POST
 export type Phone = { id: string; name: string; profile: string; paired: string; seen?: string; backup?: string; photos: number };
 /** A phone no longer paired: what it brought, and where it was unpaired. */
 export type Unpaired = { name: string; profile: string; paired: string; unpaired: string; photos: number; by: 'phone' | 'computer' };
-export const getPhones = () => call<{ phones: Phone[]; unpaired: Unpaired[]; pairing: boolean }>('GET', '/api/phones');
+export const getPhones = () => call<{ phones: Phone[]; unpaired: Unpaired[]; pairing: boolean; unreachable?: boolean }>('GET', '/api/phones');
 export const startPairing = (profile: string) => call<{ qr: string }>('POST', '/api/phones/pair', { profile });
 export const stopPairing = () => call<null>('DELETE', '/api/phones/pair');
 export const unpair = (id: string) => call<null>('DELETE', `/api/phones/${encodeURIComponent(id)}`);

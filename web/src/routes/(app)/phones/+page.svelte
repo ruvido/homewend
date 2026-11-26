@@ -18,6 +18,7 @@
 	// null until the first answer: "No phone yet" never flashes before the list.
 	let phones = $state<Phone[] | null>(null);
 	let unpaired = $state<Unpaired[]>([]);
+	let unreachable = $state(false);
 	let failed = $state('');
 	// The code shown, while a phone is awaited.
 	let code = $state('');
@@ -51,6 +52,7 @@
 			}
 			phones = p.phones;
 			unpaired = p.unpaired;
+			unreachable = !!p.unreachable;
 			failed = '';
 		} catch (e) {
 			failed = String(e);
@@ -123,6 +125,7 @@
 		</div>
 		{#if !adding}<PrimaryButton onclick={() => (asking = true)}><Icon name="plus-lg" size={16} />{text.addPhone}</PrimaryButton>{/if}
 	</header>
+	{#if unreachable}<p class="err">{text.phonesUnreachable}</p>{/if}
 	{#if failed}<p class="err">{failed}</p>{/if}
 	{#if adding}
 		<!-- P2: whose phone, then its code, coming as one block; the code's

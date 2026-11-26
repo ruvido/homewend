@@ -202,6 +202,7 @@ export const text = {
 	ofTotal: (n: number, of: number) => `${n.toLocaleString('en')} of ${of.toLocaleString('en')}`,
 	addPhone: 'Add a phone',
 	whosePhone: 'Whose phone is it?',
+	phonesUnreachable: "Phones can't reach this computer: ports 45483–45486 are in use.",
 	whosePhoneLead: 'Its photos go into their library.',
 	scanThis: 'Scan this with the phone.',
 	scanHow: 'Homewend on the phone → Scan the code',

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,8 +51,36 @@ type phoneListener struct {
 	mdns *mdns.Server
 }
 
-// portWait is how long the kept port is tried again.
+// phonePorts are the only ports the phones' listener takes, in this order
+// (docs/phone.md, "The port"): a phone that does not find the computer where
+// it was tries them all.
+var phonePorts = []int{45483, 45484, 45485, 45486}
+
+// portWait is how long the ports are tried again: a Homewend closing still
+// holds its own for a moment.
 var portWait = 5 * time.Second
+
+// ErrPortsTaken is every port of the list taken by other programs.
+var ErrPortsTaken = errors.New("phones can't reach this computer: ports 45483–45486 are in use")
+
+// listenOn takes the kept port if it is free, else the first free one of
+// phonePorts, never another.
+func listenOn(kept int) (net.Listener, error) {
+	ports := phonePorts
+	if slices.Contains(ports, kept) {
+		ports = append([]int{kept}, slices.DeleteFunc(slices.Clone(ports), func(p int) bool { return p == kept })...)
+	}
+	for end := time.Now().Add(portWait); ; time.Sleep(portWait / 20) {
+		for _, port := range ports {
+			if ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port)); err == nil {
+				return ln, nil
+			}
+		}
+		if time.Now().After(end) {
+			return nil, ErrPortsTaken
+		}
+	}
+}
 
 // service is the DNS-SD type the listener is advertised as (docs/phone.md).
 const service = "_homewend._tcp"
@@ -67,20 +96,9 @@ func listenPhones() (*phoneListener, error) {
 	if err != nil {
 		return nil, err
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
-	// A Homewend closing still holds it for a moment.
-	for end := time.Now().Add(portWait); err != nil && p.Port != 0 && time.Now().Before(end); time.Sleep(portWait / 20) {
-		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
-	}
-	if err != nil && p.Port != 0 && len(p.Phones) == 0 {
-		// No phone knows it yet: another port does.
-		ln, err = net.Listen("tcp", ":0")
-	}
+	ln, err := listenOn(p.Port)
 	if err != nil {
-		// Paired phones know this port alone, and away from home nothing
-		// else finds the computer: another Homewend has it, or another
-		// program does. Moving would lose them.
-		return nil, fmt.Errorf("the phones' port %d is taken: %w", p.Port, err)
+		return nil, err
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	if port != p.Port {

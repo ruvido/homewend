@@ -24,7 +24,7 @@ func TestTheWindowIsGivenTheEdit(t *testing.T) {
 	ron := pairWith(t, url, "ron")
 	before := ron.is("thumb", "/v1/thumb/"+hash, http.StatusOK)
 	tag, l := ron.list()
-	page := httptest.NewServer(apiRoutes(nil, nil, nil))
+	page := httptest.NewServer(apiRoutes(nil, nil, nil, nil))
 	defer page.Close()
 	window := &testPhone{t: t, url: page.URL}
 	edit := func() string {

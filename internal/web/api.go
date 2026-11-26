@@ -22,7 +22,7 @@ import (
 
 // apiRoutes are the engine calls the page makes. Each is a thin translation
 // to JSON: what they do lives in the engine.
-func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *phoneListener) http.Handler {
+func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *phoneListener, phonesFailed func() error) http.Handler {
 	mux := http.NewServeMux()
 	// One sign-in at a time: a second click must not open a second browser.
 	var signingIn sync.Mutex
@@ -180,7 +180,11 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		// Never null: the page reads its length.
 		unpaired := append([]engine.Unpaired{}, p.Unpaired...)
 		slices.Reverse(unpaired)
-		reply(w, map[string]any{"phones": p.Phones, "unpaired": unpaired, "pairing": engine.Pairing()}, err)
+		out := map[string]any{"phones": p.Phones, "unpaired": unpaired, "pairing": engine.Pairing()}
+		if phonesFailed != nil && errors.Is(phonesFailed(), ErrPortsTaken) {
+			out["unreachable"] = true
+		}
+		reply(w, out, err)
 	})
 	// Add a phone: a code for the profile chosen, as the QR's text.
 	mux.HandleFunc("POST /api/phones/pair", func(w http.ResponseWriter, r *http.Request) {

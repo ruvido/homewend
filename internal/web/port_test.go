@@ -4,6 +4,8 @@
 package web
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -11,63 +13,61 @@ import (
 	"github.com/ruvido/homewend/internal/engine"
 )
 
-// The phones' port is kept while phones know it: taken by another program,
-// the listener waits a moment, then is not opened, and the port stays. With no
-// phone paired another one does.
-func TestThePhonesPortIsKept(t *testing.T) {
+// The phones' port is the kept one if free, else the first free of the list,
+// never another; all taken, the listener is not opened and says why.
+func TestThePhonesPortIsOfTheList(t *testing.T) {
 	newLibrary(t)
-	was := portWait
+	was, waited := phonePorts, portWait
+	defer func() { phonePorts, portWait = was, waited }()
 	portWait = 200 * time.Millisecond
-	defer func() { portWait = was }()
-	taken, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer taken.Close()
-	port := taken.Addr().(*net.TCPAddr).Port
-	keep := func(phones []engine.Phone) {
-		if _, err := engine.UpdatePhones(func(p *engine.Phones) error { p.Port, p.Phones = port, phones; return nil }); err != nil {
-			t.Fatal(err)
-		}
-	}
-	kept := func() int {
-		p, err := engine.LoadPhones()
+	// Four free ports, as the list would be.
+	var ports []int
+	for range 4 {
+		ln, err := net.Listen("tcp", ":0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		return p.Port
+		ports = append(ports, ln.Addr().(*net.TCPAddr).Port)
+		ln.Close()
 	}
-
-	keep([]engine.Phone{{ID: "ron's", Profile: "ron"}})
-	if l, err := listenPhones(); err == nil {
+	phonePorts = ports
+	kept := func(port int) {
+		if _, err := engine.UpdatePhones(func(p *engine.Phones) error { p.Port = port; return nil }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	take := func(port int) net.Listener {
+		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ln
+	}
+	open := func(want int) {
+		t.Helper()
+		l, err := listenPhones()
+		if err != nil {
+			t.Fatal(err)
+		}
 		l.ln.Close()
-		t.Fatal("opened on another port")
+		p, _ := engine.LoadPhones()
+		if l.port != want || p.Port != want {
+			t.Errorf("listening on %d, kept %d, want %d", l.port, p.Port, want)
+		}
 	}
-	if kept() != port {
-		t.Errorf("the port moved to %d", kept())
+	kept(0)
+	open(ports[0])
+	kept(ports[2])
+	open(ports[2])
+	// The kept one taken: the first free of the list.
+	a, b := take(ports[2]), take(ports[0])
+	open(ports[1])
+	// All taken: none, and the kept port stays.
+	c, d := take(ports[1]), take(ports[3])
+	if _, err := listenPhones(); !errors.Is(err, ErrPortsTaken) {
+		t.Errorf("all taken: %v", err)
 	}
-
-	keep(nil)
-	l, err := listenPhones()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.ln.Close()
-	if l.port == port || kept() != l.port {
-		t.Errorf("listening on %d, kept %d", l.port, kept())
-	}
-
-	// Freed while it waits: taken again.
-	keep([]engine.Phone{{ID: "ron's", Profile: "ron"}})
-	l.ln.Close()
-	portWait = 2 * time.Second
-	go func() { time.Sleep(300 * time.Millisecond); taken.Close() }()
-	again, err := listenPhones()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer again.ln.Close()
-	if again.port != port {
-		t.Errorf("listening on %d", again.port)
+	for _, ln := range []net.Listener{a, b, c, d} {
+		ln.Close()
 	}
 }
