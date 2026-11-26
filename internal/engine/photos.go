@@ -234,6 +234,7 @@ const (
 	ViewArchive   = "archive"
 	ViewTrash     = "trash"
 	ViewFavorites = "favorites" // those with a heart, as the phone has them
+	ViewVideos    = "videos"    // as the phone's Videos album
 )
 
 // Photos are the grid's, newest first: all of it, a year ("" for no date),
@@ -269,6 +270,7 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 	f.Archived = view == ViewArchive
 	f.Trashed = view == ViewTrash
 	f.Favorite = view == ViewFavorites
+	f.Video = view == ViewVideos
 	if view == ViewMissing {
 		f.Only = keysOf(gone)
 	}

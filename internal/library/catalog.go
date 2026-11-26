@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -558,8 +559,8 @@ type Filter struct {
 	// Archived keeps only the archived photos; Grid leaves them out, as the
 	// main grid and its years do; Trashed keeps only those in the Trash,
 	// which are otherwise in no list; Favorite only those with a heart,
-	// archived or not.
-	Archived, Grid, Trashed, Favorite bool
+	// archived or not; Video only the videos, archived or not.
+	Archived, Grid, Trashed, Favorite, Video bool
 	// Profile keeps the photos of this profile's library.
 	Profile string
 	// Only keeps only these photos; nil is all, empty is none.
@@ -648,20 +649,29 @@ func (c *Catalog) Count(f Filter) (int, error) {
 	return n, err
 }
 
-// CountsByState is how many photos are archived, in the Trash and given a
-// heart, in one reading of the rows: a photo two libraries have is one
+// CountsByState is how many photos are archived, in the Trash, given a heart
+// and videos, in one reading of the rows: a photo two libraries have is one
 // tile of each list, and counted once.
-func (c *Catalog) CountsByState(hidden []string) (archived, trashed, favorite int, err error) {
+func (c *Catalog) CountsByState(hidden []string) (archived, trashed, favorite, videos int, err error) {
 	query := `SELECT COUNT(DISTINCT CASE WHEN trashed = 0 AND archived THEN hash END), COUNT(DISTINCT CASE WHEN trashed THEN hash END),
-		COUNT(DISTINCT CASE WHEN trashed = 0 AND favorite THEN hash END)
-		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1)`
+		COUNT(DISTINCT CASE WHEN trashed = 0 AND favorite THEN hash END), COUNT(DISTINCT CASE WHEN trashed = 0 AND ` + aVideo + ` THEN hash END)
+		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1 OR ` + aVideo + `)`
 	clause, args := shownOnly("profile", hidden)
 	if clause != "" {
 		query += " AND " + clause
 	}
-	err = c.db.QueryRow(query, args...).Scan(&archived, &trashed, &favorite)
-	return archived, trashed, favorite, err
+	err = c.db.QueryRow(query, args...).Scan(&archived, &trashed, &favorite, &videos)
+	return archived, trashed, favorite, videos, err
 }
+
+// aVideo is the SQL that says a photo is a video, by its name as IsVideo.
+var aVideo = func() string {
+	var by []string
+	for _, ext := range slices.Sorted(maps.Keys(videoTypes)) {
+		by = append(by, `lower(name) GLOB '*`+ext+`'`)
+	}
+	return `(` + strings.Join(by, ` OR `) + `)`
+}()
 
 // where is query narrowed by the filter, and its arguments.
 func (f Filter) where(query string) (string, []any) {
@@ -691,6 +701,9 @@ func (f Filter) where(query string) (string, []any) {
 	}
 	if f.Favorite {
 		where = append(where, "favorite = 1")
+	}
+	if f.Video {
+		where = append(where, aVideo)
 	}
 	if f.Profile != "" {
 		where = append(where, "profile = ?")
