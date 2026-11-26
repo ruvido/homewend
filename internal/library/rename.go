@@ -31,6 +31,9 @@ import (
 type Renaming struct {
 	From string `json:"from"`
 	To   string `json:"to"`
+	// Moved is written once every folder has moved, before the catalog:
+	// a journal not moved whose new name has photos is another's name.
+	Moved bool `json:"moved,omitempty"`
 }
 
 // ErrProfileTaken is a rename to a name that a profile of the library, or a
@@ -40,10 +43,6 @@ var ErrProfileTaken = errors.New("there is a profile of this name already")
 // ErrNotMoved is a folder of the profile that would not move, most often for
 // a file open in it on Windows: nothing was renamed.
 var ErrNotMoved = errors.New("a folder of the profile would not move")
-
-// errFolderTaken is a folder that cannot move: one of its new name is there,
-// and neither is empty.
-var errFolderTaken = errors.New("a folder of that name is already there")
 
 // metadataDir is where what is known of a file and not in it is kept, under the
 // file's path in the library.
@@ -101,26 +100,42 @@ func renamedFolders(root string, r Renaming) [][2]string {
 
 // moveFolder moves the folder from to to, both under root, unless it has
 // moved already. One there under both names is the same folder on a disk that
-// ignores capitals, renamed again for them; an empty one of the two was made
-// after the journal, and goes.
+// ignores capitals, renamed again for them. Both there, one was filed into
+// after a kill (an older Homewend, another process): what is in from goes into
+// to, a name taken in both staying where it is.
 func moveFolder(root, from, to string) error {
 	from, to = under(root, from), under(root, to)
 	if !exists(from) {
 		return nil
 	}
 	if exists(to) && !linked(from, to) {
-		switch {
-		case isEmptyDir(from):
-			return os.Remove(from)
-		case isEmptyDir(to):
-			if err := os.Remove(to); err != nil {
-				return err
-			}
-		default:
-			return errFolderTaken
-		}
+		return mergeInto(from, to)
 	}
 	return os.Rename(from, to)
+}
+
+// mergeInto moves what is in the folder from into to, each entry by one
+// rename, a folder there under both names merged in turn; from goes once empty.
+func mergeInto(from, to string) error {
+	entries, err := os.ReadDir(from)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		f, t := filepath.Join(from, e.Name()), filepath.Join(to, e.Name())
+		info, err := os.Lstat(t)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			err = os.Rename(f, t)
+		case err == nil && e.IsDir() && info.IsDir():
+			err = mergeInto(f, t)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	os.Remove(from) // not empty: what was taken in both stays
+	return nil
 }
 
 func isEmptyDir(path string) bool {
@@ -185,8 +200,26 @@ func RenameProfile(root, catalog string, r Renaming, follow func(Renaming) error
 // library's turn: see RenameProfile.
 func FinishRename(root, catalog string, follow func(Renaming) error) error {
 	r, err := renaming(root)
-	if err != nil || r == nil {
-		return err
+	if err == nil && r != nil && !r.Moved && exists(catalog) {
+		// Nothing of it moved, and the new name is a profile already: not
+		// ours to merge.
+		err = with(catalog, func(c *Catalog) error {
+			var taken bool
+			err := c.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM library_photos WHERE profile = ?)`, r.To).Scan(&taken)
+			if err == nil && taken {
+				err = ErrProfileTaken
+			}
+			return err
+		})
+	}
+	if err != nil {
+		// Set aside as the Trash's journal is, the turn going on: the library
+		// stays as the catalog has it.
+		log.Printf("the rename's journal, set aside: %v", err)
+		return os.Rename(renameJournal(root), renameJournal(root)+".unread")
+	}
+	if r == nil {
+		return nil
 	}
 	log.Printf("renaming %s to %s, begun before", r.From, r.To)
 	return finishRename(root, catalog, *r, follow)
@@ -202,10 +235,13 @@ func renaming(root string) (*Renaming, error) {
 	if err == nil {
 		err = json.Unmarshal(data, &r)
 	}
-	if err == nil && (!ValidProfile(r.From) || !ValidProfile(r.To)) {
+	if err == nil && (!ValidProfile(r.From) || !ValidProfile(r.To) || r.From == r.To) {
 		err = errors.New("the rename's journal names no profile")
 	}
-	return &r, err
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // finishRename does every step of r from the folders on, each as many times
@@ -217,8 +253,14 @@ func finishRename(root, catalog string, r Renaming, follow func(Renaming) error)
 			return err
 		}
 	}
+	if !r.Moved {
+		r.Moved = true
+		if err := writeSynced(renameJournal(root), r); err != nil {
+			return err
+		}
+	}
 	if exists(catalog) {
-		if err := with(catalog, func(c *Catalog) error { return c.renameProfile(r) }); err != nil {
+		if err := with(catalog, func(c *Catalog) error { return c.renameProfile(root, r) }); err != nil {
 			return err
 		}
 	}
@@ -245,8 +287,11 @@ func finishRename(root, catalog string, r Renaming, follow func(Renaming) error)
 }
 
 // renameProfile gives the profile's photos, their paths, marks, edits and
-// albums the new name, in one transaction; again, it changes nothing.
-func (c *Catalog) renameProfile(r Renaming) error {
+// albums the new name, in one transaction; again, it changes nothing. A photo
+// the new name has too (filed under the old one after a kill) keeps the old,
+// with its marks; a path whose file stayed under the old folder, its name
+// taken in the new one (moveFolder), keeps it. The files are under root.
+func (c *Catalog) renameProfile(root string, r Renaming) error {
 	marked, err := hasTable(c.db, "mark_seqs") // none before marks
 	if err != nil {
 		return err
@@ -263,54 +308,64 @@ func (c *Catalog) renameProfile(r Renaming) error {
 			steps = append(steps, `INSERT INTO mark_seqs SELECT ?2, last FROM mark_seqs WHERE profile = ?1
 				ON CONFLICT DO UPDATE SET last = max(last, excluded.last)`)
 		}
-		steps = append(steps, `UPDATE library_photos SET profile = ?2 WHERE profile = ?1`)
+		steps = append(steps, `UPDATE OR IGNORE library_photos SET profile = ?2 WHERE profile = ?1`)
 		// What the triggers did not carry, a row with no photo, follows unless
-		// the new name has one of its own.
-		for _, table := range []string{"marks", "edits", "album_owners"} {
+		// the new name has one of its own; a photo left under the old name keeps its.
+		const orphan = ` WHERE profile = ?1 AND hash NOT IN (SELECT hash FROM library_photos WHERE profile = ?1)`
+		for _, table := range []string{"marks", "edits"} {
 			if table == "marks" && !marked || table == "edits" && !edited {
 				continue
 			}
-			steps = append(steps, `UPDATE OR IGNORE `+table+` SET profile = ?2 WHERE profile = ?1`,
-				`DELETE FROM `+table+` WHERE profile = ?1`)
+			steps = append(steps, `UPDATE OR IGNORE `+table+` SET profile = ?2`+orphan, `DELETE FROM `+table+orphan)
 		}
+		steps = append(steps, `INSERT OR IGNORE INTO album_owners SELECT account, album, ?2 FROM album_owners WHERE profile = ?1`,
+			`DELETE FROM album_owners WHERE profile = ?1 AND NOT EXISTS (SELECT 1 FROM library_photos WHERE profile = ?1)`)
 		for _, step := range steps {
 			if _, err := tx.Exec(step, r.From, r.To); err != nil {
 				return err
 			}
 		}
-		// The paths, of whichever profile: a file is where its folder is.
-		rows, err := tx.Query(`SELECT id, path FROM library_photos
-			WHERE substr(path, 1, length(?1) + 1) = ?1 || '/' OR substr(path, 1, 7) = '.trash/'`, r.From)
+		// The paths, of whichever profile: a file is where its folder is; one
+		// that stayed under the old name (moveFolder) keeps its path. One
+		// statement for each folder: a row at a time took seconds at 100,000.
+		heads, err := texts(tx.Query(`SELECT DISTINCT substr(path, 1, 8 + instr(substr(path, 9), '/'))
+			FROM library_photos WHERE substr(path, 1, 8) = ?`, TrashDir+"/."))
 		if err != nil {
 			return err
 		}
-		moved := map[int64]string{}
-		for rows.Next() {
-			var id int64
-			var path string
-			if err := rows.Scan(&id, &path); err != nil {
-				rows.Close()
-				return err
-			}
-			if to, ok := renamedPath(path, r.From, r.To); ok {
-				moved[id] = to
-			}
-		}
-		if err := errors.Join(rows.Err(), rows.Close()); err != nil {
-			return err
-		}
-		set, err := tx.Prepare(`UPDATE library_photos SET path = ? WHERE id = ?`)
+		kept, err := json.Marshal(stayed(root, r))
 		if err != nil {
 			return err
 		}
-		defer set.Close()
-		for id, path := range moved {
-			if _, err := set.Exec(path, id); err != nil {
+		for _, head := range append([]string{"", TrashDir + "/"}, heads...) {
+			_, err := tx.Exec(`UPDATE library_photos SET path = ?2 || substr(path, length(?1) + 1)
+				WHERE substr(path, 1, length(?1)) = ?1 AND path NOT IN (SELECT value FROM json_each(?3))`,
+				head+r.From+"/", head+r.To+"/", string(kept))
+			if err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// stayed are the files left under r's old folders, each a name the new one has
+// too (moveFolder), as the catalog has their paths.
+func stayed(root string, r Renaming) []string {
+	files := []string{}
+	for _, f := range renamedFolders(root, r) {
+		from, to := under(root, f[0]), under(root, f[1])
+		if !exists(from) || linked(from, to) {
+			continue
+		}
+		filepath.WalkDir(from, func(path string, e fs.DirEntry, err error) error {
+			if err == nil && !e.IsDir() {
+				files = append(files, relativeTo(root, path))
+			}
+			return nil
+		})
+	}
+	return files
 }
 
 // writeSynced writes v as JSON to file whole, on the disk before it returns:

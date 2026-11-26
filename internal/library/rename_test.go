@@ -134,9 +134,9 @@ func TestAProfileIsRenamed(t *testing.T) {
 	for _, to := range []string{"Ron", "papà rossi"} {
 		l := renameFixture(t)
 		var followed int
-		err := RenameProfile(l.root, l.db(), Renaming{"ron", to}, func(r Renaming) error {
+		err := RenameProfile(l.root, l.db(), Renaming{From: "ron", To: to}, func(r Renaming) error {
 			followed++
-			if r != (Renaming{"ron", to}) {
+			if r.From != "ron" || r.To != to {
 				t.Errorf("followed %+v", r)
 			}
 			return nil
@@ -151,7 +151,7 @@ func TestAProfileIsRenamed(t *testing.T) {
 // Killed after any step, the library shows every photo, and the next turn
 // finishes the rename.
 func TestARenameKilledIsFinished(t *testing.T) {
-	r := Renaming{"ron", "papà"}
+	r := Renaming{From: "ron", To: "papà"}
 	steps := []func(l *trashing){
 		func(l *trashing) { // the first folder moved
 			f := renamedFolders(l.root, r)[0]
@@ -166,8 +166,15 @@ func TestARenameKilledIsFinished(t *testing.T) {
 				}
 			}
 		},
+		func(l *trashing) { // the folders said moved
+			moved := r
+			moved.Moved = true
+			if err := writeSynced(renameJournal(l.root), moved); err != nil {
+				t.Fatal(err)
+			}
+		},
 		func(l *trashing) { // the catalog
-			if err := l.c.renameProfile(r); err != nil {
+			if err := l.c.renameProfile(l.root, r); err != nil {
 				t.Fatal(err)
 			}
 		},
@@ -212,7 +219,7 @@ func TestARenameToANameTakenIsRefused(t *testing.T) {
 		} else if err := os.MkdirAll(under(l.root, taken+"/x"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		err := RenameProfile(l.root, l.db(), Renaming{"ron", to}, func(Renaming) error { t.Error("followed"); return nil })
+		err := RenameProfile(l.root, l.db(), Renaming{From: "ron", To: to}, func(Renaming) error { t.Error("followed"); return nil })
 		if !errors.Is(err, ErrProfileTaken) {
 			t.Errorf("%s: %v", taken, err)
 		}
@@ -233,7 +240,7 @@ func TestARenameThatCannotMoveChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer os.Chmod(under(l.root, TrashDir), 0o755)
-	err := RenameProfile(l.root, l.db(), Renaming{"ron", "papà"}, func(Renaming) error { t.Error("followed"); return nil })
+	err := RenameProfile(l.root, l.db(), Renaming{From: "ron", To: "papà"}, func(Renaming) error { t.Error("followed"); return nil })
 	if !errors.Is(err, ErrNotMoved) {
 		t.Fatalf("renamed: %v", err)
 	}
@@ -244,6 +251,75 @@ func TestARenameThatCannotMoveChangesNothing(t *testing.T) {
 	for _, p := range photos {
 		if !exists(under(l.root, p.Path)) || p.Profile == "papà" {
 			t.Errorf("%+v", p)
+		}
+	}
+}
+
+// Killed after the catalog, the old name filed into again (an older Homewend):
+// finishing merges the old folder into the new one, a name taken in both and
+// a photo the new name has too staying under the old, every file still found.
+func TestARenameFinishedOverPhotosFiledUnderTheOldName(t *testing.T) {
+	l := renameFixture(t)
+	r := Renaming{"ron", "papà", true}
+	if err := writeSynced(renameJournal(l.root), r); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range renamedFolders(l.root, r) {
+		if err := moveFolder(l.root, f[0], f[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := l.c.renameProfile(l.root, r); err != nil {
+		t.Fatal(err)
+	}
+	fresh := l.add("ron/2027/new.jpg", "new")
+	taken := l.add("ron/2026/a.jpg", "not a")
+	again := l.add("ron/2023/a-again.jpg", "a") // papà has it
+	if _, err := l.c.Mark(Favorite, []Key{again}, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := FinishRename(l.root, l.db(), func(Renaming) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if exists(renameJournal(l.root)) {
+		t.Error("the journal is left")
+	}
+	want := map[Key]string{
+		{fresh.Hash, "papà"}: "papà/2027/new.jpg",
+		{taken.Hash, "papà"}: "ron/2026/a.jpg",
+		again:                "papà/2023/a-again.jpg",
+	}
+	for k, path := range want {
+		p, err := l.c.Photo(k)
+		if err != nil || p.Path != path || !exists(under(l.root, p.Path)) {
+			t.Errorf("%+v: %+v %v, want at %s", k, p, err, path)
+		}
+	}
+	if p, _ := l.c.Photo(again); !p.Favorite {
+		t.Error("its heart is gone")
+	}
+	photos, _ := l.c.photos(``)
+	for _, p := range photos {
+		if !exists(under(l.root, At(l.root, p.Path))) {
+			t.Errorf("%s of %s not found", p.Path, p.Profile)
+		}
+	}
+}
+
+// A journal that does not read, or whose new name is another profile with
+// nothing moved yet, is set aside, and the turn goes on.
+func TestABadRenameJournalIsSetAside(t *testing.T) {
+	for _, journal := range []string{`{"from": "ron"`, `{"from": "ron", "to": "ann"}`, `{"from": "ron", "to": "../x"}`, `{"from": "ron", "to": "ron"}`} {
+		l := renameFixture(t)
+		if err := os.WriteFile(renameJournal(l.root), []byte(journal), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		err := FinishRename(l.root, l.db(), func(Renaming) error { t.Error("followed"); return nil })
+		if err != nil || exists(renameJournal(l.root)) || !exists(renameJournal(l.root)+".unread") {
+			t.Errorf("%s: %v", journal, err)
+		}
+		if !exists(under(l.root, "ron/2026/a.jpg")) || !exists(under(l.root, "ann/2026/c.jpg")) {
+			t.Errorf("%s: changed", journal)
 		}
 	}
 }
