@@ -296,30 +296,82 @@ func dateOf(value string) (time.Time, error) {
 	return asClock(time.UnixMilli(*d.Taken).In(time.FixedZone("", offset))), nil
 }
 
-// GiveMarkedDate gives a photo the date a phone said, as Change date does;
-// null takes it back to its file's own, and its .xmp goes. One in the Trash,
-// or whose file is gone, keeps its place: the mark stays.
-func GiveMarkedDate(root string, catalog *Catalog, d Dated) error {
-	p, err := catalog.Photo(d.Key)
-	if err != nil || inTrash(p.Path) || !onDisk(root, p) {
-		return err
-	}
-	if d.Value != "null" {
-		when, err := dateOf(d.Value)
+// GiveDueDates gives the photos of the library at root the dates phones said,
+// as Change date does, each in the library's turn: those still due, read again
+// in it, a later mark meanwhile being the one given. One in the Trash, or
+// whose file is away, waits for the next pass.
+func GiveDueDates(root, catalog string, turn Turn) error {
+	var keys []Key
+	err := with(catalog, func(c *Catalog) error {
+		if kept, err := hasTable(c.db, "extra_marks"); err != nil || !kept {
+			return err
+		}
+		rows, err := c.db.Query(`SELECT hash, profile FROM extra_marks WHERE due = 1`)
 		if err != nil {
 			return err
 		}
-		return redateFiled(root, catalog, p, Capture{When: when, Source: FromGiven})
-	}
-	file := under(root, p.Path)
-	sidecar := filepath.Join(root, WorkDir, "metadata", filepath.FromSlash(p.Path)+".json")
-	if !exists(sidecar) {
-		sidecar = ""
-	}
-	if err := os.Remove(file + ".xmp"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		defer rows.Close()
+		for rows.Next() {
+			var k Key
+			if err := rows.Scan(&k.Hash, &k.Profile); err != nil {
+				return err
+			}
+			keys = append(keys, k)
+		}
+		return rows.Err()
+	})
+	if err != nil {
 		return err
 	}
-	return redateFiled(root, catalog, p, DateOf(file, "", sidecar))
+	var failed []error
+	for _, k := range keys {
+		unlock, err := turn()
+		if err != nil {
+			return errors.Join(append(failed, err)...)
+		}
+		failed = append(failed, with(catalog, func(c *Catalog) error { return giveDueDate(root, c, k) }))
+		unlock()
+	}
+	return errors.Join(failed...)
+}
+
+// giveDueDate gives k its date mark's date, null its file's own and its .xmp
+// gone, and says it is given.
+func giveDueDate(root string, c *Catalog, k Key) error {
+	var value string
+	err := c.db.QueryRow(`SELECT COALESCE(value, 'null') FROM extra_marks WHERE profile = ? AND hash = ? AND copy = '' AND state = ? AND due = 1`,
+		k.Profile, k.Hash, string(Date)).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p, err := c.Photo(k)
+	if err != nil || inTrash(p.Path) || !onDisk(root, p) {
+		return err
+	}
+	if value == "null" {
+		file := under(root, p.Path)
+		sidecar := filepath.Join(root, WorkDir, "metadata", filepath.FromSlash(p.Path)+".json")
+		if !exists(sidecar) {
+			sidecar = ""
+		}
+		if err := os.Remove(file + ".xmp"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		err = redateFiled(root, c, p, DateOf(file, "", sidecar))
+	} else if when, bad := dateOf(value); bad != nil {
+		err = bad
+	} else {
+		err = redateFiled(root, c, p, Capture{When: when, Source: FromGiven})
+	}
+	if err != nil {
+		return err
+	}
+	_, err = c.db.Exec(`UPDATE extra_marks SET due = 0 WHERE profile = ? AND hash = ? AND copy = '' AND state = ? AND value IS ?`,
+		k.Profile, k.Hash, string(Date), sql.NullString{String: value, Valid: value != "null"})
+	return err
 }
 
 // NamedPhotos are the photos of the library that take their name's date

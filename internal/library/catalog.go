@@ -1136,6 +1136,9 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 					return err
 				}
 			}
+			if err := carryExtra(tx, k, into); err != nil {
+				return err
+			}
 			queries := []string{
 				`INSERT OR IGNORE INTO owners SELECT account, ?1 FROM owners WHERE photo = (SELECT id FROM library_photos WHERE hash = ?2 AND profile = ?3)`,
 				`INSERT OR IGNORE INTO album_members SELECT album, ?1 FROM album_members WHERE photo = (SELECT id FROM library_photos WHERE hash = ?2 AND profile = ?3)`,

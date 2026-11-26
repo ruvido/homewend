@@ -58,6 +58,8 @@ func follow(root string, photos []library.Key) {
 			for root, photos := range now {
 				gone, err := library.TidyTrash(root, catalogPath(root), photos, yielding(trashTurn(root)), unlisted)
 				forgetPictures(gone)
+				// The dates phones said, given as the library's turn comes.
+				err = errors.Join(err, library.GiveDueDates(root, catalogPath(root), yielding(trashTurn(root))))
 				if errors.Is(err, ErrLibraryBusy) {
 					lookAgain(root)
 				} else if err != nil {

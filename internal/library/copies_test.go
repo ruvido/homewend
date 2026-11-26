@@ -194,7 +194,7 @@ func TestADateIsAMark(t *testing.T) {
 		return a
 	}
 	a := ask(date(1, may, 5000), date(2, `{"taken":"x"}`, 0), onCopy(date(3, may, 0), "c1"))
-	if len(a.Dated) != 1 || a.Dated[0].Value != may || len(a.Refused) != 1 || a.Refused[0] != 2 || len(a.Said) != 1 {
+	if len(a.Dated) != 1 || a.Dated[0] != (Key{hashed(0), "ron"}) || len(a.Refused) != 1 || a.Refused[0] != 2 || len(a.Said) != 1 {
 		t.Errorf("%+v", a)
 	}
 	if when, err := dateOf(may); err != nil || when != time.Date(2024, 5, 6, 14, 53, 20, 0, time.UTC) {
@@ -223,5 +223,45 @@ func TestARestoreIsTimed(t *testing.T) {
 	var restored int64
 	if err := c.db.QueryRow(`SELECT restored FROM library_photos`).Scan(&restored); err != nil || restored < began {
 		t.Errorf("restored %d, before %d, %v", restored, began, err)
+	}
+}
+
+// A photo filed into a library that has it already takes the copies and the
+// date of the one filed, where theirs are the later; a date taken is due.
+func TestAPhotoFiledTakesItsCopies(t *testing.T) {
+	c, _ := marking(t, 1)
+	addPhotos(t, c, "", 1)
+	say := func(profile string, marks ...MarkAction) {
+		t.Helper()
+		s, _ := c.Shelf(profile)
+		if _, err := c.Marks(profile, MarkQuestion{Shelf: s.ID, Install: "A" + profile, States: all, Marks: marks}, time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	date := act(3, true, 100)
+	date.State, date.Value = Date, json.RawMessage(`{"taken":1715000000000,"zone":"+02:00"}`)
+	say("ron", onCopy(edited(1, warm, 5000), "c1"))
+	say("", onCopy(edited(1, bright, 10), "c1"), onCopy(act(2, true, 10), "c2"), date)
+	if _, err := c.db.Exec(`UPDATE extra_marks SET due = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.refile(Key{hashed(0), ""}, "ron", "ron/0", true); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := c.db.Query(`SELECT copy, state, COALESCE(value, 'null'), due FROM extra_marks WHERE profile = 'ron' ORDER BY copy, state`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var copy, state, value string
+		var due bool
+		rows.Scan(&copy, &state, &value, &due)
+		got = append(got, fmt.Sprint(copy, " ", state, " ", value, " ", due))
+	}
+	want := []string{` date {"taken":1715000000000,"zone":"+02:00"} true`, `c1 edit ` + bright + ` false`, `c2 favorite true false`}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("%q, want %q", got, want)
 	}
 }

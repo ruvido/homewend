@@ -102,7 +102,8 @@ END;
 // and edit, the date a person gave, a copy's tombstone. It reads marks and
 // edits by (profile, hash) alone, and would say a copy's as its photo's. Under
 // the same seqs and rules, by (profile, hash, copy, state), copy "" the
-// photo itself; value is the JSON as said, NULL for null. restored is when a
+// photo itself; value is the JSON as said, NULL for null. due: a date said
+// and not yet given to its photo, which waits for the library's turn. restored is when a
 // photo last left the Trash, in ms: a phone empties none restored since it
 // saw it there. Noted by triggers, an older program's Restore too.
 const extraSchema = `
@@ -116,6 +117,7 @@ CREATE TABLE extra_marks (
   seq     INTEGER NOT NULL,
   install TEXT NOT NULL DEFAULT '',
   n       INTEGER NOT NULL DEFAULT 0,
+  due     INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (profile, hash, copy, state)
 );
 CREATE INDEX extra_marks_by_seq ON extra_marks(profile, seq);
@@ -434,15 +436,9 @@ type MarkAnswer struct {
 	Unknown []string `json:"unknown"`
 	// Refused count the edits and dates said that are none.
 	Refused []int64 `json:"refused"`
-	// Dated are the dates that won, still to be given to their photos.
-	Dated []Dated `json:"-"`
-}
-
-// Dated is a date mark that won: its photo, and the value, null being the
-// file's own date.
-type Dated struct {
-	Key
-	Value string
+	// Dated are the photos whose date mark won: due, to be given in the
+	// library's turn (GiveDueDates).
+	Dated []Key `json:"-"`
 }
 
 // Mark is a photo's state in its library.
@@ -599,7 +595,10 @@ func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkActi
 				return err
 			}
 			if given && m.State == Date {
-				a.Dated = append(a.Dated, Dated{k, is.value})
+				if err := due(tx, k); err != nil {
+					return err
+				}
+				a.Dated = append(a.Dated, k)
 			}
 		}
 	}
@@ -763,4 +762,58 @@ func (m marker) give(k Key, copy string, was, is mark) (given bool, err error) {
 // mark is noted with it.
 func setting(state State) string {
 	return `UPDATE library_photos SET ` + string(state) + ` = ? WHERE id = ?`
+}
+
+// due says k's date mark is still to be given to it.
+func due(tx *sql.Tx, k Key) error {
+	_, err := tx.Exec(`UPDATE extra_marks SET due = 1 WHERE profile = ? AND hash = ? AND copy = '' AND state = '`+string(Date)+`'`, k.Profile, k.Hash)
+	return err
+}
+
+// carryExtra gives the photo into what k has in extra_marks, each mark when it
+// is the later: a photo filed into a library that has it already.
+func carryExtra(tx *sql.Tx, k, into Key) error {
+	type one struct {
+		copy  string
+		state State
+	}
+	var all []one
+	rows, err := tx.Query(`SELECT copy, state FROM extra_marks WHERE profile = ? AND hash = ?`, k.Profile, k.Hash)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var o one
+		if err := rows.Scan(&o.copy, &o.state); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, o := range all {
+		marks, err := markIn(tx, o.state, true)
+		if err != nil {
+			return err
+		}
+		its, err := marks.of(k, o.copy)
+		if err != nil {
+			return err
+		}
+		was, err := marks.of(into, o.copy)
+		if err != nil {
+			return err
+		}
+		given, err := marks.give(into, o.copy, was, its)
+		if err == nil && given && o.state == Date && o.copy == "" {
+			err = due(tx, into)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

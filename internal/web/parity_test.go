@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ruvido/homewend/internal/library"
 )
@@ -68,6 +69,17 @@ func TestAPhonesDate(t *testing.T) {
 	if a := ask(date(1, may)); len(a.Said) != 1 || string(a.Said[0].Value) != may {
 		t.Errorf("%+v", a)
 	}
+	// Moved beside the answer, in the library's turn.
+	filed := func(month string) {
+		t.Helper()
+		for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+			if res, _ := ron.gets("/v1/library/" + month); res.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		t.Fatalf("%s: never filed", month)
+	}
+	filed("2024-05")
 	m := ron.month("2024-05")
 	if len(m.Photos) != 1 || m.Photos[0].Taken != "2024-05-06T14:53:20" {
 		t.Errorf("%+v", m)
@@ -77,6 +89,7 @@ func TestAPhonesDate(t *testing.T) {
 		t.Errorf("filed: %v", files)
 	}
 	ask(date(2, "null"))
+	filed("none")
 	if m := ron.month("none"); len(m.Photos) != 1 {
 		t.Errorf("back: %+v", m)
 	}
