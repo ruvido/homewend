@@ -42,6 +42,7 @@ import infoCircle from 'bootstrap-icons/icons/info-circle.svg?raw';
 import key from 'bootstrap-icons/icons/key.svg?raw';
 import listCheck from 'bootstrap-icons/icons/list-check.svg?raw';
 import moon from 'bootstrap-icons/icons/moon.svg?raw';
+import pencil from 'bootstrap-icons/icons/pencil.svg?raw';
 import pauseFill from 'bootstrap-icons/icons/pause-fill.svg?raw';
 import person from 'bootstrap-icons/icons/person.svg?raw';
 import personPlus from 'bootstrap-icons/icons/person-plus.svg?raw';
@@ -108,6 +109,7 @@ const raw = {
 	'list-check': listCheck,
 	'moon': moon,
 	'pause-fill': pauseFill,
+	'pencil': pencil,
 	'person': person,
 	'person-plus': personPlus,
 	'phone': phone,

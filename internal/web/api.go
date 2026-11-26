@@ -469,6 +469,8 @@ func reply(w http.ResponseWriter, v any, err error) {
 	// A name in use is the one condition of a rename the page can meet.
 	case errors.Is(err, library.ErrProfileTaken):
 		http.Error(w, err.Error(), http.StatusPreconditionFailed)
+	case errors.Is(err, library.ErrNotMoved):
+		http.Error(w, err.Error(), http.StatusLocked)
 	case errors.As(err, new(engine.NoSpaceError)):
 		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 	// The library's disk is away: nothing the request did wrong, nothing

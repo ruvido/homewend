@@ -234,8 +234,8 @@ func TestARenameThatCannotMoveChangesNothing(t *testing.T) {
 	}
 	defer os.Chmod(under(l.root, TrashDir), 0o755)
 	err := RenameProfile(l.root, l.db(), Renaming{"ron", "papà"}, func(Renaming) error { t.Error("followed"); return nil })
-	if err == nil {
-		t.Fatal("renamed")
+	if !errors.Is(err, ErrNotMoved) {
+		t.Fatalf("renamed: %v", err)
 	}
 	if exists(under(l.root, "papà")) || exists(renameJournal(l.root)) {
 		t.Error("half renamed")

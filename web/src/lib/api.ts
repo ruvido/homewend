@@ -68,6 +68,8 @@ export const getSettings = () => call<Settings>('GET', '/api/settings');
 export const putSettings = (s: Settings) => call<Settings>('PUT', '/api/settings', s);
 export const putProfile = (account: string, profile: string) =>
 	call<{ profile: string }>('PUT', `/api/profile?account=${encodeURIComponent(account)}`, { profile });
+/** Renames a profile: its folder in the library, and all that names it. */
+export const renameProfile = (from: string, to: string) => call<unknown>('POST', '/api/profile/rename', { from, to });
 export const getOverview = () => call<Overview>('GET', '/api/overview');
 /** Moves each time the library's catalog changes, whoever changed it; with it, the thumbnails being made. */
 export const getChanges = () => call<{ changes: string; thumbs: Thumbs; emptying: Emptying }>('GET', '/api/changes');

@@ -5,7 +5,8 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import Avatar from './Avatar.svelte';
-	import ContextMenu, { folderItems } from './ContextMenu.svelte';
+	import ContextMenu, { folderItems, type MenuItem } from './ContextMenu.svelte';
+	import RenamePerson from './RenamePerson.svelte';
 	import { ejectCard, folderOf, type Card } from '#lib/api.js';
 	import { app, cards as cardList, lookCards, watchCards } from '#lib/app.svelte.js';
 	import { Opener } from '#lib/menu.svelte.js';
@@ -50,11 +51,17 @@
 	let allYears = $state(false);
 
 	// Right-click on a person, a year or an album: open its folder, or copy
-	// where it is.
+	// where it is; a person is renamed there too (Y1).
 	const opener = new Opener<{ path: string; key: string }>();
 	function context(e: MouseEvent, key: string, where: { profile?: string; account?: string; year?: string; album?: string; noDate?: boolean }) {
 		if (rail) return;
 		opener.open(e, async () => ({ path: (await folderOf(where)).path, key }));
+	}
+	let renaming = $state<string | null>(null);
+	function items(key: string, path: string): MenuItem[] {
+		const profile = key.startsWith('p:') ? key.slice(2) : null;
+		const rename: MenuItem[] = profile ? [{ icon: 'pencil', label: text.renameMenu, run: () => { renaming = profile; } }] : [];
+		return [...rename, ...folderItems(path)];
 	}
 	const years = $derived(allYears ? data.years : data.years.slice(0, FOLD.years));
 	let folded = $state<Record<string, boolean>>({});
@@ -292,7 +299,8 @@
 	</div>
 </nav>
 
-{#if opener.menu}<ContextMenu items={folderItems(opener.menu.path)} anchor={opener.menu.anchor} onclose={opener.close} />{/if}
+{#if opener.menu}<ContextMenu items={items(opener.menu.key, opener.menu.path)} anchor={opener.menu.anchor} onclose={opener.close} />{/if}
+{#if renaming}<RenamePerson profile={renaming} onclose={() => (renaming = null)} />{/if}
 
 <style>
 	nav {

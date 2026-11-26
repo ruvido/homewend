@@ -37,6 +37,10 @@ type Renaming struct {
 // folder of it, already has.
 var ErrProfileTaken = errors.New("there is a profile of this name already")
 
+// ErrNotMoved is a folder of the profile that would not move, most often for
+// a file open in it on Windows: nothing was renamed.
+var ErrNotMoved = errors.New("a folder of the profile would not move")
+
 // errFolderTaken is a folder that cannot move: one of its new name is there,
 // and neither is empty.
 var errFolderTaken = errors.New("a folder of that name is already there")
@@ -172,7 +176,7 @@ func RenameProfile(root, catalog string, r Renaming, follow func(Renaming) error
 				return errors.Join(err, back)
 			}
 		}
-		return errors.Join(err, os.Remove(renameJournal(root)))
+		return errors.Join(ErrNotMoved, err, os.Remove(renameJournal(root)))
 	}
 	return finishRename(root, catalog, r, follow)
 }
