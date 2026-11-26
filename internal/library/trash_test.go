@@ -531,11 +531,21 @@ func TestTheOthersPhotoIsNotTouched(t *testing.T) {
 			os.Remove(under(l.root, "ann/a.jpg"))
 			write(l.T, l.root, "ann/a.jpg", []byte("an edit, hers "))
 			l.trash(rons, anns)
-			lock := under(l.root, ".trash/ann")
-			if err := os.Chmod(lock, 0o555); err != nil || os.Geteuid() == 0 {
-				l.Skip("a mode takes no one's writing away")
+			// Windows deletes a file of a folder that cannot be written, and
+			// not one open without FILE_SHARE_DELETE, as Go opens it.
+			if runtime.GOOS == "windows" {
+				open, err := os.Open(under(l.root, ".trash/ann/a.jpg"))
+				if err != nil {
+					l.Fatal(err)
+				}
+				defer open.Close()
+			} else {
+				lock := under(l.root, ".trash/ann")
+				if err := os.Chmod(lock, 0o555); err != nil || os.Geteuid() == 0 {
+					l.Skip("a mode takes no one's writing away")
+				}
+				defer os.Chmod(lock, 0o755)
 			}
-			defer os.Chmod(lock, 0o755)
 			l.empty([]Key{rons, anns}, rons, anns)
 			l.at(rons, ".trash/ron/a.jpg")
 		},
