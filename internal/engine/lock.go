@@ -44,8 +44,12 @@ func lockLibrary(root string) (unlock func(), err error) {
 		return func() {}, nil
 	}
 	unlock = func() { unlockFile(file); file.Close() }
-	// Nobody else is moving: what a killed run left is finished first.
-	err = library.FinishMoves(root, catalogPath(root), unlisted)
+	// Nobody else is moving: what a killed run left is finished first, a
+	// rename before the Trash's moves it may have renamed.
+	err = library.FinishRename(root, catalogPath(root), followRename(root))
+	if err == nil {
+		err = library.FinishMoves(root, catalogPath(root), unlisted)
+	}
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		unlock()
 		return nil, err

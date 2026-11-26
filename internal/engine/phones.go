@@ -494,6 +494,15 @@ func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int6
 		}
 	}
 	defer unlock()
+	// Its profile renamed while it waited, it goes in the new name; unpaired
+	// meanwhile, its bytes are here and in it goes.
+	now, err := LoadPhones()
+	if err != nil {
+		return Received{}, err
+	}
+	if i := slices.IndexFunc(now.Phones, func(ph Phone) bool { return ph.ID == phone.ID }); i >= 0 {
+		phone.Profile, key.Profile = now.Phones[i].Profile, now.Phones[i].Profile
+	}
 	rw, err := library.OpenCatalog(catalogPath(root))
 	if err != nil {
 		return Received{}, err

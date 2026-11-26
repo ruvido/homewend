@@ -250,6 +250,18 @@ func lookNow() {
 	}
 }
 
+// renamedWaiting tells the phones waiting on profile that it changed: renamed,
+// it is another shelf.
+func renamedWaiting(profile string) {
+	waiting.Lock()
+	defer waiting.Unlock()
+	for _, w := range waiting.phones {
+		if w.profile == profile {
+			w.tell(told{changed: true})
+		}
+	}
+}
+
 // stopWaiting ends the question of the phone id.
 func stopWaiting(id string) {
 	waiting.Lock()

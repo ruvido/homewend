@@ -51,6 +51,15 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		}
 		reply(w, body, engine.SetProfile(r.URL.Query().Get("account"), body.Profile))
 	})
+	// A profile renamed: its folder, and all that names it.
+	mux.HandleFunc("POST /api/profile/rename", func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ From, To string }
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		reply(w, body, engine.RenameProfile(body.From, body.To, jobs, importing))
+	})
 	mux.HandleFunc("GET /api/overview", func(w http.ResponseWriter, r *http.Request) {
 		s, err := engine.LoadSettings()
 		if err != nil {
@@ -457,6 +466,11 @@ func reply(w http.ResponseWriter, v any, err error) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 	case errors.Is(err, engine.ErrProfileCase):
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+	// A name in use is the one condition of a rename the page can meet.
+	case errors.Is(err, library.ErrProfileTaken):
+		http.Error(w, err.Error(), http.StatusPreconditionFailed)
+	case errors.As(err, new(engine.NoSpaceError)):
+		http.Error(w, err.Error(), http.StatusInsufficientStorage)
 	// The library's disk is away: nothing the request did wrong, nothing
 	// to try again until it is back.
 	case errors.As(err, new(engine.LibraryGoneError)):
