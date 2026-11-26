@@ -143,23 +143,11 @@ func keepMoves(root string, moves []transit) error {
 	if len(moves) == 0 {
 		return os.Remove(file)
 	}
-	data, err := json.Marshal(moves)
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(file + ".tmp")
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if err = errors.Join(err, f.Sync(), f.Close()); err != nil {
-		return err
-	}
-	return os.Rename(file+".tmp", file)
+	return writeSynced(file, moves)
 }
 
 // At is where the file recorded at rel is: there, or, while it is being moved,
-// where it has gone.
+// or its profile renamed, where it has gone.
 func At(root, rel string) string {
 	if exists(under(root, rel)) {
 		return rel
@@ -168,6 +156,14 @@ func At(root, rel string) string {
 	for _, m := range moves {
 		if m.From == rel && exists(under(root, m.To)) {
 			return m.To
+		}
+	}
+	// A profile being renamed: its folder under either name.
+	if r, _ := renaming(root); r != nil {
+		for _, way := range [][2]string{{r.From, r.To}, {r.To, r.From}} {
+			if p, ok := renamedPath(rel, way[0], way[1]); ok && exists(under(root, p)) {
+				return p
+			}
 		}
 	}
 	return rel

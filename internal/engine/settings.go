@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/ruvido/homewend/internal/library"
 )
 
 // Settings are the choices a person makes in the window. A missing file is
@@ -113,12 +115,6 @@ func rememberProfile(profile string) error {
 // ErrBadProfile is a profile name that cannot be a folder.
 var ErrBadProfile = errors.New("a profile is a name, without / or \\, not starting with a dot, no spaces around it")
 
-// ValidProfile is whether p can name a profile: a folder of the library,
-// so a plain name, never one that leads out of it or into its work folder.
-func ValidProfile(p string) bool {
-	return p != "" && p != "." && p != ".." && !strings.ContainsAny(p, "/\\") && !strings.HasPrefix(p, ".") && p == strings.TrimSpace(p)
-}
-
 // knownProfiles are the profiles there are, in one order for every list and
 // every colour: ProfileNames', then the phones', paired or not any more.
 func knownProfiles(accounts []AccountInfo, s Settings) ([]string, error) {
@@ -164,22 +160,40 @@ func CheckProfile(p string) error { return checkProfile(p, "") }
 // checkProfile is CheckProfile for the account of, whose profile so far is no
 // other's: only its folder, once there is one.
 func checkProfile(p, of string) error {
-	if !ValidProfile(p) {
+	if !library.ValidProfile(p) {
 		return ErrBadProfile
 	}
+	names, err := profilesThere(of)
+	if err != nil || slices.Contains(names, p) {
+		return err
+	}
+	return notByCase(p, names)
+}
+
+// notByCase is ErrProfileCase when p is one of names but for its capitals.
+func notByCase(p string, names []string) error {
+	if slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, p) }) {
+		return ErrProfileCase
+	}
+	return nil
+}
+
+// profilesThere are the names of the profiles there are, the folders of the
+// library among them; the account of's profile left out but for its folder.
+func profilesThere(of string) ([]string, error) {
 	accounts, err := Accounts()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s, err := LoadSettings()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	accounts = slices.DeleteFunc(accounts, func(a AccountInfo) bool { return a.ID == of })
 	delete(s.Profiles, of)
 	names, err := knownProfiles(accounts, s)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if s.Library != "" {
 		entries, _ := os.ReadDir(s.Library) // away: the names known are asked alone
@@ -189,13 +203,7 @@ func checkProfile(p, of string) error {
 			}
 		}
 	}
-	if slices.Contains(names, p) {
-		return nil
-	}
-	if slices.ContainsFunc(names, func(n string) bool { return strings.EqualFold(n, p) }) {
-		return ErrProfileCase
-	}
-	return nil
+	return names, nil
 }
 
 // Themes are the values Theme takes.

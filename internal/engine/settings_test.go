@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/ruvido/homewend/internal/library"
 )
 
 func TestSettingsDefaultWhenMissing(t *testing.T) {
@@ -75,7 +77,7 @@ func TestAnAccountsProfileComesFirst(t *testing.T) {
 	if _, first := ProfileNames(nil, Settings{Imported: []string{"anna", "ron"}}); first != "" {
 		t.Errorf("%q with two cards' profiles and no account, want it asked", first)
 	}
-	if ValidProfile("ron ") || ValidProfile(" ron") {
+	if library.ValidProfile("ron ") || library.ValidProfile(" ron") {
 		t.Error("a name with spaces around it would be a second ron")
 	}
 }
