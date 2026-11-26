@@ -116,8 +116,11 @@ export interface GridPhoto extends PhotoKey, Shown {
 	id: string;
 	/** Whose library's, by its place in the engine's profiles: none is the first. */
 	of?: number;
-	/** Another library has it too, and both are in the list. */
-	shared?: boolean;
+	/** The engine's: the other libraries' copies of it in the list. */
+	also?: GridPhoto[];
+	/** A tile of a photo two or more libraries have (W2): each one's copy in
+	 *  the list, in the order of the people, the tile showing the first. */
+	copies?: GridPhoto[];
 	name: string;
 	taken?: string;
 	/** How much of taken is a guess: Google's folder gave the year, the file's name the day or the time. */
@@ -136,13 +139,35 @@ export interface GridPhoto extends PhotoKey, Shown {
 // Whose each photo is and its id, once as the list comes. The id names the
 // person, not their place among the others: the next list may have more, and
 // what is picked or open must not become someone else's.
-const asPhotos = ({ profiles, photos }: { profiles: string[]; photos: GridPhoto[] }) => {
-	for (const p of photos) {
+// A photo of two libraries comes as one tile (W2), the others' copies on it.
+export const asPhotos = ({ profiles, photos }: { profiles: string[]; photos: GridPhoto[] }) => {
+	const named = (p: GridPhoto) => {
 		p.profile = profiles[p.of ?? 0];
 		p.id = `${p.profile}/${p.hash}`;
+	};
+	for (const p of photos) {
+		named(p);
+		if (!p.also) continue;
+		p.also.forEach(named);
+		p.copies = [{ ...p }, ...p.also];
 	}
 	return photos;
 };
+
+/** The copies a tile stands for: its own, or each person's. */
+export const copiesOf = (tiles: GridPhoto[]) => tiles.flatMap((t) => t.copies ?? [t]);
+/** How many photos copies are: a photo of two people is one. */
+export const photosIn = (copies: PhotoKey[]) => new Set(copies.map((p) => p.hash)).size;
+/** The tile is this copy, or holds it. */
+export const holds = (t: GridPhoto | undefined, id: string) => !!t && (t.id === id || !!t.copies?.some((c) => c.id === id));
+/** The tiles with their copies changed by change, which returns a copy
+ *  untouched as it is; a tile shows its first copy. */
+export const patched = (tiles: GridPhoto[], change: (p: GridPhoto) => GridPhoto) =>
+	tiles.map((t) => {
+		if (!t.copies) return change(t);
+		const copies = t.copies.map(change);
+		return copies.every((c, i) => c === t.copies![i]) ? t : { ...copies[0], copies };
+	});
 
 export function getPhotos(q: { year?: string; album?: string; /** The album's, "" when not known. */ account?: string; noDate?: boolean; view?: View; /** The first of them; all when not given. */ limit?: number }) {
 	const p = new URLSearchParams();

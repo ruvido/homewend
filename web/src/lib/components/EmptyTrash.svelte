@@ -3,7 +3,7 @@
 <!-- P4c: the photos the Trash shows deleted for good, those and no others.
      P4d: while it runs, how far it is; it closes by itself at the end. -->
 <script lang="ts">
-	import { ApiError, emptyTrash, type PhotoKey } from '#lib/api.js';
+	import { ApiError, emptyTrash, photosIn, type PhotoKey } from '#lib/api.js';
 	import { app, refresh } from '#lib/app.svelte.js';
 	import { reveal } from '#lib/motion.js';
 	import { text } from '#lib/strings.js';
@@ -44,7 +44,7 @@
 			<b style:width="{(far.done / far.of) * 100}%"></b>
 		</div>
 	{:else}
-		<p>{text.emptyTrashLead(photos.length)}</p>
+		<p>{text.emptyTrashLead(photosIn(photos))}</p>
 		{#if failed}<p class="failed">{failed}</p>{/if}
 	{/if}
 </Dialog>

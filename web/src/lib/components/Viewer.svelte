@@ -13,6 +13,7 @@
 	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
 	import { app } from '#lib/app.svelte.js';
+	import Avatar from './Avatar.svelte';
 
 	let {
 		photos,
@@ -51,7 +52,11 @@
 	// K3: this one photo given a date, as the library's selection is (K2).
 	let dating = $state(false);
 
-	const p = $derived(index === null ? null : photos[index]);
+	const tile = $derived(index === null ? null : photos[index]);
+	// W3: a photo two people have opens on the first one's copy; the other's
+	// is a press away. What is done to it is done to the copy shown.
+	let chosen = $state({ tile: '', profile: '' });
+	const p = $derived(tile?.copies?.find((c) => chosen.tile === tile.id && c.profile === chosen.profile) ?? tile);
 	// What is asked about it is asked once: a heart or a turn makes another p.
 	const id = $derived(p?.id);
 	const missing = $derived(p?.missing);
@@ -240,6 +245,15 @@
 				<b>{taken}</b>
 				<span>{p.name}{beside}</span>
 			</div>
+			{#if tile?.copies}
+				<div class="whose">
+					{#each tile.copies as c (c.id)}
+						<button class="pill" aria-pressed={c.id === p.id} onclick={(e) => (e.currentTarget.blur(), (chosen = { tile: tile.id, profile: c.profile }))}>
+							<Avatar account={{ id: c.profile, name: c.profile, email: c.profile }} index={c.of} size={20} />{c.profile}
+						</button>
+					{/each}
+				</div>
+			{/if}
 			{#if p.missing}
 				<button class="pill" onclick={() => (takingOut = true)}>{text.takeOutOne}</button>
 			{:else}
@@ -524,6 +538,21 @@
 		to {
 			rotate: 360deg;
 		}
+	}
+	/* W3: whose copy is shown; the others' a press away. */
+	.whose {
+		display: flex;
+		gap: var(--space-4);
+	}
+	.whose .pill {
+		padding-left: var(--space-6);
+		background: transparent;
+		color: var(--on-photo-muted);
+		transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+	}
+	.whose .pill[aria-pressed='true'] {
+		background: var(--on-photo-soft);
+		color: var(--on-photo);
 	}
 	.pill.icon {
 		width: 32px;

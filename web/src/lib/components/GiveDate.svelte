@@ -4,7 +4,7 @@
      earliest takes it, the others keep their distance, as before an import. -->
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { ApiError, giveDates, type GridPhoto } from '#lib/api.js';
+	import { ApiError, giveDates, photosIn, type GridPhoto } from '#lib/api.js';
 	import { refresh } from '#lib/app.svelte.js';
 	import { text } from '#lib/strings.js';
 	import Dialog from './Dialog.svelte';
@@ -37,7 +37,7 @@
 	}
 </script>
 
-<Dialog title={text.changeDateOf(photos.length)}>
+<Dialog title={text.changeDateOf(photosIn(photos))}>
 	<DatePicker bind:value={when} />
 	{#if failed}<p class="failed">{failed}</p>{/if}
 	{#snippet actions()}

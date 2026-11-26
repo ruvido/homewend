@@ -24,17 +24,17 @@ import (
 )
 
 // GridPhoto is one tile of the window's grid: a photo two libraries have is
-// two tiles.
+// one tile, its first person's copy, the others' in Also (W2).
 type GridPhoto struct {
 	Hash    string `json:"hash"`
 	Profile string `json:"-"`
 	// Of is Profile, by its place in the list's Profiles: on every tile a
 	// name would be a tenth of the list. None is the first.
 	Of int `json:"of,omitempty"`
-	// Shared: another tile of the list is the same photo, in another library.
-	Shared bool      `json:"shared,omitempty"`
-	Name   string    `json:"name"`
-	Taken  time.Time `json:"taken,omitzero"`
+	// Also: the copies of the other libraries in the list, in their order.
+	Also  []GridPhoto `json:"also,omitempty"`
+	Name  string      `json:"name"`
+	Taken time.Time   `json:"taken,omitzero"`
 	// Guessed: how much of Taken is guessed ("year", "day", "time");
 	// empty when the date is known.
 	Guessed string `json:"guessed,omitempty"`
@@ -66,7 +66,8 @@ type PhotoList struct {
 	Photos   []GridPhoto `json:"photos"`
 }
 
-// listOf is photos as a list: whose each is, and which two libraries have.
+// listOf is photos as a list: whose each is, and a photo of two libraries
+// one tile, where the copy of the first of them is.
 func listOf(photos []GridPhoto, profiles []string) PhotoList {
 	place := map[string]int{}
 	for i, p := range profiles {
@@ -93,8 +94,10 @@ func listOf(photos []GridPhoto, profiles []string) PhotoList {
 			most = p
 		}
 	}
-	// The few of the smaller libraries are remembered, the many looked up.
+	// The few of the smaller libraries are remembered, the many looked up;
+	// a copy found again joins the first found.
 	first := map[string]int{}
+	joined := map[int][]int{}
 	for i := range photos {
 		p := &photos[i]
 		p.Of = place[p.Profile]
@@ -102,7 +105,7 @@ func listOf(photos []GridPhoto, profiles []string) PhotoList {
 			continue
 		}
 		if j, twice := first[p.Hash]; twice {
-			p.Shared, photos[j].Shared = true, true
+			joined[j] = append(joined[j], i)
 		} else {
 			first[p.Hash] = i
 		}
@@ -111,12 +114,31 @@ func listOf(photos []GridPhoto, profiles []string) PhotoList {
 		for i := range photos {
 			if p := &photos[i]; p.Profile == most {
 				if j, twice := first[p.Hash]; twice {
-					p.Shared, photos[j].Shared = true, true
+					joined[j] = append(joined[j], i)
 				}
 			}
 		}
 	}
-	return PhotoList{Profiles: profiles, Photos: photos}
+	if len(joined) == 0 {
+		return PhotoList{Profiles: profiles, Photos: photos}
+	}
+	// The first person's copy holds the others', which leave the list.
+	out := make([]bool, len(photos))
+	for j, others := range joined {
+		all := append(others, j)
+		slices.SortFunc(all, func(a, b int) int { return cmp.Compare(photos[a].Of, photos[b].Of) })
+		for _, k := range all[1:] {
+			photos[all[0]].Also = append(photos[all[0]].Also, photos[k])
+			out[k] = true
+		}
+	}
+	tiles := photos[:0]
+	for i := range photos {
+		if !out[i] {
+			tiles = append(tiles, photos[i])
+		}
+	}
+	return PhotoList{Profiles: profiles, Photos: tiles}
 }
 
 // ErrNoLibrary is asking for photos before a library folder was chosen.

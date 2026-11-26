@@ -649,9 +649,11 @@ func (c *Catalog) Count(f Filter) (int, error) {
 }
 
 // CountsByState is how many photos are archived, in the Trash and given a
-// heart, as many as Page has for each, in one reading of the rows.
+// heart, in one reading of the rows: a photo two libraries have is one
+// tile of each list, and counted once.
 func (c *Catalog) CountsByState(hidden []string) (archived, trashed, favorite int, err error) {
-	query := `SELECT COALESCE(SUM(trashed = 0 AND archived), 0), COALESCE(SUM(trashed), 0), COALESCE(SUM(trashed = 0 AND favorite), 0)
+	query := `SELECT COUNT(DISTINCT CASE WHEN trashed = 0 AND archived THEN hash END), COUNT(DISTINCT CASE WHEN trashed THEN hash END),
+		COUNT(DISTINCT CASE WHEN trashed = 0 AND favorite THEN hash END)
 		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1)`
 	clause, args := shownOnly("profile", hidden)
 	if clause != "" {
@@ -756,9 +758,9 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 }
 
 // CountsByYear is how many photos each year holds, and under "" those whose
-// date nobody knows.
+// date nobody knows: a photo two libraries have, once.
 func (c *Catalog) CountsByYear(hidden []string) (map[string]int, error) {
-	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM library_photos WHERE NOT ` + away + ` AND archived = 0`
+	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(DISTINCT hash) FROM library_photos WHERE NOT ` + away + ` AND archived = 0`
 	clause, args := shownOnly("profile", hidden)
 	if clause != "" {
 		query += " AND " + clause
@@ -908,9 +910,9 @@ type AlbumCount struct {
 const albumRows = ` FROM album_members m JOIN library_photos p ON p.id = m.photo LEFT JOIN album_owners o ON o.album = m.album AND o.profile = p.profile`
 
 // AlbumsByOwner lists the albums, each under every account that brought it,
-// with the photos of the profiles not hidden.
+// with the photos of the profiles not hidden, a photo two libraries have once.
 func (c *Catalog) AlbumsByOwner(hidden []string) ([]AlbumCount, error) {
-	query := `SELECT COALESCE(o.account, ''), m.album, COUNT(*)` + albumRows + ` WHERE NOT ` + away
+	query := `SELECT COALESCE(o.account, ''), m.album, COUNT(DISTINCT p.hash)` + albumRows + ` WHERE NOT ` + away
 	clause, args := shownOnly("p.profile", hidden)
 	if clause != "" {
 		query += " AND " + clause

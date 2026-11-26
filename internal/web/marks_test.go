@@ -212,7 +212,12 @@ func TestAPhonesHeartsAreTheWindows(t *testing.T) {
 	}
 	list, err := engine.Photos(engine.Settings{}, "", "", "", false, "", 0)
 	hearts := 0
+	// A tile of two libraries holds the other's copy.
+	var copies []engine.GridPhoto
 	for _, p := range list.Photos {
+		copies = append(append(copies, p), p.Also...)
+	}
+	for _, p := range copies {
 		if p.Favorite {
 			hearts++
 		}

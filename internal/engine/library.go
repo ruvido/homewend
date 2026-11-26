@@ -167,8 +167,13 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	if o.Archived, o.Trashed, o.Favorites, err = c.CountsByState(hidden); err != nil {
 		return o, err
 	}
+	// A photo two libraries have is one tile: missing once.
+	counted := map[library.Gone]bool{}
 	for _, g := range shownOf(missingIn(root), hidden) {
-		o.Missing[g.Year]++
+		if g.Profile = ""; !counted[g] {
+			counted[g] = true
+			o.Missing[g.Year]++
+		}
 	}
 	for y, n := range years {
 		o.Years = append(o.Years, YearCount{Year: y, Count: n})

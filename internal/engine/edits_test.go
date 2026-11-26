@@ -12,6 +12,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -67,7 +68,7 @@ func TestAnEditIsShown(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, p := range list.Photos {
+		for _, p := range copiesIn(list) {
 			if p.Key() == k {
 				return p
 			}
@@ -139,7 +140,7 @@ func TestAnEditIsShown(t *testing.T) {
 	is("a phone's preview", file, err, 900, 600, red)
 	file, _, err = Preview(ctx, k, p.Edit)
 	is("the preview", file, err, 450, 600, blue)
-	if list, err := Latest(6); err != nil || list.Photos[1].Edit != p.Edit && list.Photos[0].Edit != p.Edit {
+	if list, err := Latest(6); err != nil || !slices.ContainsFunc(copiesIn(list), func(c GridPhoto) bool { return c.Key() == k && c.Edit == p.Edit }) {
 		t.Errorf("%+v %v", list, err)
 	}
 

@@ -105,7 +105,7 @@
 		else onopen?.(i);
 	}
 
-	// Whose a photo of two libraries is (W1): the letter, once a person.
+	// Whose a photo of two libraries is (W2): the letter, once a person.
 	const letters = new Map<string, string>();
 	function letterOf(profile: string) {
 		let letter = letters.get(profile);
@@ -270,12 +270,15 @@
 								style:transform={turned(p)}
 								use:shown
 							/>
-							{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
-							{#if p.missing || p.shared}
+							{#if p.video || p.copies}
 								<!-- Few have either: one thing to ask of every tile. -->
-								{#if p.shared}<span class="avatar whose" style:background={colourOf(p.of ?? 0)} title={p.profile}>{letterOf(p.profile)}</span>{/if}
-								{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
+								<span class="corner">
+									{#if p.video}<span class="video"><Icon name="play-fill" size={14} /></span>{/if}
+									<!-- W2: whose copies it stands for, overlapped. -->
+									{#if p.copies}<span class="owners">{#each p.copies as c (c.id)}<span class="avatar" style:background={colourOf(c.of ?? 0)} title={c.profile}>{letterOf(c.profile)}</span>{/each}</span>{/if}
+								</span>
 							{/if}
+							{#if p.missing}<span class="gone" title={text.notOnDisk}><Icon name="file-earmark-x" size={14} /></span>{/if}
 							<!-- Only where it can be seen: a tile is as little as it can be. -->
 							{#if onselect && (selecting || over === p.id)}
 								<span class="pick" in:swap>{#if selected?.has(p.id)}<Icon name="check-circle" size={20} />{:else}<Icon name="circle" size={20} />{/if}</span>
@@ -356,22 +359,29 @@
 	.arrived img:not(:global(.known)) {
 		transition-duration: var(--motion-ambient), var(--motion-fast);
 	}
-	.video {
+	.corner {
 		position: absolute;
 		right: var(--space-6);
 		bottom: var(--space-6);
+		display: flex;
+		align-items: center;
+		gap: var(--space-6);
+	}
+	.video {
+		display: grid;
 		color: var(--on-photo);
 		filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
 	}
-	.whose {
+	.owners {
+		display: flex;
+	}
+	.owners .avatar {
 		width: var(--space-20);
 		height: var(--space-20);
-		position: absolute;
-		right: var(--space-6);
-		bottom: var(--space-6);
+		box-shadow: 0 0 0 var(--space-2) var(--bg);
 	}
-	.video:has(+ .whose) {
-		right: calc(2 * var(--space-6) + var(--space-20));
+	.owners .avatar + .avatar {
+		margin-left: calc(-1 * var(--space-6));
 	}
 	/* Picking (K1): the circle shows on a tile under the pointer, on every
 	   tile once one is picked; a picked one shrinks in an accent frame. */

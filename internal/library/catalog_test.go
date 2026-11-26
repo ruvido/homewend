@@ -83,6 +83,40 @@ func TestHiddenProfilesFilterThePhotos(t *testing.T) {
 	}
 }
 
+// A photo two people have is one tile: the counts take it once, in a year,
+// an album and each state; one person's copy archived is in both lists.
+func TestAPhotoOfTwoIsCountedOnce(t *testing.T) {
+	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	y := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
+	for _, k := range []Key{{"a", "ann"}, {"a", "bo"}, {"b", "ann"}, {"b", "bo"}} {
+		if err := c.Put(Photo{Hash: k.Hash, Profile: k.Profile, Path: k.Profile + "/" + k.Hash, Name: k.Hash, Taken: y}); err != nil {
+			t.Fatal(err)
+		}
+		c.addAlbum("Trip", k, "")
+	}
+	for _, k := range []Key{{"a", "ann"}, {"a", "bo"}, {"b", "bo"}} {
+		if _, err := c.Mark(Favorite, []Key{k}, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.Mark(Archived, []Key{{"b", "bo"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if years, err := c.CountsByYear(nil); err != nil || years["2024"] != 2 {
+		t.Errorf("years %v %v, want 2", years, err)
+	}
+	if archived, trashed, favorite, err := c.CountsByState(nil); err != nil || archived != 1 || trashed != 0 || favorite != 2 {
+		t.Errorf("states %d %d %d %v, want 1 0 2", archived, trashed, favorite, err)
+	}
+	if albums, err := c.AlbumsByOwner(nil); err != nil || len(albums) != 1 || albums[0].Count != 2 {
+		t.Errorf("albums %+v %v, want one of 2", albums, err)
+	}
+}
+
 func TestLatestAndAbout(t *testing.T) {
 	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {

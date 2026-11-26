@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
-	import { getPhotos, mark, turnLeft, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
+	import { copiesOf, getPhotos, holds, mark, patched, photosIn, turnLeft, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
 	import { isView } from '#lib/library.js';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
@@ -106,12 +106,14 @@
 		selected = next;
 	}
 	const picked = $derived(photos.filter((p) => selected.has(p.id)));
+	// What the bar acts on: a tile of two people is both their copies.
+	const pickedCopies = $derived(copiesOf(picked));
 	async function turnPicked() {
 		// Shown a few times a second: each showing lays the whole grid out.
 		const turns = new Map<string, Shown>();
 		let shownAt = 0;
 		try {
-			for (const p of picked) {
+			for (const p of pickedCopies) {
 				turns.set(p.id, await turnLeft(p));
 				if (performance.now() - shownAt < 200) continue;
 				turned(turns);
@@ -121,12 +123,12 @@
 			turned(turns);
 		}
 	}
-	const turned = (turns: Map<string, Shown>) => (list = list.map((p) => (turns.has(p.id) ? { ...p, edit: undefined, ...turns.get(p.id) } : p)));
+	const turned = (turns: Map<string, Shown>) => (list = patched(list, (p) => (turns.has(p.id) ? { ...p, edit: undefined, ...turns.get(p.id) } : p)));
 	// A heart shows at once, and is taken back if it could not be kept. One
 	// after another: two quick clicks end as the last.
 	let hearts: Promise<unknown> = Promise.resolve();
 	function favorite(photo: GridPhoto, on: boolean) {
-		const show = (favorite: boolean) => (list = list.map((p) => (p.hash === photo.hash && p.id === photo.id ? { ...p, favorite } : p)));
+		const show = (favorite: boolean) => (list = patched(list, (p) => (p.id === photo.id ? { ...p, favorite } : p)));
 		markFailed = '';
 		show(on);
 		hearts = hearts
@@ -134,12 +136,12 @@
 			.then(() => {
 				// Its heart off, it leaves the Favorites, as one unarchived the Archive.
 				if (on || place.kind !== 'favorites') return;
-				if (open !== null && photos[open]?.id === photo.id) open = null;
+				if (open !== null && holds(photos[open], photo.id)) open = null;
 				reload++;
 			})
 			.catch(() => {
 				show(!on);
-				if (open !== null && photos[open]?.id === photo.id) markFailed = text.markFailed;
+				if (open !== null && holds(photos[open], photo.id)) markFailed = text.markFailed;
 			});
 	}
 	// Archive and Delete (Q1, Q6), Unarchive for photos all archived (Q4,
@@ -318,7 +320,7 @@
 			reading = false;
 			if (stale) ((stale = false), moved());
 			if (reopen) {
-				const i = photos.findIndex((x) => x.id === reopen);
+				const i = photos.findIndex((x) => holds(x, reopen!));
 				open = i >= 0 ? i : null;
 				reopen = null;
 			}
@@ -348,8 +350,8 @@
 				<SecondaryButton small onclick={turnPicked}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
 				<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
 			{/if}
-			{#each actsOf(picked) as a (a.label)}
-				<SecondaryButton small onclick={() => act(a, picked)}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>
+			{#each actsOf(pickedCopies) as a (a.label)}
+				<SecondaryButton small onclick={() => act(a, pickedCopies)}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>
 			{/each}
 		</div>
 	{/if}
@@ -360,7 +362,7 @@
 				<div class="top">
 					<h1>{title}</h1>
 					{#if place.kind === 'trash' && loaded && photos.length > 0}
-						<PrimaryButton danger onclick={() => (emptying = photos)}><Icon name="trash" size={16} />{text.emptyTrash}</PrimaryButton>
+						<PrimaryButton danger onclick={() => (emptying = copiesOf(photos))}><Icon name="trash" size={16} />{text.emptyTrash}</PrimaryButton>
 					{/if}
 				</div>
 				<p aria-live={loaded ? 'polite' : 'off'}>
@@ -388,6 +390,7 @@
 	{#if asking}
 		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
 		<Dialog title={text.trashAsk(asking.photos.length)}>
+			{#if asking.photos.length > photosIn(asking.photos)}<p>{text.trashAskCopies}</p>{/if}
 			<p>{text.trashAskLead}</p>
 			{#if markFailed}<p class="failed">{markFailed}</p>{/if}
 			{#snippet actions()}
@@ -398,7 +401,7 @@
 	{/if}
 	{#if dating}
 		<GiveDate
-			photos={picked}
+			photos={pickedCopies}
 			onclose={(moved) => {
 				dating = false;
 				if (moved) reload++;

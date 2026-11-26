@@ -117,13 +117,15 @@ func TestMissingAreThoseOfThePeopleShown(t *testing.T) {
 	for _, h := range []string{"sam", "bob"} {
 		c.Put(library.Photo{Hash: h, Profile: h, Path: h + "/" + h + ".jpg", Name: h + ".jpg"})
 	}
+	// Sam's photo in ann's library too: one tile, missing once.
+	c.Put(library.Photo{Hash: "sam", Profile: "ann", Path: "ann/sam.jpg", Name: "sam.jpg"})
 	c.Close()
 	if _, err := lookForMissing(root); err != nil {
 		t.Fatal(err)
 	}
 	o, err := overview(root, nil, []string{"bob"}, "")
 	if err != nil || o.Missing[""] != 1 {
-		t.Errorf("missing %v, %v; want sam's only", o.Missing, err)
+		t.Errorf("missing %v, %v; want sam's only, once", o.Missing, err)
 	}
 }
 

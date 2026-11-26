@@ -92,8 +92,8 @@ func TestAPhotoAnotherLibraryHasIsNotSentAgain(t *testing.T) {
 			t.Errorf("%s's library %+v %v", phone.Profile, l, err)
 		}
 	}
-	if list, err := Photos(Settings{}, "", "", "", false, "", 0); err != nil || len(list.Photos) != 2 {
-		t.Errorf("%d tiles %v, want two", len(list.Photos), err)
+	if list, err := Photos(Settings{}, "", "", "", false, "", 0); err != nil || len(list.Photos) != 1 || len(copiesIn(list)) != 2 {
+		t.Errorf("%+v %v, want one tile of two", list.Photos, err)
 	}
 	if left, _ := os.ReadDir(filepath.Join(root, ".homewend", "phone")); len(left) > 0 {
 		t.Errorf("left behind: %v", left)
@@ -324,10 +324,23 @@ func TestAnOlderProgramsSecondProfileIsFoundByTheEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	haveIs(t, ann, hash, "have")
+	// One tile, and one in the sidebar's count, of both.
 	o, err := overview(root, nil, nil, "")
-	if err != nil || o.Total != 2 {
-		t.Errorf("overview %+v %v, want both", o, err)
+	if err != nil || o.Total != 1 {
+		t.Errorf("overview %+v %v, want one", o, err)
 	}
+	if list, err := Photos(Settings{}, "", "", "", false, "", 0); err != nil || len(copiesIn(list)) != 2 {
+		t.Errorf("%+v %v, want both", list.Photos, err)
+	}
+}
+
+// copiesIn are the list's photos, each library's copy of a tile one.
+func copiesIn(l PhotoList) []GridPhoto {
+	var all []GridPhoto
+	for _, p := range l.Photos {
+		all = append(append(all, p), p.Also...)
+	}
+	return all
 }
 
 // A profile named like a year, or any number, keeps its photos and its files
@@ -488,7 +501,8 @@ func TestAProfileOfOtherCapitalsIsRefused(t *testing.T) {
 }
 
 // Each tile says whose it is by one list, the overview's whatever is shown, and
-// the photo two libraries show says so; one library's says nothing.
+// the photo two libraries show is one tile, the first person's copy with the
+// other's; one library's has none.
 func TestWhoseATileIs(t *testing.T) {
 	_, _, ann, hash, _ := twoPhones(t)
 	if _, err := UpdatePhones(func(p *Phones) error {
@@ -505,7 +519,7 @@ func TestWhoseATileIs(t *testing.T) {
 		}
 		return l
 	}
-	if l := list(); len(l.Photos) != 1 || l.Photos[0].Shared || l.Photos[0].Of != 1 {
+	if l := list(); len(l.Photos) != 1 || l.Photos[0].Also != nil || l.Photos[0].Of != 1 {
 		t.Errorf("ron's alone: %+v", l)
 	}
 	if _, err := ReceivePhoto(context.Background(), ann, hash, "IMG_1.JPG", 14, unread{}); err != nil {
@@ -513,22 +527,23 @@ func TestWhoseATileIs(t *testing.T) {
 	}
 	send(t, ann, "IMG_2.JPG", "ann's alone")
 	l := list()
-	if !slices.Equal(l.Profiles, []string{"ann", "ron"}) || len(l.Photos) != 3 {
+	if !slices.Equal(l.Profiles, []string{"ann", "ron"}) || len(l.Photos) != 2 {
 		t.Fatalf("%+v", l)
 	}
 	for _, p := range l.Photos {
-		if p.Shared != (p.Hash == hash) || l.Profiles[p.Of] != p.Profile {
+		if l.Profiles[p.Of] != p.Profile || (p.Hash == hash) != (len(p.Also) == 1) {
 			t.Errorf("%+v", p)
+		}
+		if p.Hash == hash && (p.Profile != "ann" || p.Also[0].Profile != "ron" || p.Also[0].Of != 1) {
+			t.Errorf("the tile is ann's, with ron's: %+v", p)
 		}
 	}
 	// One of the two no longer shown, the other is as any photo.
 	if _, err := Mark(library.Archived, []library.Key{{Hash: hash, Profile: "ann"}}, true); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range list().Photos {
-		if p.Shared {
-			t.Errorf("%+v: the other is not in the list", p)
-		}
+	if l := list(); len(l.Photos) != 2 || slices.ContainsFunc(l.Photos, func(p GridPhoto) bool { return p.Also != nil }) {
+		t.Errorf("%+v: the other is not in the list", l.Photos)
 	}
 	if o, err := LibraryOverview(Settings{}); err != nil || !slices.Equal(o.Profiles, l.Profiles) {
 		t.Errorf("the overview's %v %v, want the list's %v", o.Profiles, err, l.Profiles)
@@ -559,5 +574,22 @@ func TestALibraryThatCannotBeWrittenIsShown(t *testing.T) {
 	t.Cleanup(func() { os.Chmod(work, 0o755) })
 	if o, err := LibraryOverview(s); err != nil || o.Total != 1 {
 		t.Errorf("%+v %v", o, err)
+	}
+}
+
+// A photo of two libraries is where its first person's copy is in the list,
+// whatever date the other's has.
+func TestATileOfTwoIsWhereTheFirstsCopyIs(t *testing.T) {
+	l := listOf([]GridPhoto{{Hash: "a", Profile: "ron"}, {Hash: "b", Profile: "ann"}, {Hash: "a", Profile: "ann"}, {Hash: "c", Profile: "ron"}}, []string{"ann", "ron"})
+	got := ""
+	for _, p := range l.Photos {
+		got += p.Profile + "/" + p.Hash
+		for _, c := range p.Also {
+			got += "+" + c.Profile
+		}
+		got += " "
+	}
+	if got != "ann/b ann/a+ron ron/c " {
+		t.Errorf("%q", got)
 	}
 }
