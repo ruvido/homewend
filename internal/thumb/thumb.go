@@ -50,6 +50,10 @@ const Size = 256
 // to zoom in.
 const PreviewSize = 2560
 
+// ScreenSize is the long edge of the copy a phone keeps of each photo: its
+// screen's width, so a photo opened away from home is sharp but for zoom.
+const ScreenSize = 1080
+
 // quality of the JPEG written; the size where artefacts stop showing at Size.
 const quality = 80
 

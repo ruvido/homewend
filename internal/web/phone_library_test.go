@@ -553,7 +553,7 @@ func TestAPhonesPictures(t *testing.T) {
 		p.list()
 	}
 	const forEver = "private, max-age=31536000, immutable"
-	for path, long := range map[string]int{"/v1/thumb/": 256, "/v1/preview/": 400} {
+	for path, long := range map[string]int{"/v1/thumb/": 256, "/v1/screen/": 400, "/v1/preview/": 400} {
 		res, body := ron.gets(path + sea)
 		img, err := jpeg.DecodeConfig(bytes.NewReader(body))
 		if res.StatusCode != http.StatusOK || err != nil || img.Width != long || res.Header.Get("Content-Type") != "image/jpeg" || res.Header.Get("Cache-Control") != forEver {
@@ -579,7 +579,7 @@ func TestAPhonesPictures(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(lib, "ron/2026/11/edited.jpg"), jpegOf(80, 90), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/v1/thumb/", "/v1/preview/", "/v1/original/"} {
+	for _, path := range []string{"/v1/thumb/", "/v1/screen/", "/v1/preview/", "/v1/original/"} {
 		if res, _ := ron.gets(path + edited); res.StatusCode != http.StatusOK || res.Header.Get("Cache-Control") != "private, no-cache" || res.Header.Get("ETag") == `"`+edited+`"` {
 			t.Errorf("%s, edited: %d %v", path, res.StatusCode, res.Header)
 		}
@@ -591,7 +591,7 @@ func TestAPhonesPictures(t *testing.T) {
 	if body := ron.is("its file gone", "/v1/thumb/"+gone, http.StatusNotFound); !strings.Contains(string(body), `"none":true`) {
 		t.Errorf("a thumbnail, its file gone: %s", body)
 	}
-	for _, path := range []string{"preview", "info", "original"} {
+	for _, path := range []string{"screen", "preview", "info", "original"} {
 		ron.is("its file gone", "/v1/"+path+"/"+gone, http.StatusGone)
 	}
 }
@@ -623,7 +623,7 @@ func TestALinkOutOfTheLibraryIsNotFollowed(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, path := range []string{"preview", "info", "original"} {
+	for _, path := range []string{"screen", "preview", "info", "original"} {
 		for _, hash := range []string{out, folder, dir} {
 			ron.is("out of the library", "/v1/"+path+"/"+hash, http.StatusGone)
 		}
@@ -639,7 +639,7 @@ func TestALinkOutOfTheLibraryIsNotFollowed(t *testing.T) {
 		}
 	}
 	for _, hash := range []string{nowhere, loop} {
-		for _, path := range []string{"preview", "info", "original"} {
+		for _, path := range []string{"screen", "preview", "info", "original"} {
 			ron.is("no file there", "/v1/"+path+"/"+hash, http.StatusGone)
 		}
 		ron.is("no file there", "/v1/thumb/"+hash, http.StatusNotFound)

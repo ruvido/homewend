@@ -50,7 +50,7 @@ func libraryRoutes(mux *http.ServeMux) {
 		defer done()
 		sendJSON(w, r, fmt.Appendf(nil, `{"month":%q,"tag":%q,"photos":`, month, tag), photos, []byte("}"))
 	}))
-	for path, picture := range map[string]func(context.Context, engine.Phone, string) (string, bool, error){"thumb": engine.PhoneThumbnail, "preview": engine.PhonePreview} {
+	for path, picture := range map[string]func(context.Context, engine.Phone, string) (string, bool, error){"thumb": engine.PhoneThumbnail, "screen": engine.PhoneScreen, "preview": engine.PhonePreview} {
 		mux.Handle("GET /v1/"+path+"/{hash}", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 			hash, ok := askedHash(w, r)
 			if !ok {

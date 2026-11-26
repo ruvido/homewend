@@ -281,6 +281,12 @@ func PhonePreview(ctx context.Context, phone Phone, hash string) (file string, k
 	return phonePicture(ctx, phone, hash, "previews", thumb.PreviewSize)
 }
 
+// PhoneScreen is a photo of phone's library at the size of a phone's screen,
+// for the phone to keep and show with no computer in reach.
+func PhoneScreen(ctx context.Context, phone Phone, hash string) (file string, kept bool, err error) {
+	return phonePicture(ctx, phone, hash, "screens", thumb.ScreenSize)
+}
+
 func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) (file string, kept bool, err error) {
 	root, here, err := listedHere(phone, hash)
 	if err == nil && !here {
