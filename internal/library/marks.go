@@ -216,26 +216,37 @@ func (c *Catalog) Edits(only []Key) (map[Key]string, error) {
 	return edits, rows.Err()
 }
 
-// digests are the names of the edits met: to name one, and read whether it is
+// digests are what the edits met are here: to name one, and read whether it is
 // drawn here, takes longer than all else a list does with it.
 // shortcut: never forgotten, some 300 bytes each; bounded if ever met as memory.
 var digests sync.Map
 
+// drawn is what an edit is here: the name of one this program draws, or
+// newer, one made with tools it does not know.
+type drawn struct {
+	name  string
+	newer bool
+}
+
 // EditDigest names the edit that value, its JSON, is, when it is one this
 // program draws; "" is none, or one to be kept and not drawn. Two libraries'
 // equal ones have one name.
-func EditDigest(value string) string {
-	if name, known := digests.Load(value); known {
-		return name.(string)
+func EditDigest(value string) string { return digestOf(value).name }
+
+func digestOf(value string) drawn {
+	if d, known := digests.Load(value); known {
+		return d.(drawn)
 	}
-	name := ""
-	if _, err := edit.Parse([]byte(value)); err == nil && value != "null" {
+	var d drawn
+	_, err := edit.Parse([]byte(value))
+	if err == nil && value != "null" {
 		sum := sha256.Sum256([]byte(value))
-		name = hex.EncodeToString(sum[:12])
+		d.name = hex.EncodeToString(sum[:12])
 	}
+	d.newer = errors.Is(err, edit.ErrNewer)
 	// Its own: value may be a piece of all the edits.
-	digests.Store(strings.Clone(value), name)
-	return name
+	digests.Store(strings.Clone(value), d)
+	return d
 }
 
 // fewEdits is up to how many photos' edits are looked for one by one.
@@ -245,7 +256,7 @@ const fewEdits = 500
 // read is the edits there are, as one row: a list without any
 // pays for none.
 func (c *Catalog) giveEdits(photos []Photo) error {
-	names := map[Key]string{}
+	names := map[Key]drawn{}
 	if len(photos) <= fewEdits {
 		keys := make([]Key, len(photos))
 		for i, p := range photos {
@@ -256,7 +267,7 @@ func (c *Catalog) giveEdits(photos []Photo) error {
 			return err
 		}
 		for k, value := range edits {
-			names[k] = EditDigest(value)
+			names[k] = digestOf(value)
 		}
 	} else {
 		kept, err := hasTable(c.db, "edits") // not where nothing can be written
@@ -288,18 +299,19 @@ func (c *Catalog) giveEdits(photos []Photo) error {
 			return err
 		}
 		// Read the first time, they are the slowest part: on every core.
+		got := make([]drawn, len(values))
 		var wg sync.WaitGroup
-		for some := range slices.Chunk(values, 1000) {
+		for from := 0; from < len(values); from += 1000 {
 			wg.Go(func() {
-				for i, value := range some {
-					some[i] = EditDigest(value)
+				for i := from; i < min(from+1000, len(values)); i++ {
+					got[i] = digestOf(values[i])
 				}
 			})
 		}
 		wg.Wait()
-		names = make(map[Key]string, len(keys))
+		names = make(map[Key]drawn, len(keys))
 		for i, k := range keys {
-			names[k] = values[i]
+			names[k] = got[i]
 		}
 	}
 	if len(names) == 0 {
@@ -307,9 +319,14 @@ func (c *Catalog) giveEdits(photos []Photo) error {
 	}
 	for i := range photos {
 		p := &photos[i]
-		if name := names[p.Key()]; name != "" && !IsVideo(p.Name) {
-			p.Edit, p.Turn = name, 0
+		d := names[p.Key()]
+		if IsVideo(p.Name) {
+			continue
 		}
+		if d.name != "" {
+			p.Edit, p.Turn = d.name, 0
+		}
+		p.Newer = d.newer
 	}
 	return nil
 }

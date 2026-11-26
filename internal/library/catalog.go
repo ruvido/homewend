@@ -87,7 +87,10 @@ type Photo struct {
 	// which says which way up it is.
 	Turn int
 	// Edit names the edit it is shown with, in a list: "" is none.
-	Edit     string
+	Edit string
+	// Newer: in a list, its edit is one made with tools this program does not
+	// know, kept and not drawn.
+	Newer    bool
 	Archived bool
 	Favorite bool
 }

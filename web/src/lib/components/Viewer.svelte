@@ -162,8 +162,9 @@
 	const date = $derived(p?.taken ? when(p.taken, p.guessed) : text.noDate);
 	const badge = $derived(badgeOf(p?.origin));
 	// "Taken 14 July 2019, 18:32", as the design writes it, or
-	// "26 August 2026, 15:21 · estimated".
-	const taken = $derived(!p?.taken ? date : p.guessed ? text.estimated(date) : text.taken(date));
+	// "26 August 2026, 15:21 · estimated"; then whether it is edited.
+	const dated = $derived(!p?.taken ? date : p.guessed ? text.estimated(date) : text.taken(date));
+	const taken = $derived(p?.newer ? text.editedNewer(dated) : p?.edit ? text.edited(dated) : dated);
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.
 	let about = $state<PhotoAbout | null>(null);
@@ -245,7 +246,8 @@
 				<!-- Clicked, it gives the focus back: ←, → and Space are the viewer's keys. -->
 				{#if failed}<span class="failed">{failed}</span>{/if}
 				{#if editable}
-					{#if !video}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
+					<!-- An edit not known here cannot be turned: the photo stays as it came. -->
+					{#if !video && !p.newer}<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt())}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>{/if}
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
 				{/if}
 				{#each actsOf([p]) as a (a.label)}

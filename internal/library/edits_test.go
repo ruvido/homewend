@@ -526,7 +526,7 @@ func TestAListSaysTheEdits(t *testing.T) {
 				if p.Key() == (Key{hashed(0), "ron"}) {
 					digest, turn = EditDigest(bright), 0
 				}
-				if p.Edit != digest || p.Turn != turn || (digest == "") != (p.Key() != Key{hashed(0), "ron"}) {
+				if p.Edit != digest || p.Turn != turn || (digest == "") != (p.Key() != Key{hashed(0), "ron"}) || p.Newer != (p.Key() == Key{hashed(1), "ron"}) {
 					t.Errorf("%d, %s: %s of %s is %q, turned %d", n, name, p.Hash, p.Profile, p.Edit, p.Turn)
 				}
 			}

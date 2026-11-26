@@ -45,6 +45,8 @@ type GridPhoto struct {
 	Turn int `json:"turn,omitempty"`
 	// Edit: the name of the edit its pictures are asked with.
 	Edit string `json:"edit,omitempty"`
+	// Newer: its edit was made by a newer Homewend, and it is shown without it.
+	Newer bool `json:"newer,omitempty"`
 	// Archived: in the Archive, shown in an album.
 	Archived bool `json:"archived,omitempty"`
 	// Favorite: given a heart.
@@ -254,7 +256,7 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Archived: p.Archived, Favorite: p.Favorite}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
@@ -819,7 +821,7 @@ func Latest(n int) (PhotoList, error) {
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
 	for i, p := range list {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit, Newer: p.Newer}
 	}
 	return listOf(out, profiles), err
 }

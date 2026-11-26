@@ -107,6 +107,8 @@ export interface Shown {
 	turn?: number;
 	/** Names its edit: another, and its pictures are others. */
 	edit?: string;
+	/** Its edit was made by a newer Homewend: shown as it came, and not turned. */
+	newer?: boolean;
 }
 
 export interface GridPhoto extends PhotoKey, Shown {
