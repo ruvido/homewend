@@ -14,6 +14,7 @@ package thumb
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"image"
@@ -235,6 +236,14 @@ func decode(ctx context.Context, src string, size int) (image.Image, *profile, e
 			return img, nil, nil
 		}
 	}
+	if ext == ".raf" {
+		jpg, err := rafPreview(f)
+		if err != nil {
+			return nil, nil, err
+		}
+		img, err := jpeg.Decode(jpg)
+		return img, colours, err
+	}
 	if library.IsHEIC(src) {
 		data := readHEIC(src)
 		if img, own := smallHEIC(src, data, size); img != nil {
@@ -263,6 +272,25 @@ func decode(ctx context.Context, src string, size int) (image.Image, *profile, e
 		colours = nil
 	}
 	return img, colours, err
+}
+
+// rafPreview is the JPEG a Fujifilm RAF carries of its photo, at full size:
+// its offset and length are at 84 and 88 of the file's header, big-endian.
+// The raw data itself is not developed.
+func rafPreview(f *os.File) (io.Reader, error) {
+	var head [92]byte
+	if _, err := f.ReadAt(head[:], 0); err != nil || !bytes.HasPrefix(head[:], []byte("FUJIFILMCCD-RAW")) {
+		return nil, fmt.Errorf("%w: not a RAF", ErrNoDecoder)
+	}
+	at, n := int64(binary.BigEndian.Uint32(head[84:])), int64(binary.BigEndian.Uint32(head[88:]))
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if at < int64(len(head)) || n == 0 || at+n > info.Size() {
+		return nil, fmt.Errorf("%w: a RAF with no preview", ErrNoDecoder)
+	}
+	return io.NewSectionReader(f, at, n), nil
 }
 
 // embedded is the thumbnail the camera wrote in the JPEG f, when it is as
