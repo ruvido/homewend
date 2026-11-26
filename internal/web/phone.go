@@ -49,6 +49,9 @@ type phoneListener struct {
 	mdns *mdns.Server
 }
 
+// portWait is how long the kept port is tried again.
+var portWait = 5 * time.Second
+
 // service is the DNS-SD type the listener is advertised as (docs/phone.md).
 const service = "_homewend._tcp"
 
@@ -64,13 +67,19 @@ func listenPhones() (*phoneListener, error) {
 		return nil, err
 	}
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
-	if err != nil && p.Port != 0 {
-		// Taken by another program since: a new port, and the phones find
-		// the computer again by pairing.
+	// A Homewend closing still holds it for a moment.
+	for end := time.Now().Add(portWait); err != nil && p.Port != 0 && time.Now().Before(end); time.Sleep(portWait / 20) {
+		ln, err = net.Listen("tcp", fmt.Sprintf(":%d", p.Port))
+	}
+	if err != nil && p.Port != 0 && len(p.Phones) == 0 {
+		// No phone knows it yet: another port does.
 		ln, err = net.Listen("tcp", ":0")
 	}
 	if err != nil {
-		return nil, err
+		// Paired phones know this port alone, and away from home nothing
+		// else finds the computer: another Homewend has it, or another
+		// program does. Moving would lose them.
+		return nil, fmt.Errorf("the phones' port %d is taken: %w", p.Port, err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	if port != p.Port {
