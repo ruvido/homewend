@@ -615,6 +615,17 @@ func (e entries) of(dir, file string) []string {
 	if err != nil {
 		return nil
 	}
+	var of []string
+	for _, entry := range e.sized(dir)[info.Size()] {
+		if same(file, entry) {
+			of = append(of, entry)
+		}
+	}
+	return of
+}
+
+// sized are the files of the folder dir, by size, read once.
+func (e entries) sized(dir string) map[int64][]string {
 	if e[dir] == nil {
 		e[dir] = map[int64][]string{}
 		list, _ := os.ReadDir(dir)
@@ -624,9 +635,25 @@ func (e entries) of(dir, file string) []string {
 			}
 		}
 	}
+	return e[dir]
+}
+
+// ofPhoto are the entries of the album's folder dir that are p, whose file is
+// file: its second names, and copies of its content as recorded, read; never
+// of what the file holds now, which another program may have changed.
+func (e entries) ofPhoto(dir, file string, p Photo) []string {
+	info, err := os.Stat(file)
+	if err != nil {
+		return nil
+	}
 	var of []string
-	for _, entry := range e[dir][info.Size()] {
-		if same(file, entry) {
+	for _, entry := range e.sized(dir)[info.Size()] {
+		if linked(file, entry) {
+			of = append(of, entry)
+		}
+	}
+	for _, entry := range e.sized(dir)[p.Bytes] {
+		if hash, err := hashOf(entry); !slices.Contains(of, entry) && err == nil && hash == p.Hash {
 			of = append(of, entry)
 		}
 	}

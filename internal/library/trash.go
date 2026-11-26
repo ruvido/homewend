@@ -717,6 +717,7 @@ func eraseFew(root, catalog string, rows []Photo, was int, albums map[Key][]stri
 	var read []doomed
 	var copies []Photo
 	var taken map[string]int
+	var shared map[string]bool
 	err = with(catalog, func(c *Catalog) error {
 		var hashes, paths []string
 		for _, p := range rows {
@@ -729,7 +730,10 @@ func eraseFew(root, catalog string, rows []Photo, was int, albums map[Key][]stri
 		if copies, err = c.photos(`WHERE out = 0 AND hash IN (SELECT value FROM json_each(?))`, string(list)); err != nil {
 			return err
 		}
-		taken, err = c.countAt(paths)
+		if taken, err = c.countAt(paths); err != nil {
+			return err
+		}
+		shared, err = c.sharedPaths(rows)
 		return err
 	})
 	if err != nil {
@@ -737,8 +741,10 @@ func eraseFew(root, catalog string, rows []Photo, was int, albums map[Key][]stri
 	}
 	own := map[Key]doomed{}
 	for _, p := range rows {
-		// A file put back where one was deleted for good goes only if it is the photo.
-		if d, err := ownFiles(root, p, albums[p.Key()], in); err == nil && taken[p.Path] == 1 && !(d.edited && was == erased) {
+		// An edit goes only where nothing but its content says whose it is:
+		// not put back where one was deleted for good, nor at a path another
+		// photo has in other capitals.
+		if d, err := ownFiles(root, p, albums[p.Key()], in); err == nil && taken[p.Path] == 1 && !(d.edited && (was == erased || shared[p.Path])) {
 			own[p.Key()] = d
 		}
 	}
@@ -919,7 +925,7 @@ func ownFiles(root string, p Photo, albums []string, in entries) (doomed, error)
 		if direct(root, dir+"/x") != nil {
 			continue
 		}
-		for _, name := range in.of(under(root, dir), under(root, p.Path)) {
+		for _, name := range in.ofPhoto(under(root, dir), under(root, p.Path), p) {
 			rel := relativeTo(root, name)
 			if info, err := regular(root, rel); err != nil {
 				return d, err

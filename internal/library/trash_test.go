@@ -1245,3 +1245,42 @@ func TestAnEditedPhotoIsEmptied(t *testing.T) {
 	l.empty([]Key{b}, b)
 	l.file(".trash/ron/a.jpg", true)
 }
+
+// An edited photo's album entries are those of its content as recorded: one
+// that is another photo's, holding the same bytes as the edit, stays; a copy
+// of the photo as it came goes.
+func TestTheAlbumOfAnEditedPhoto(t *testing.T) {
+	l := newTrashing(t)
+	a, q := l.add("ron/a.jpg", "a photo"), l.add("ron/q.jpg", "a photo, edit")
+	for album, entries := range map[string]map[string]string{"Sea": {"a.jpg": "a photo", "q.jpg": "a photo, edit"}} {
+		for name, content := range entries {
+			write(t, l.root, path.Join("ron/albums", album, name), []byte(content))
+		}
+		for _, k := range []Key{a, q} {
+			if err := l.c.addAlbum(album, k, ""); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	l.trash(a)
+	write(t, l.root, ".trash/ron/a.jpg", []byte("a photo, edit"))
+	l.empty([]Key{a})
+	l.isErased(a)
+	l.file("ron/albums/Sea/a.jpg", false)
+	l.file("ron/albums/Sea/q.jpg", true)
+	l.at(q, "ron/q.jpg")
+}
+
+// Where another photo's path differs from an edited one's only in capitals,
+// nothing tells whose the file is: it stays.
+func TestAnEditedPhotoAtAPathOfOtherCapitals(t *testing.T) {
+	l := newTrashing(t)
+	a := l.add("ron/a.jpg", "a photo")
+	l.trash(a)
+	write(t, l.root, ".trash/ron/a.jpg", []byte("an edit"))
+	if err := l.c.Put(Photo{Hash: hashed(7), Profile: "ann", Path: ".trash/ron/A.jpg", Name: "A.jpg", Bytes: 7}); err != nil {
+		t.Fatal(err)
+	}
+	l.empty([]Key{a}, a)
+	l.file(".trash/ron/a.jpg", true)
+}
