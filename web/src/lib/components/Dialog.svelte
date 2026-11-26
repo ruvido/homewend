@@ -7,10 +7,11 @@
 
 	let { title, children, actions }: { title: string; children: Snippet; actions: Snippet } = $props();
 	let buttons: HTMLElement;
-	// The first button is Cancel where there is one to choose: a key pressed
-	// by habit does nothing. A field that took the focus keeps it.
+	// A field, where there is one, takes the keyboard; else the first button,
+	// Cancel where there is one to choose: a key pressed by habit does nothing.
 	$effect(() => {
-		if (!buttons.closest('.dialog')?.contains(document.activeElement)) buttons.querySelector('button')?.focus();
+		const dialog = buttons.closest('.dialog');
+		if (!dialog?.contains(document.activeElement)) (dialog?.querySelector<HTMLElement>('input, textarea') ?? buttons.querySelector('button'))?.focus();
 	});
 	const id = `dialog-${Math.random().toString(36).slice(2)}`;
 </script>
