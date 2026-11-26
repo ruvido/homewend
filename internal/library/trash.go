@@ -195,8 +195,9 @@ func FinishMoves(root, catalog string, write Write) error {
 // Write does a write to c that changes no list.
 type Write func(c *Catalog, do func() error) error
 
-// seen are the files of those just moved, others' bytes are read.
-func finishMoves(root string, c *Catalog, moves []transit, seen map[Key]fs.FileInfo, write Write) error {
+// moved are those this run just moved, which never writes over a file: what is
+// at their To is theirs. Others' bytes are read.
+func finishMoves(root string, c *Catalog, moves []transit, moved map[Key]bool, write Write) error {
 	var kept, made []transit
 	renamed := false
 	for _, m := range moves {
@@ -220,7 +221,7 @@ func finishMoves(root string, c *Catalog, moves []transit, seen map[Key]fs.FileI
 			if other {
 				continue
 			}
-			if was := seen[m.Key]; was == nil || !os.SameFile(was, to) {
+			if !moved[m.Key] {
 				if hash, err := hashOf(under(root, m.To)); err != nil || hash != m.Hash {
 					if from == nil {
 						kept = append(kept, m) // not known for the photo: for a person to see
@@ -439,7 +440,7 @@ func settle(root string, c *Catalog, photos []Key, write Write) error {
 	if err != nil {
 		return err
 	}
-	going, taken, seen := map[Key]bool{}, map[string]bool{}, map[Key]fs.FileInfo{}
+	going, taken, moved := map[Key]bool{}, map[string]bool{}, map[Key]bool{}
 	for _, m := range moves {
 		going[m.Key], taken[m.To] = true, true
 	}
@@ -456,7 +457,6 @@ func settle(root string, c *Catalog, photos []Key, write Write) error {
 			return err
 		}
 		if to != "" {
-			seen[p.Key()] = info
 			moves, taken[to] = append(moves, transit{p.Key(), p.Path, to}), true
 		}
 	}
@@ -468,11 +468,15 @@ func settle(root string, c *Catalog, photos []Key, write Write) error {
 	}
 	var failed []error
 	for _, m := range moves[kept:] {
+		// Not told by os.SameFile: on Windows a FileInfo finds its file by the
+		// path it was read at, which a move takes away.
 		if err := rename(under(root, m.From), under(root, m.To)); err != nil {
 			failed = append(failed, fmt.Errorf("%s: %w", m.From, err))
+		} else {
+			moved[m.Key] = true
 		}
 	}
-	return errors.Join(append(failed, finishMoves(root, c, moves, seen, write))...)
+	return errors.Join(append(failed, finishMoves(root, c, moves, moved, write))...)
 }
 
 // free is the first free name p's file can go to, "" when a link is on the way.
