@@ -34,10 +34,16 @@ func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 		a, err = c.Marks(phone.Profile, q, then)
 		return err
 	}
-	if len(q.Marks) > 0 {
+	// A copy's mark may be a copy new to the list.
+	if len(q.Marks) > 0 && !slices.ContainsFunc(q.Marks, func(m library.MarkAction) bool { return m.Copy != "" }) {
 		err = heartsSet(c, answer)
 	} else {
 		err = answer()
+	}
+	// A date moves its photo's file: beside, in the library's turn, as the
+	// Trash's moves; nothing said waits for it.
+	if root, here := LibraryHere(); len(a.Dated) > 0 && here == nil {
+		giveDates(root)
 	}
 	if len(a.Said) > 0 {
 		lookNow()

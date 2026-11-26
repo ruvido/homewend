@@ -78,11 +78,11 @@ type aMonth struct {
 }
 
 type aPhoto struct {
-	Hash, Taken, Name, Type string
-	Bytes                   int64
-	Turn                    int
-	Archived                bool
-	Albums                  []string
+	Hash, Copy, Taken, Name, Type string
+	Bytes                         int64
+	Turn                          int
+	Archived                      bool
+	Albums                        []string
 }
 
 func (p *testPhone) month(month string) (m aMonth) {
@@ -286,7 +286,7 @@ func TestAPhoneListsItsLibrary(t *testing.T) {
 	}
 	moved("nothing")
 	key := func(hash string) library.Key { return library.Key{Hash: hash, Profile: "ron"} }
-	if _, err := engine.TurnLeft(key(sea)); err != nil {
+	if _, err := engine.Turn(key(sea), false); err != nil {
 		t.Fatal(err)
 	}
 	moved("turned", "2026-11")
@@ -394,7 +394,7 @@ func TestTheListIsWorkedOutOnce(t *testing.T) {
 	}
 	put(whole)
 	// A write the disk's clock does not tell from the one before, then a heart.
-	if _, err := engine.TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+	if _, err := engine.Turn(library.Key{Hash: hash, Profile: "ron"}, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chtimes(catalog, at, at); err != nil {
@@ -489,7 +489,7 @@ func TestAPhoneWaitsForAnotherList(t *testing.T) {
 	}
 	const other = `200 {"changed":false,"list":true}`
 	held, olds := waits(ron, "&list="+strings.Trim(tag, `"`)), waits(old, "")
-	if _, err := engine.TurnLeft(library.Key{Hash: hash, Profile: "ron"}); err != nil {
+	if _, err := engine.Turn(library.Key{Hash: hash, Profile: "ron"}, false); err != nil {
 		t.Fatal(err)
 	}
 	is("turned", held, other)

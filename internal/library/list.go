@@ -50,6 +50,7 @@ type ListedAlbum struct {
 // listed is a photo of a month; taken is as the window shows it, with no zone.
 type listed struct {
 	Hash     string   `json:"hash"`
+	Copy     string   `json:"copy,omitempty"` // a copy of the photo, made on a phone
 	Taken    string   `json:"taken,omitempty"`
 	Name     string   `json:"name"`
 	Type     string   `json:"type"`
@@ -103,6 +104,9 @@ func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 			}
 		}
 		sum.add(p)
+		if p.Copy != "" {
+			return
+		}
 		var h Hash
 		if n, err := hex.Decode(h[:], []byte(p.Hash)); n == len(h) && err == nil {
 			hashes[h] = struct{}{}
@@ -156,6 +160,7 @@ type monthSum struct {
 
 func (m *monthSum) add(p listed) {
 	b := append(m.line[:0], p.Hash...)
+	b = append(append(b, 0), p.Copy...)
 	b = append(b, p.Type...)
 	for _, n := range []int64{p.taken, int64(p.turnArchived), p.Bytes, int64(len(p.albums)), int64(len(p.Type))} {
 		b = binary.BigEndian.AppendUint64(b, uint64(n))
@@ -199,7 +204,10 @@ func (c *Catalog) Month(profile, month string) (tag string, photos []byte, err e
 	var list []listed
 	sum := monthSum{name: month}
 	err = c.eachListed(profile, " AND "+where, args[1:], func(p listed) {
-		p.albums, p.Albums = of[p.id], []string{}
+		p.Albums = []string{}
+		if p.Copy == "" { // a copy is in no album
+			p.albums = of[p.id]
+		}
 		for _, its := range p.albums {
 			p.Albums = append(p.Albums, its.id)
 		}
@@ -278,6 +286,10 @@ func (c *Catalog) albumsOf(shelf, query string, args ...any) (map[int64][]album,
 // too, as they lie. It asks the driver itself: database/sql's Scan takes as
 // long again (100,000, 24/11).
 func (c *Catalog) eachListed(profile, where string, args []any, each func(listed)) error {
+	copies, err := c.copiesOf(profile)
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	conn, err := c.db.Conn(ctx)
 	if err != nil {
@@ -311,8 +323,36 @@ func (c *Catalog) eachListed(profile, where string, args []any, each func(listed
 			both, _ := row[5].(int64)
 			p.turnArchived, p.Type = int(both), TypeOf(p.Name)
 			each(p)
+			for _, copy := range copies[p.Hash] {
+				p.Copy = copy
+				each(p)
+			}
 		}
 	})
+}
+
+// copiesOf are the copies of profile's photos there are, by hash: those with
+// a mark and no tombstone.
+func (c *Catalog) copiesOf(profile string) (map[string][]string, error) {
+	kept, err := hasTable(c.db, "extra_marks")
+	if err != nil || !kept {
+		return nil, err
+	}
+	rows, err := c.db.Query(`SELECT hash, copy FROM extra_marks WHERE profile = ? AND copy <> '' GROUP BY hash, copy
+		HAVING NOT max(state = '`+string(Copy)+`' AND value = 'false') ORDER BY hash, copy`, profile)
+	if err != nil {
+		return nil, fmt.Errorf("reading the catalog: %w", err)
+	}
+	defer rows.Close()
+	copies := map[string][]string{}
+	for rows.Next() {
+		var hash, copy string
+		if err := rows.Scan(&hash, &copy); err != nil {
+			return nil, err
+		}
+		copies[hash] = append(copies[hash], copy)
+	}
+	return copies, rows.Err()
 }
 
 func (p listed) at() time.Time { return time.Unix(p.taken, 0).UTC() }

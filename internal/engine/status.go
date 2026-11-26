@@ -247,6 +247,8 @@ func settle(root string) error {
 	if err != nil {
 		return err
 	}
+	// A photo filed into a library that has it may bring its date.
+	defer giveDates(root)
 	defer unlock()
 	// A card's name is nobody's profile.
 	profileOf := func(source string) string {

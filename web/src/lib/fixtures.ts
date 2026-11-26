@@ -33,6 +33,7 @@ export const twoPeople: Sidebar = {
 	archived: 12,
 	trashed: 3,
 	favorites: 148,
+	videos: 37,
 	missing: 0
 };
 

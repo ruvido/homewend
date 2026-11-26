@@ -21,11 +21,12 @@ type Overview struct {
 	Years    []YearCount   `json:"years"`
 	Albums   []AlbumCount  `json:"albums"`
 	Takeouts int           `json:"takeouts"`
-	// Archived, Trashed and Favorites count the photos of the profiles shown
-	// in the Archive, in the Trash and with a heart.
+	// Archived, Trashed, Favorites and Videos count the photos of the
+	// profiles shown in the Archive, in the Trash, with a heart, and videos.
 	Archived  int `json:"archived"`
 	Trashed   int `json:"trashed"`
 	Favorites int `json:"favorites"`
+	Videos    int `json:"videos"`
 	// Profiles are those there are, for an import to choose among; Profile,
 	// the one it goes to when none is named, "" when it is to be asked.
 	Profiles []string `json:"profiles"`
@@ -164,7 +165,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	if err != nil {
 		return o, err
 	}
-	if o.Archived, o.Trashed, o.Favorites, err = c.CountsByState(hidden); err != nil {
+	if o.Archived, o.Trashed, o.Favorites, o.Videos, err = c.CountsByState(hidden); err != nil {
 		return o, err
 	}
 	// A photo two libraries have is one tile: missing once.

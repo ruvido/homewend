@@ -4,8 +4,11 @@
 package library
 
 import (
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -247,8 +250,136 @@ func GiveDates(root string, catalog *Catalog, photos []Key, when time.Time) (int
 		if err := redateFiled(root, catalog, p, Capture{When: at, Source: FromGiven}); err != nil {
 			return i, err
 		}
+		// A phone hears it, and a date it set before does not undo it.
+		if err := catalog.noteDate(p.Key(), at); err != nil {
+			return i, err
+		}
 	}
 	return len(records), nil
+}
+
+// noteDate is the date mark of a date given in the window, now.
+func (c *Catalog) noteDate(k Key, when time.Time) error {
+	return c.inTx(func(tx *sql.Tx) error {
+		dates, err := markIn(tx, Date, true)
+		if err != nil {
+			return err
+		}
+		was, err := dates.of(k, "")
+		if err != nil {
+			return err
+		}
+		at := localAt(when)
+		value := fmt.Sprintf(`{"taken":%d,"zone":%q}`, at.UnixMilli(), at.Format("-07:00"))
+		_, err = dates.give(k, "", was, mark{value: value, at: time.Now().UnixMilli()})
+		return err
+	})
+}
+
+// errNotADate is a date mark that is none.
+var errNotADate = errors.New("not a date")
+
+// dateOf is the clock a date mark says, in the zone it was given in.
+func dateOf(value string) (time.Time, error) {
+	var d struct {
+		Taken *int64 `json:"taken"`
+		Zone  string `json:"zone"`
+	}
+	if err := json.Unmarshal([]byte(value), &d); err != nil || d.Taken == nil {
+		return time.Time{}, errNotADate
+	}
+	zone, err := time.Parse("-07:00", d.Zone)
+	if err != nil {
+		return time.Time{}, errNotADate
+	}
+	_, offset := zone.Zone()
+	when := asClock(time.UnixMilli(*d.Taken).In(time.FixedZone("", offset)))
+	if !Givable(when) {
+		return time.Time{}, errNotADate
+	}
+	return when, nil
+}
+
+// Givable is whether a date may be given to a photo, in the window or by a
+// phone: a year of four digits, as the window writes it.
+func Givable(when time.Time) bool { return !when.IsZero() && when.Year() >= 0 && when.Year() <= 9999 }
+
+// GiveDueDates gives the photos of the library at root the dates phones said,
+// as Change date does, each in the library's turn: those still due, read again
+// in it, a later mark meanwhile being the one given. Only those in the library
+// with their file there take a turn: one in the Trash, or whose file is away,
+// waits for a pass that finds it back; one deleted for good is due no more.
+func GiveDueDates(root, catalog string, turn Turn) error {
+	var photos []Photo
+	err := with(catalog, func(c *Catalog) error {
+		if kept, err := hasTable(c.db, "extra_marks"); err != nil || !kept {
+			return err
+		}
+		const due = `(profile, hash) IN (SELECT profile, hash FROM extra_marks WHERE due = 1 AND copy = '' AND state = '` + string(Date) + `')`
+		if _, err := c.db.Exec(`UPDATE extra_marks SET due = 0 WHERE due = 1 AND (profile, hash) IN
+			(SELECT profile, hash FROM library_photos WHERE ` + deletedForGood + `)`); err != nil {
+			return err
+		}
+		var err error
+		photos, err = c.photos(`WHERE NOT ` + away + ` AND path NOT LIKE '` + TrashDir + `/%' AND ` + due)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	var failed []error
+	for _, p := range photos {
+		if !onDisk(root, p) {
+			continue
+		}
+		k := p.Key()
+		unlock, err := turn()
+		if err != nil {
+			return errors.Join(append(failed, err)...)
+		}
+		failed = append(failed, with(catalog, func(c *Catalog) error { return giveDueDate(root, c, k) }))
+		unlock()
+	}
+	return errors.Join(failed...)
+}
+
+// giveDueDate gives k its date mark's date, null its file's own and its .xmp
+// gone, and says it is given.
+func giveDueDate(root string, c *Catalog, k Key) error {
+	var value string
+	err := c.db.QueryRow(`SELECT COALESCE(value, 'null') FROM extra_marks WHERE profile = ? AND hash = ? AND copy = '' AND state = ? AND due = 1`,
+		k.Profile, k.Hash, string(Date)).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p, err := c.Photo(k)
+	if err != nil || inTrash(p.Path) || !onDisk(root, p) {
+		return err
+	}
+	if value == "null" {
+		file := under(root, p.Path)
+		sidecar, xmp := under(root, besides(p.Path)[0]), under(root, besides(p.Path)[1])
+		if !exists(sidecar) {
+			sidecar = ""
+		}
+		if err := os.Remove(xmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		err = redateFiled(root, c, p, DateOf(file, "", sidecar))
+	} else if when, bad := dateOf(value); bad != nil {
+		err = bad
+	} else {
+		err = redateFiled(root, c, p, Capture{When: when, Source: FromGiven})
+	}
+	if err != nil {
+		return err
+	}
+	_, err = c.db.Exec(`UPDATE extra_marks SET due = 0 WHERE profile = ? AND hash = ? AND copy = '' AND state = ? AND value IS ?`,
+		k.Profile, k.Hash, string(Date), sql.NullString{String: value, Valid: value != "null"})
+	return err
 }
 
 // NamedPhotos are the photos of the library that take their name's date
@@ -307,7 +438,7 @@ func redateFiled(root string, catalog *Catalog, p Photo, capture Capture) error 
 // UTC. A time the clock skipped (the hour lost to summer time) keeps the
 // time given, with the offset just after it.
 func writeXMP(photo string, when time.Time) error {
-	offset := time.Date(when.Year(), when.Month(), when.Day(), when.Hour(), when.Minute(), when.Second(), 0, time.Local).Format("-07:00")
+	offset := localAt(when).Format("-07:00")
 	stamp := when.Format("2006-01-02T15:04:05") + offset
 	body := "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" + `<x:xmpmeta xmlns:x="adobe:ns:meta/">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -325,4 +456,9 @@ func writeXMP(photo string, when time.Time) error {
 		return err
 	}
 	return os.Rename(tmp, photo+".xmp")
+}
+
+// localAt is the clock when, kept as UTC, on this computer's.
+func localAt(when time.Time) time.Time {
+	return time.Date(when.Year(), when.Month(), when.Day(), when.Hour(), when.Minute(), when.Second(), 0, time.Local)
 }

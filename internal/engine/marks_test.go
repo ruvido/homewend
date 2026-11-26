@@ -336,3 +336,30 @@ func TestADiskTakenOutAsItIsOpened(t *testing.T) {
 		}
 	}
 }
+
+// A date a phone says while others place photos is kept and answered at once,
+// a heart beside it too; its file moves when the library's turn comes.
+func TestADateWaitsForTheLibrary(t *testing.T) {
+	root, ron, _, hash, rons := twoPhones(t)
+	was := beside
+	beside = func(do func()) { do() }
+	defer func() { beside = was }()
+	unlock, err := lockLibrary(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	date := library.MarkAction{N: 1, Hash: hash, State: library.Date, Value: []byte(`{"taken":1715000000000,"zone":"+02:00"}`), Ago: new(int64(0))}
+	heart := library.MarkAction{N: 2, Hash: hash, State: library.Favorite, Value: []byte("true"), Ago: new(int64(0))}
+	a, err := Marks(ron, library.MarkQuestion{Shelf: shelfOf(t, ron).ID, Install: "i", States: []library.State{library.Favorite, library.Date}, Marks: []library.MarkAction{date, heart}})
+	if err != nil || len(a.Said) != 2 {
+		t.Fatalf("%+v %v", a, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, rons.Path)); err != nil {
+		t.Errorf("moved under another's turn: %v", err)
+	}
+	// Let go, the turn gives it: no Overview needed.
+	unlock()
+	if files, _ := filepath.Glob(filepath.Join(root, "ron", "2024", "05", "*")); len(files) != 2 {
+		t.Errorf("not filed in its turn: %v", files)
+	}
+}

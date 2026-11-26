@@ -46,6 +46,8 @@ type answered struct {
 	Unknown              []string
 	Refused              []int64
 	Have                 []string
+	Copies               bool
+	Emptied, Kept        []string
 }
 
 func (p *testPhone) call(method, path, body string) (int, answered) {

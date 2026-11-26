@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -558,8 +559,8 @@ type Filter struct {
 	// Archived keeps only the archived photos; Grid leaves them out, as the
 	// main grid and its years do; Trashed keeps only those in the Trash,
 	// which are otherwise in no list; Favorite only those with a heart,
-	// archived or not.
-	Archived, Grid, Trashed, Favorite bool
+	// archived or not; Video only the videos, archived or not.
+	Archived, Grid, Trashed, Favorite, Video bool
 	// Profile keeps the photos of this profile's library.
 	Profile string
 	// Only keeps only these photos; nil is all, empty is none.
@@ -648,20 +649,29 @@ func (c *Catalog) Count(f Filter) (int, error) {
 	return n, err
 }
 
-// CountsByState is how many photos are archived, in the Trash and given a
-// heart, in one reading of the rows: a photo two libraries have is one
+// CountsByState is how many photos are archived, in the Trash, given a heart
+// and videos, in one reading of the rows: a photo two libraries have is one
 // tile of each list, and counted once.
-func (c *Catalog) CountsByState(hidden []string) (archived, trashed, favorite int, err error) {
+func (c *Catalog) CountsByState(hidden []string) (archived, trashed, favorite, videos int, err error) {
 	query := `SELECT COUNT(DISTINCT CASE WHEN trashed = 0 AND archived THEN hash END), COUNT(DISTINCT CASE WHEN trashed THEN hash END),
-		COUNT(DISTINCT CASE WHEN trashed = 0 AND favorite THEN hash END)
-		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1)`
+		COUNT(DISTINCT CASE WHEN trashed = 0 AND favorite THEN hash END), COUNT(DISTINCT CASE WHEN trashed = 0 AND ` + aVideo + ` THEN hash END)
+		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1 OR ` + aVideo + `)`
 	clause, args := shownOnly("profile", hidden)
 	if clause != "" {
 		query += " AND " + clause
 	}
-	err = c.db.QueryRow(query, args...).Scan(&archived, &trashed, &favorite)
-	return archived, trashed, favorite, err
+	err = c.db.QueryRow(query, args...).Scan(&archived, &trashed, &favorite, &videos)
+	return archived, trashed, favorite, videos, err
 }
+
+// aVideo is the SQL that says a photo is a video, by its name as IsVideo.
+var aVideo = func() string {
+	var by []string
+	for _, ext := range slices.Sorted(maps.Keys(videoTypes)) {
+		by = append(by, `lower(name) GLOB '*`+ext+`'`)
+	}
+	return `(` + strings.Join(by, ` OR `) + `)`
+}()
 
 // where is query narrowed by the filter, and its arguments.
 func (f Filter) where(query string) (string, []any) {
@@ -691,6 +701,9 @@ func (f Filter) where(query string) (string, []any) {
 	}
 	if f.Favorite {
 		where = append(where, "favorite = 1")
+	}
+	if f.Video {
+		where = append(where, aVideo)
 	}
 	if f.Profile != "" {
 		where = append(where, "profile = ?")
@@ -852,11 +865,11 @@ func setState(tx *sql.Tx, state State, photos []Key, on bool) ([]Key, error) {
 	return done, nil
 }
 
-// TurnLeft gives a photo a quarter turn more, anticlockwise, and says how it
-// is shown now, its turn and its edit; fs.ErrNotExist for one the catalog
+// Turn gives a photo quarters more quarter turns anticlockwise (3: one
+// clockwise), and says how it is shown now, its turn and its edit; fs.ErrNotExist for one the catalog
 // lacks. Of a photo with an edit it is the edit that turns, and a phone hears
 // of it; one this program cannot draw stays as it is, and so does the photo.
-func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
+func (c *Catalog) Turn(k Key, quarters int) (turn int, digest string, err error) {
 	err = c.inTx(func(tx *sql.Tx) error {
 		var name string
 		err := tx.QueryRow(`SELECT name, turn FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&name, &turn)
@@ -865,25 +878,28 @@ func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
 		} else if err != nil {
 			return err
 		}
-		edits, err := markIn(tx, Edit)
+		edits, err := markIn(tx, Edit, false)
 		if err != nil {
 			return err
 		}
-		was, err := edits.of(k)
+		was, err := edits.of(k, "")
 		if err != nil {
 			return err
 		}
 		if !was.on() || IsVideo(name) {
-			turn = (turn + 1) % 4
+			turn = (turn + quarters) % 4
 			_, err := tx.Exec(`UPDATE library_photos SET turn = ? WHERE id = ?`, turn, was.id)
 			return err
 		}
-		turned, err := edit.TurnLeft([]byte(was.value))
-		if err != nil {
-			return nil
+		turned := []byte(was.value)
+		for range quarters {
+			if turned, err = edit.TurnLeft(turned); err != nil {
+				return nil
+			}
 		}
 		turn, digest = 0, EditDigest(string(turned))
-		return edits.give(k, was, mark{value: string(turned), at: time.Now().UnixMilli()})
+		_, err = edits.give(k, "", was, mark{value: string(turned), at: time.Now().UnixMilli()})
+		return err
 	})
 	return turn, digest, err
 }
@@ -1071,8 +1087,12 @@ func (c *Catalog) inTx(do func(*sql.Tx) error) error {
 
 // setDate records a date given to a photo already in its library.
 func (c *Catalog) setDate(k Key, capture Capture) error {
+	var taken any // a file that says no date has none
+	if !capture.When.IsZero() {
+		taken = capture.When.Unix()
+	}
 	_, err := c.db.Exec(`UPDATE library_photos SET taken = ?, source = ?, kind = ? WHERE hash = ? AND profile = ?`,
-		capture.When.Unix(), string(capture.Source), string(capture.Kind()), k.Hash, k.Profile)
+		taken, string(capture.Source), string(capture.Kind()), k.Hash, k.Profile)
 	return err
 }
 
@@ -1102,21 +1122,24 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			}
 			into := Key{k.Hash, profile}
 			for _, state := range []State{Favorite, Edit} {
-				marks, err := markIn(tx, state)
+				marks, err := markIn(tx, state, false)
 				if err != nil {
 					return err
 				}
-				its, err := marks.of(k)
+				its, err := marks.of(k, "")
 				if err != nil {
 					return err
 				}
-				was, err := marks.of(into)
+				was, err := marks.of(into, "")
 				if err != nil {
 					return err
 				}
-				if err := marks.give(into, was, its); err != nil {
+				if _, err := marks.give(into, "", was, its); err != nil {
 					return err
 				}
+			}
+			if err := carryExtra(tx, k, into); err != nil {
+				return err
 			}
 			queries := []string{
 				`INSERT OR IGNORE INTO owners SELECT account, ?1 FROM owners WHERE photo = (SELECT id FROM library_photos WHERE hash = ?2 AND profile = ?3)`,

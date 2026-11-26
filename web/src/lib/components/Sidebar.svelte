@@ -155,6 +155,13 @@
 						{#if data.favorites > 0}<span class="count">{data.favorites.toLocaleString('en')}</span>{/if}
 					</button>
 				{/if}
+				{#if data.videos > 0 || is({ kind: 'videos' })}
+					<button in:reveal out:reveal={{ leaving: true }} class="row" class:selected={is({ kind: 'videos' })} onclick={() => go({ kind: 'videos' })}>
+						<span class="lead"><Icon name="camera-video" size={20} /></span>
+						<span class="label">{text.videos}</span>
+						{#if data.videos > 0}<span class="count">{data.videos.toLocaleString('en')}</span>{/if}
+					</button>
+				{/if}
 			</div>
 
 			<hr />

@@ -98,8 +98,69 @@ CREATE TRIGGER edit_forgotten AFTER DELETE ON library_photos BEGIN
 END;
 `
 
-// Edit is the state of a photo's edit, in a table of its own.
-const Edit State = "edit"
+// extraSchema keeps the marks an older program must not read: a copy's heart
+// and edit, the date a person gave, a copy's tombstone. It reads marks and
+// edits by (profile, hash) alone, and would say a copy's as its photo's. Under
+// the same seqs and rules, by (profile, hash, copy, state), copy "" the
+// photo itself; value is the JSON as said, NULL for null. due: a date said
+// and not yet given to its photo, which waits for the library's turn. restored is when a
+// photo last left the Trash, in ms: a phone empties none restored since it
+// saw it there. Noted by triggers, an older program's Restore too.
+const extraSchema = `
+CREATE TABLE extra_marks (
+  profile TEXT NOT NULL,
+  hash    TEXT NOT NULL,
+  copy    TEXT NOT NULL,
+  state   TEXT NOT NULL,
+  value   TEXT,
+  at      INTEGER NOT NULL,
+  seq     INTEGER NOT NULL,
+  install TEXT NOT NULL DEFAULT '',
+  n       INTEGER NOT NULL DEFAULT 0,
+  due     INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (profile, hash, copy, state)
+);
+CREATE INDEX extra_marks_by_seq ON extra_marks(profile, seq);
+CREATE TRIGGER extra_mark_noted AFTER UPDATE OF profile, value ON extra_marks BEGIN
+  INSERT INTO mark_seqs VALUES (NEW.profile, 1) ON CONFLICT DO UPDATE SET last = last + 1;
+  UPDATE extra_marks SET seq = (SELECT last FROM mark_seqs WHERE profile = NEW.profile)
+    WHERE profile = NEW.profile AND hash = NEW.hash AND copy = NEW.copy AND state = NEW.state;
+END;
+CREATE TRIGGER extra_mark_refiled AFTER UPDATE OF profile ON library_photos BEGIN
+  UPDATE extra_marks SET profile = NEW.profile WHERE profile = OLD.profile AND hash = NEW.hash;
+END;
+CREATE TRIGGER extra_mark_forgotten AFTER DELETE ON library_photos BEGIN
+  DELETE FROM extra_marks WHERE profile = OLD.profile AND hash = OLD.hash;
+END;
+ALTER TABLE library_photos ADD COLUMN restored INTEGER NOT NULL DEFAULT 0;
+CREATE TRIGGER restore_noted AFTER UPDATE OF trashed ON library_photos WHEN OLD.trashed = 1 AND NEW.trashed = 0 BEGIN
+  UPDATE library_photos SET restored = CAST(unixepoch('subsec') * 1000 AS INTEGER) WHERE id = NEW.id;
+END;
+`
+
+// The states a phone says besides the heart: an edit, in a table of its own;
+// a date given, {"taken": <unix ms>, "zone": "+01:00"} or null for the
+// file's own; and whether a copy is there, false its tombstone.
+const (
+	Edit State = "edit"
+	Date State = "date"
+	Copy State = "copy"
+)
+
+// extra is whether the mark of state on copy is kept in extra_marks.
+func extra(state State, copy string) bool { return copy != "" || state == Date || state == Copy }
+
+// noMark is the value of a state with no mark: a copy is there until its
+// tombstone.
+func noMark(state State) string {
+	switch state {
+	case Favorite:
+		return "false"
+	case Copy:
+		return "true"
+	}
+	return "null"
+}
 
 var (
 	// ErrNotMarks is a question that is not one of marks.
@@ -117,7 +178,7 @@ const (
 	maxMarks   = 500
 	maxInstall = 128
 	maxPage    = 256 << 10
-	markBytes  = len(`{"hash":"","state":"","value":},`)
+	markBytes  = len(`{"hash":"","copy":"","state":"","value":},`)
 )
 
 // Shelf is a library's marks as a phone names them: the catalog and the
@@ -167,16 +228,27 @@ func (c *Catalog) heard(states []State) (string, error) {
 	const of = ` WHERE profile = ?1 AND seq > ?2 AND seq <= ?3`
 	var parts []string
 	if asks(states, Favorite) {
-		parts = append(parts, `SELECT hash, '`+string(Favorite)+`', iif(value, 'true', 'false'), seq AS seq FROM marks`+of)
+		parts = append(parts, `SELECT hash, '', '`+string(Favorite)+`', iif(value, 'true', 'false'), seq AS seq FROM marks`+of)
 	}
-	if asks(states, Edit) {
-		kept, err := hasTable(c.db, "edits") // not where nothing can be written
-		if err != nil {
-			return "", err
+	// Not where nothing can be written: those catalogs may lack them.
+	kept, err := hasTable(c.db, "edits")
+	if err != nil {
+		return "", err
+	}
+	if kept && asks(states, Edit) {
+		parts = append(parts, `SELECT hash, '', '`+string(Edit)+`', COALESCE(value, 'null'), seq AS seq FROM edits`+of)
+	}
+	if kept, err = hasTable(c.db, "extra_marks"); err != nil {
+		return "", err
+	}
+	var asked []string
+	for _, s := range []State{Favorite, Edit, Date, Copy} {
+		if asks(states, s) {
+			asked = append(asked, `'`+string(s)+`'`)
 		}
-		if kept {
-			parts = append(parts, `SELECT hash, '`+string(Edit)+`', COALESCE(value, 'null'), seq AS seq FROM edits`+of)
-		}
+	}
+	if kept && len(asked) > 0 {
+		parts = append(parts, `SELECT hash, copy, state, COALESCE(value, 'null'), seq AS seq FROM extra_marks`+of+` AND state IN (`+strings.Join(asked, ", ")+`)`)
 	}
 	return strings.Join(parts, ` UNION ALL `), nil
 }
@@ -346,6 +418,7 @@ type MarkQuestion struct {
 type MarkAction struct {
 	N     int64
 	Hash  string
+	Copy  string // "" the photo itself
 	State State
 	Value json.RawMessage // a state this program does not know has its own
 	Ago   *int64
@@ -361,13 +434,17 @@ type MarkAnswer struct {
 	Marks []Mark `json:"marks"`
 	// Unknown are the photos said that the library does not have.
 	Unknown []string `json:"unknown"`
-	// Refused count the edits said that are none.
+	// Refused count the edits and dates said that are none.
 	Refused []int64 `json:"refused"`
+	// Dated are the photos whose date mark won: due, to be given in the
+	// library's turn (GiveDueDates).
+	Dated []Key `json:"-"`
 }
 
 // Mark is a photo's state in its library.
 type Mark struct {
 	Hash  string          `json:"hash"`
+	Copy  string          `json:"copy,omitempty"`
 	State State           `json:"state"`
 	Value json.RawMessage `json:"value"`
 }
@@ -379,8 +456,8 @@ func (q MarkQuestion) check() error {
 	}
 	for _, m := range q.Marks {
 		sum, err := hex.DecodeString(m.Hash)
-		if err != nil || len(sum) != sha256.Size || m.Hash != strings.ToLower(m.Hash) || m.N < 0 || m.State == "" ||
-			m.State == Favorite && string(m.Value) != "true" && string(m.Value) != "false" {
+		if err != nil || len(sum) != sha256.Size || m.Hash != strings.ToLower(m.Hash) || m.N < 0 || m.State == "" || len(m.Copy) > maxInstall ||
+			(m.State == Favorite || m.State == Copy) && string(m.Value) != "true" && string(m.Value) != "false" {
 			return ErrNotMarks
 		}
 	}
@@ -418,6 +495,19 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 			if edit.Removes(m.Value) {
 				m.Value = json.RawMessage("null")
 			}
+		case Date:
+			// A copy has its photo's date.
+			if m.Copy != "" {
+				continue
+			}
+			if !isDate(m.Value) {
+				a.Refused = append(a.Refused, m.N)
+				continue
+			}
+		case Copy:
+			if m.Copy == "" {
+				continue
+			}
 		case Favorite:
 		default:
 			continue
@@ -429,8 +519,10 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 			return a, ErrNoMarks
 		} else if err != nil {
 			// No table for them: it could not be given one.
-			if kept, has := hasTable(c.db, "edits"); has == nil && !kept {
-				err = ErrNoMarks
+			for _, table := range []string{"edits", "extra_marks"} {
+				if kept, has := hasTable(c.db, table); has == nil && !kept {
+					err = ErrNoMarks
+				}
 			}
 			return a, err
 		}
@@ -454,10 +546,10 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 	for rows.Next() {
 		var m Mark
 		var seq int64
-		if err := rows.Scan(&m.Hash, &m.State, (*[]byte)(&m.Value), &seq); err != nil {
+		if err := rows.Scan(&m.Hash, &m.Copy, &m.State, (*[]byte)(&m.Value), &seq); err != nil {
 			return a, err
 		}
-		size += markBytes + len(m.Hash) + len(m.State) + len(m.Value)
+		size += markBytes + len(m.Hash) + len(m.Copy) + len(m.State) + len(m.Value)
 		if len(a.Marks) == maxMarks || size > maxPage && len(a.Marks) > 0 {
 			a.More, a.Cursor = true, last
 			break
@@ -471,13 +563,14 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 // apply applies the marks an install says, those without a time first, and
 // says what the library then holds of each photo.
 func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkAction, then time.Time) error {
-	in := map[State]marker{}
+	in := map[markerOf]marker{}
 	for _, m := range marks {
-		if _, ok := in[m.State]; ok {
+		of := markerOf{m.State, extra(m.State, m.Copy)}
+		if _, ok := in[of]; ok {
 			continue
 		}
 		var err error
-		if in[m.State], err = markIn(tx, m.State); err != nil {
+		if in[of], err = markIn(tx, m.State, of.extra); err != nil {
 			return err
 		}
 	}
@@ -486,8 +579,8 @@ func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkActi
 			if (m.Ago != nil) != timed {
 				continue
 			}
-			k := Key{m.Hash, profile}
-			was, err := in[m.State].of(k)
+			k, by := Key{m.Hash, profile}, in[markerOf{m.State, extra(m.State, m.Copy)}]
+			was, err := by.of(k, m.Copy)
 			if err != nil {
 				return err
 			}
@@ -499,30 +592,46 @@ func (a *MarkAnswer) apply(tx *sql.Tx, profile, install string, marks []MarkActi
 				// Never 0, which is no time, and never later than now.
 				is.at = max(1, then.UnixMilli()-max(0, *m.Ago))
 			}
-			if err := in[m.State].give(k, was, is); err != nil {
+			given, err := by.give(k, m.Copy, was, is)
+			if err != nil {
 				return err
+			}
+			if given && m.State == Date {
+				if err := due(tx, k); err != nil {
+					return err
+				}
+				a.Dated = append(a.Dated, k)
 			}
 		}
 	}
-	answered, unknown := map[[2]string]bool{}, map[string]bool{}
+	answered, unknown := map[[3]string]bool{}, map[string]bool{}
 	for _, m := range marks {
-		if one := [2]string{m.Hash, string(m.State)}; unknown[m.Hash] || answered[one] {
+		if one := [3]string{m.Hash, m.Copy, string(m.State)}; unknown[m.Hash] || answered[one] {
 			continue
 		} else {
 			answered[one] = true
 		}
-		is, err := in[m.State].of(Key{m.Hash, profile})
+		is, err := in[markerOf{m.State, extra(m.State, m.Copy)}].of(Key{m.Hash, profile}, m.Copy)
 		if err != nil {
 			return err
 		}
 		if is.in {
-			a.Said = append(a.Said, Mark{m.Hash, m.State, json.RawMessage(is.value)})
+			a.Said = append(a.Said, Mark{m.Hash, m.Copy, m.State, json.RawMessage(is.value)})
 		} else {
 			unknown[m.Hash] = true
 			a.Unknown = append(a.Unknown, m.Hash)
 		}
 	}
 	return nil
+}
+
+// isDate is whether value is a date as a phone says it, or null.
+func isDate(value json.RawMessage) bool {
+	if string(value) == "null" {
+		return true
+	}
+	_, err := dateOf(string(value))
+	return err == nil
 }
 
 // mark is a mark as the catalog keeps it, of the photo id, which is in its
@@ -536,21 +645,37 @@ type mark struct {
 	n       int64
 }
 
-// on is whether there is a heart, or an edit.
+// on is whether there is a heart, an edit, a date, a copy.
 func (m mark) on() bool { return m.value != "false" && m.value != "null" }
 
-// marker reads and sets the marks of one state in one write, each of its
-// queries prepared once for the hundreds a phone says.
-type marker struct {
-	find, begin, set, sign *sql.Stmt
-	state                  State
+// markerOf names a marker: a state, in extra_marks or not.
+type markerOf struct {
+	state State
+	extra bool
 }
 
-func markIn(tx *sql.Tx, state State) (marker, error) {
-	m := marker{state: state}
+// marker reads and sets the marks of one state in one write, each of its
+// queries prepared once for the hundreds a phone says. One of extra_marks
+// names a copy as well.
+type marker struct {
+	find, begin, set, sign *sql.Stmt
+	markerOf
+}
+
+func markIn(tx *sql.Tx, state State, extra bool) (marker, error) {
+	m := marker{markerOf: markerOf{state, extra}}
+	of := `m.profile = p.profile AND m.hash = p.hash`
 	table, value := `marks`, `iif(p.`+string(state)+`, 'true', 'false')`
 	begin, set := `marks (profile, hash, state, value, at, seq) VALUES (?, ?, '`+string(state)+`', 0, 0, 0)`, setting(state)
-	if state == Edit {
+	where := `profile = ? AND hash = ?`
+	switch {
+	case extra:
+		of += ` AND m.copy = ?3 AND m.state = '` + string(state) + `'`
+		table, value = `extra_marks`, `COALESCE(m.value, '`+noMark(state)+`')`
+		begin = `extra_marks (profile, hash, copy, state, at, seq) VALUES (?, ?, ?, '` + string(state) + `', 0, 0)`
+		where += ` AND copy = ? AND state = '` + string(state) + `'`
+		set = `UPDATE extra_marks SET value = ? WHERE ` + where
+	case state == Edit:
 		table, value = `edits`, `COALESCE(m.value, 'null')`
 		begin, set = `edits (profile, hash, at, seq) VALUES (?, ?, 0, 0)`,
 			`UPDATE edits SET value = ? WHERE (profile, hash) = (SELECT profile, hash FROM library_photos WHERE id = ?)`
@@ -558,11 +683,11 @@ func markIn(tx *sql.Tx, state State) (marker, error) {
 	var err error
 	for into, query := range map[**sql.Stmt]string{
 		&m.find: `SELECT p.id, p.out = 0, ` + value + `, COALESCE(m.at, 0), COALESCE(m.install, ''), COALESCE(m.n, 0)
-			FROM library_photos p LEFT JOIN ` + table + ` m ON m.profile = p.profile AND m.hash = p.hash
-			WHERE p.hash = ? AND p.profile = ?`,
+			FROM library_photos p LEFT JOIN ` + table + ` m ON ` + of + `
+			WHERE p.hash = ?1 AND p.profile = ?2`,
 		&m.begin: `INSERT OR IGNORE INTO ` + begin,
 		&m.set:   set,
-		&m.sign:  `UPDATE ` + table + ` SET at = ?, install = ?, n = ? WHERE profile = ? AND hash = ?`,
+		&m.sign:  `UPDATE ` + table + ` SET at = ?, install = ?, n = ? WHERE ` + where,
 	} {
 		if *into, err = tx.Prepare(query); err != nil {
 			return m, err
@@ -571,54 +696,126 @@ func markIn(tx *sql.Tx, state State) (marker, error) {
 	return m, nil
 }
 
-// of is the mark of the photo k; with none, or no photo, no time and no value.
-func (m marker) of(k Key) (mark, error) {
+// keyOf is what names the row of k's mark on copy: its copy only in extra_marks.
+func (m marker) keyOf(k Key, copy string) []any {
+	if m.extra {
+		return []any{k.Profile, k.Hash, copy}
+	}
+	return []any{k.Profile, k.Hash}
+}
+
+// of is the mark of the photo k, or of its copy; with none, or no photo, no
+// time and no value.
+func (m marker) of(k Key, copy string) (mark, error) {
 	var is mark
-	err := m.find.QueryRow(k.Hash, k.Profile).Scan(&is.id, &is.in, &is.value, &is.at, &is.install, &is.n)
+	args := []any{k.Hash, k.Profile}
+	if m.extra {
+		args = append(args, copy)
+	}
+	err := m.find.QueryRow(args...).Scan(&is.id, &is.in, &is.value, &is.at, &is.install, &is.n)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = nil
 	}
 	return is, err
 }
 
-// give makes the photo k, marked was, marked is, when is is the last of the
-// two: by its time, the same time being the new one's; one with no time only
-// adds, to what has none. One of the same install that is no newer was applied
-// already.
-func (m marker) give(k Key, was, is mark) error {
+// give makes the photo k, or its copy, marked was, marked is, when is is the
+// last of the two: by its time, the same time being the new one's; one with no
+// time only adds, to what has none. One of the same install that is no newer
+// was applied already. given is whether it did.
+func (m marker) give(k Key, copy string, was, is mark) (given bool, err error) {
 	if is.install != "" && is.install == was.install && is.n <= was.n {
-		return nil
+		return false, nil
 	}
 	if is.at == 0 && (!is.on() || was.on() || was.at != 0) {
-		return nil
+		return false, nil
 	}
 	// The clock was ahead as a later one was set: it is not believed. Now, not
 	// when the question came: one set here meanwhile is.
 	if is.at != 0 && is.at < was.at && was.at <= time.Now().UnixMilli() {
-		return nil
+		return false, nil
 	}
 	// One with no time is counted nowhere: said before a timed one, it must
 	// not keep that out.
 	if is.install == "" || is.at == 0 {
 		is.install, is.n = was.install, was.n
 	}
+	key := m.keyOf(k, copy)
 	// An off where there was no mark is one too.
-	if _, err := m.begin.Exec(k.Profile, k.Hash); err != nil {
-		return err
+	if _, err := m.begin.Exec(key...); err != nil {
+		return false, err
 	}
-	var value any = is.on()
-	if m.state == Edit {
-		value = sql.NullString{String: is.value, Valid: is.on()}
+	switch {
+	case m.extra:
+		_, err = m.set.Exec(append([]any{sql.NullString{String: is.value, Valid: is.value != "null"}}, key...)...)
+	case m.state == Edit:
+		_, err = m.set.Exec(sql.NullString{String: is.value, Valid: is.on()}, was.id)
+	default:
+		_, err = m.set.Exec(is.on(), was.id)
 	}
-	if _, err := m.set.Exec(value, was.id); err != nil {
-		return err
+	if err != nil {
+		return false, err
 	}
-	_, err := m.sign.Exec(is.at, is.install, is.n, k.Profile, k.Hash)
-	return err
+	_, err = m.sign.Exec(append([]any{is.at, is.install, is.n}, key...)...)
+	return err == nil, err
 }
 
 // setting is the SQL that sets state on a photo, or clears it, by its id; a
 // mark is noted with it.
 func setting(state State) string {
 	return `UPDATE library_photos SET ` + string(state) + ` = ? WHERE id = ?`
+}
+
+// due says k's date mark is still to be given to it.
+func due(tx *sql.Tx, k Key) error {
+	_, err := tx.Exec(`UPDATE extra_marks SET due = 1 WHERE profile = ? AND hash = ? AND copy = '' AND state = '`+string(Date)+`'`, k.Profile, k.Hash)
+	return err
+}
+
+// carryExtra gives the photo into what k has in extra_marks, each mark when it
+// is the later: a photo filed into a library that has it already.
+func carryExtra(tx *sql.Tx, k, into Key) error {
+	type one struct {
+		copy  string
+		state State
+	}
+	var all []one
+	rows, err := tx.Query(`SELECT copy, state FROM extra_marks WHERE profile = ? AND hash = ?`, k.Profile, k.Hash)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var o one
+		if err := rows.Scan(&o.copy, &o.state); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, o)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, o := range all {
+		marks, err := markIn(tx, o.state, true)
+		if err != nil {
+			return err
+		}
+		its, err := marks.of(k, o.copy)
+		if err != nil {
+			return err
+		}
+		was, err := marks.of(into, o.copy)
+		if err != nil {
+			return err
+		}
+		given, err := marks.give(into, o.copy, was, its)
+		if err == nil && given && o.state == Date && o.copy == "" {
+			err = due(tx, into)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

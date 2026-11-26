@@ -31,10 +31,11 @@ export interface Overview {
 	years: { year: string; count: number }[];
 	albums: { account: string; name: string; count: number }[];
 	takeouts: number;
-	/** The photos of the people shown in the Archive, in the Trash and with a heart. */
+	/** The photos of the people shown in the Archive, in the Trash, with a heart, and the videos. */
 	archived: number;
 	trashed: number;
 	favorites: number;
+	videos: number;
 	/** Those there are, for an import to choose among; the one it goes to when none is named, "" when asked. */
 	profiles: string[];
 	profile: string;
@@ -291,7 +292,8 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 
 export const getLatest = () => call<Parameters<typeof asPhotos>[0]>('GET', '/api/latest').then(asPhotos);
 export const giveDates = (photos: PhotoKey[], when: string) => call<{ moved: number }>('POST', '/api/dates', { photos: photos.map(keyOf), when });
-export const turnLeft = (p: PhotoKey) => call<Shown>('POST', `/api/turn/${of(p)}`);
+/** A quarter turn anticlockwise, or with right clockwise. */
+export const turn = (p: PhotoKey, right: boolean) => call<Shown>('POST', `/api/turn/${of(p)}${right ? '?right' : ''}`);
 /** A square picture turned as the person turned the photo. */
 export const turned = (p: { turn?: number }) => (p.turn ? `rotate(${-90 * p.turn}deg)` : undefined);
 export interface PhotoAbout {

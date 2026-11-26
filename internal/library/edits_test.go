@@ -121,7 +121,7 @@ func TestHeartsAndEditsAreHeard(t *testing.T) {
 	goneHeart := act(4, true, 0)
 	goneHeart.Hash = hashed(9)
 	a := tell(t, c, "A", 0, edited(1, warm, 0), act(2, true, 0), gone, goneHeart)
-	e := Mark{hashed(0), Edit, json.RawMessage(warm)}
+	e := Mark{hashed(0), "", Edit, json.RawMessage(warm)}
 	if want := []Mark{e, heart(0)}; !reflect.DeepEqual(a.Said, want) || !reflect.DeepEqual(a.Marks, want) || a.Cursor != 2 || !slices.Equal(a.Unknown, []string{hashed(9)}) {
 		t.Errorf("%+v", a)
 	}
@@ -367,7 +367,7 @@ func TestAProgramFromBeforeEdits(t *testing.T) {
 	defer again.Close()
 	editIs(t, again, "ron", bright)
 	var version int
-	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != linksSince {
+	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != copiesSince {
 		t.Errorf("version %d %v", version, err)
 	}
 	var numbers bool
@@ -381,7 +381,7 @@ func TestAProgramFromBeforeEdits(t *testing.T) {
 // An older catalog is given its edits' table once, its hearts and shelf as
 // they were, and still looks for the links it had to.
 func TestACatalogFromBeforeEdits(t *testing.T) {
-	for version, want := range map[int]int{marksSince: editsSince, linksBeforeEdits: linksSince} {
+	for version, want := range map[int]int{marksSince: editsSince, linksBeforeEdits: copiesSince} {
 		c, path := marking(t, 1)
 		say(t, c, "A", act(1, true, 0))
 		was, _ := c.Shelf("ron")
@@ -421,7 +421,7 @@ func TestACatalogFromBeforeEdits(t *testing.T) {
 			if err := FindLinks(t.TempDir(), path, nil, func(string) string { return "" }, func() (func(), error) { turns++; return func() {}, nil }); err != nil {
 				t.Fatal(err)
 			}
-			if turns != linksSince-looked {
+			if (turns == 1) != (looked < linksSince) {
 				t.Errorf("links looked for %d times, look %d of %d", turns, i, want)
 			}
 		}
@@ -480,8 +480,8 @@ func TestLinksFoundWithNoTable(t *testing.T) {
 		tell(t, c, "A", 0, act(1, true, 0), edited(2, bright, 0))
 		editIs(t, c, "ron", bright)
 		var now int
-		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != linksSince {
-			t.Errorf("from %d: version %d %v, want %d", version, now, err, linksSince)
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != copiesSince {
+			t.Errorf("from %d: version %d %v, want %d", version, now, err, copiesSince)
 		}
 		c.Close()
 	}
@@ -499,7 +499,7 @@ func TestAListSaysTheEdits(t *testing.T) {
 		addPhotos(t, c, "ann", n)
 		for i := range 4 {
 			for _, profile := range []string{"ron", "ann"} {
-				if _, _, err := c.TurnLeft(Key{hashed(i), profile}); err != nil {
+				if _, _, err := c.Turn(Key{hashed(i), profile}, 1); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -546,7 +546,7 @@ func TestRotateIsAnEdit(t *testing.T) {
 	c, _ := marking(t, 1)
 	k := Key{hashed(0), "ron"}
 	a := tell(t, c, "A", 0, edited(7, bright, 100))
-	turn, digest, err := c.TurnLeft(k)
+	turn, digest, err := c.Turn(k, 1)
 	edits, _ := c.Edits([]Key{k})
 	turned := edits[k]
 	if err != nil || turn != 0 || digest == "" || digest != EditDigest(turned) || !strings.Contains(turned, `"turns":3`) {
@@ -564,15 +564,33 @@ func TestRotateIsAnEdit(t *testing.T) {
 	editIs(t, c, "ron", turned)
 	time.Sleep(2 * time.Millisecond)
 	tell(t, c, "A", 0, edited(9, newer, 0))
-	if turn, digest, err := c.TurnLeft(k); turn != 0 || digest != "" || err != nil {
+	if turn, digest, err := c.Turn(k, 1); turn != 0 || digest != "" || err != nil {
 		t.Errorf("%d %q %v", turn, digest, err)
 	}
 	editIs(t, c, "ron", newer)
 	// Removed, and turned: its turn.
 	time.Sleep(2 * time.Millisecond)
 	tell(t, c, "A", 0, edited(10, "null", 0))
-	if turn, digest, err := c.TurnLeft(k); turn != 1 || digest != "" || err != nil {
+	if turn, digest, err := c.Turn(k, 1); turn != 1 || digest != "" || err != nil {
 		t.Errorf("%d %q %v", turn, digest, err)
+	}
+	// Right is the other way: a quarter left undoes it.
+	if turn, _, err := c.Turn(k, 3); turn != 0 || err != nil {
+		t.Errorf("right: %d %v", turn, err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	tell(t, c, "A", 0, edited(11, bright, 0))
+	if _, _, err := c.Turn(k, 3); err != nil {
+		t.Fatal(err)
+	}
+	edits, _ = c.Edits([]Key{k})
+	if !strings.Contains(edits[k], `"turns":1`) {
+		t.Errorf("right: %s", edits[k])
+	}
+	c.Turn(k, 1)
+	edits, _ = c.Edits([]Key{k})
+	if strings.Contains(edits[k], `"turns":1`) || strings.Contains(edits[k], `"turns":3`) {
+		t.Errorf("back: %s", edits[k])
 	}
 }
 

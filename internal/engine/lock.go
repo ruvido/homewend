@@ -43,7 +43,14 @@ func lockLibrary(root string) (unlock func(), err error) {
 		file.Close()
 		return func() {}, nil
 	}
-	unlock = func() { unlockFile(file); file.Close() }
+	unlock = func() {
+		unlockFile(file)
+		file.Close()
+		// What waited for this turn.
+		if _, waits := datesWaiting.Load(root); waits {
+			giveDates(root)
+		}
+	}
 	// Nobody else is moving: what a killed run left is finished first, a
 	// rename before the Trash's moves it may have renamed.
 	err = library.FinishRename(root, catalogPath(root), followRename(root))

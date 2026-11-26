@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -349,7 +350,7 @@ func TidyTrash(root, catalog string, keys []Key, turn Turn, write Write) (gone [
 		failed = append(failed, with(catalog, func(c *Catalog) error { return settle(root, c, few, write) }))
 		unlock()
 	}
-	_, gone, err = erase(root, catalog, claimed, erasing, turn, nil)
+	_, gone, err = erase(root, catalog, claimed, erasing, math.MaxInt64, turn, nil)
 	return gone, errors.Join(append(failed, err)...)
 }
 
@@ -581,8 +582,9 @@ func rename(from, to string) error {
 // whose file is not surely its own, or is the last of a content another
 // library has, stays in the Trash with it, and so does one whose file is not
 // there with nothing to say it is not only away. It says those left there, and
-// the contents no library has any more.
-func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write, told func(done int)) (left []Key, gone []string, err error) {
+// the contents no library has any more. One restored after before (ms), and
+// put back in the Trash, is left there too: checked in the library's turn.
+func EmptyTrash(root, catalog string, photos []Key, before int64, turn Turn, write Write, told func(done int)) (left []Key, gone []string, err error) {
 	// Files not where they belong first.
 	if gone, err = TidyTrash(root, catalog, photos, turn, write); err != nil && !exists(catalog) {
 		return photos, gone, err
@@ -602,12 +604,12 @@ func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write, told
 		return photos, gone, err
 	}
 	// Before any folder that proves them gone goes.
-	_, more, err := erase(root, catalog, claimed, erasing, turn, nil)
+	_, more, err := erase(root, catalog, claimed, erasing, math.MaxInt64, turn, nil)
 	gone = append(gone, more...)
 	if err != nil {
 		return photos, gone, err
 	}
-	done, more, err := erase(root, catalog, rows, 0, turn, told)
+	done, more, err := erase(root, catalog, rows, 0, before, turn, told)
 	gone = append(gone, more...)
 	left = []Key{}
 	for _, p := range rows {
@@ -616,7 +618,7 @@ func EmptyTrash(root, catalog string, photos []Key, turn Turn, write Write, told
 		}
 	}
 	if err == nil {
-		_, more, err = erase(root, catalog, stray, erased, turn, nil)
+		_, more, err = erase(root, catalog, stray, erased, math.MaxInt64, turn, nil)
 		gone = append(gone, more...)
 	}
 	return left, gone, err
@@ -672,7 +674,7 @@ func (f seen) still(root string) bool {
 // be as they were, claimed in one write, deleted, and recorded. One restored
 // before the claim is not deleted; after it, it cannot be restored. A run
 // killed leaves them claimed, and TidyTrash comes back to them.
-func erase(root, catalog string, rows []Photo, was int, turn Turn, told func(done int)) (done map[Key]bool, gone []string, err error) {
+func erase(root, catalog string, rows []Photo, was int, before int64, turn Turn, told func(done int)) (done map[Key]bool, gone []string, err error) {
 	done = map[Key]bool{}
 	if len(rows) == 0 {
 		return done, nil, nil
@@ -691,7 +693,7 @@ func erase(root, catalog string, rows []Photo, was int, turn Turn, told func(don
 		for n < len(rows) && rows[n].Hash == rows[n-1].Hash {
 			n++
 		}
-		few, forgotten, err := eraseFew(root, catalog, rows[:n], was, albums, in, turn)
+		few, forgotten, err := eraseFew(root, catalog, rows[:n], was, before, albums, in, turn)
 		if err != nil {
 			return done, gone, err
 		}
@@ -713,7 +715,7 @@ func erase(root, catalog string, rows []Photo, was int, turn Turn, told func(don
 	return done, gone, nil
 }
 
-func eraseFew(root, catalog string, rows []Photo, was int, albums map[Key][]string, in entries, turn Turn) (ended []Photo, gone []string, err error) {
+func eraseFew(root, catalog string, rows []Photo, was int, before int64, albums map[Key][]string, in entries, turn Turn) (ended []Photo, gone []string, err error) {
 	var read []doomed
 	var copies []Photo
 	var taken map[string]int
@@ -777,26 +779,26 @@ func eraseFew(root, catalog string, rows []Photo, was int, albums map[Key][]stri
 	}
 	defer unlock()
 	err = with(catalog, func(c *Catalog) error {
-		ended, gone, err = eraseRead(root, c, rows, read, was)
+		ended, gone, err = eraseRead(root, c, rows, read, was, before)
 		return err
 	})
 	return ended, gone, err
 }
 
 // eraseRead is the part of eraseFew in the library's turn.
-func eraseRead(root string, c *Catalog, rows []Photo, read []doomed, was int) (ended []Photo, gone []string, err error) {
+func eraseRead(root string, c *Catalog, rows []Photo, read []doomed, was int, before int64) (ended []Photo, gone []string, err error) {
 	set := func(from, to int, photos []Photo) (changed map[Key]bool, err error) {
 		changed = map[Key]bool{}
 		if len(photos) == 0 {
 			return changed, nil
 		}
 		err = c.inTx(func(tx *sql.Tx) error {
-			stmt, err := tx.Prepare(`UPDATE library_photos SET out = ? WHERE hash = ? AND profile = ? AND path = ? AND trashed = 1 AND out = ?`)
+			stmt, err := tx.Prepare(`UPDATE library_photos SET out = ? WHERE hash = ? AND profile = ? AND path = ? AND trashed = 1 AND out = ? AND restored <= ?`)
 			if err != nil {
 				return err
 			}
 			for _, p := range photos {
-				res, err := stmt.Exec(to, p.Hash, p.Profile, p.Path, from)
+				res, err := stmt.Exec(to, p.Hash, p.Profile, p.Path, from, before)
 				if err != nil {
 					return err
 				}
@@ -1039,4 +1041,39 @@ func (c *Catalog) albumNames(photos []Photo) (map[Key][]string, error) {
 		albums[k] = append(albums[k], album)
 	}
 	return albums, rows.Err()
+}
+
+// Seen is where a photo stands for a phone that saw it in the Trash: in it,
+// deleted for good, or back in the library; and when it last left the Trash,
+// in ms, 0 never since that was kept.
+type Seen struct {
+	InTrash, Erased, Back bool
+	Restored              int64
+}
+
+// TrashSeen is where the photos hashes of profile's library stand; one it
+// does not have, or keeps out, is not in it.
+func (c *Catalog) TrashSeen(profile string, hashes []string) (map[string]Seen, error) {
+	list, err := json.Marshal(hashes)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.db.Query(`SELECT hash, `+inTheTrash+`, `+deletedForGood+`, out = 0 AND trashed = 0, restored FROM library_photos
+		WHERE profile = ? AND hash IN (SELECT value FROM json_each(?))`, profile, string(list))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]Seen{}
+	for rows.Next() {
+		var hash string
+		var s Seen
+		if err := rows.Scan(&hash, &s.InTrash, &s.Erased, &s.Back, &s.Restored); err != nil {
+			return nil, err
+		}
+		if s.InTrash || s.Erased || s.Back {
+			seen[hash] = s
+		}
+	}
+	return seen, rows.Err()
 }

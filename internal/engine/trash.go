@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -105,15 +106,67 @@ func tidyTrashOnce(root string) {
 	done := tidying.done[root]
 	tidying.done[root] = true
 	tidying.Unlock()
+	// Dates kept waiting by another program's turn.
+	if _, waits := datesWaiting.Load(root); waits {
+		giveDates(root)
+	}
 	if done {
 		return
 	}
 	follow(root, nil)
 }
 
+// dating is the one run that gives photos the dates phones said, and whether
+// it is asked again meanwhile; datesWaiting the libraries whose turn it did
+// not get, given them as the turn is let go.
+var (
+	dating struct {
+		sync.Mutex
+		running, again bool
+	}
+	datesWaiting sync.Map
+)
+
+// giveDates gives root's photos the dates phones said, beside the requests,
+// each in the library's turn.
+func giveDates(root string) {
+	dating.Lock()
+	if dating.running {
+		dating.again = true
+		dating.Unlock()
+		return
+	}
+	dating.running = true
+	dating.Unlock()
+	beside(func() {
+		for {
+			datesWaiting.Delete(root)
+			err := library.GiveDueDates(root, catalogPath(root), yielding(trashTurn(root)))
+			if errors.Is(err, ErrLibraryBusy) {
+				datesWaiting.Store(root, true)
+			} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				log.Printf("the dates phones said: %v", err)
+			}
+			dating.Lock()
+			if !dating.again {
+				dating.running = false
+				dating.Unlock()
+				return
+			}
+			dating.again = false
+			dating.Unlock()
+		}
+	})
+}
+
 // EmptyTrash deletes for good those of photos that are in the Trash, and says
 // those it left there: the ones shown to the person who asked, no others.
 func EmptyTrash(photos []library.Key) ([]library.Key, error) {
+	return emptyTrash(photos, time.Now().UnixMilli())
+}
+
+// emptyTrash is EmptyTrash, of those not restored after before (ms).
+func emptyTrash(photos []library.Key, before int64) ([]library.Key, error) {
 	setEmptying(Emptying{0, len(photos)})
 	defer setEmptying(Emptying{})
 	root, err := LibraryHere()
@@ -130,7 +183,7 @@ func EmptyTrash(photos []library.Key) ([]library.Key, error) {
 		return nil, err
 	}
 	unlock()
-	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, turn, unlisted, func(n int) { setEmptying(Emptying{n, len(photos)}) })
+	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, before, turn, unlisted, func(n int) { setEmptying(Emptying{n, len(photos)}) })
 	forgetPictures(gone)
 	if err != nil {
 		lookAgain(root) // what it claimed and could not record
@@ -183,4 +236,65 @@ func forgetPictures(hashes []string) {
 			}
 		}
 	}
+}
+
+// SeenInTrash is a photo a phone saw in the Trash Ago ms before it asked.
+type SeenInTrash struct {
+	Hash string `json:"hash"`
+	Ago  int64  `json:"ago"`
+}
+
+// EmptyTrashOf empties, of phone's library, the photos it saw in the Trash
+// and that were not restored since, by the window's Empty and its checks. It
+// says those deleted for good, those before too, and those kept: restored
+// since. One not of the library, or left in the Trash, is in neither.
+func EmptyTrashOf(phone Phone, seen []SeenInTrash) (emptied, kept []string, err error) {
+	then := time.Now().UnixMilli()
+	// Said twice: since the first time it was seen.
+	ago := map[string]int64{}
+	for _, s := range seen {
+		ago[s.Hash] = max(ago[s.Hash], s.Ago, 0)
+	}
+	hashes := slices.Collect(maps.Keys(ago))
+	states, err := trashSeen(phone, hashes)
+	if err != nil {
+		return []string{}, []string{}, err
+	}
+	var empty []library.Key
+	for hash, s := range states {
+		if s.InTrash && s.Restored <= then-ago[hash] {
+			empty = append(empty, library.Key{Hash: hash, Profile: phone.Profile})
+		}
+	}
+	if len(empty) > 0 {
+		// One restored after then, read or not, is not deleted: told in the
+		// library's turn.
+		if _, err := emptyTrash(empty, then); err != nil {
+			return []string{}, []string{}, err
+		}
+		// As they are now: one restored meanwhile is not deleted.
+		if states, err = trashSeen(phone, hashes); err != nil {
+			return []string{}, []string{}, err
+		}
+	}
+	emptied, kept = []string{}, []string{}
+	for hash, s := range states {
+		switch {
+		case s.Erased:
+			emptied = append(emptied, hash)
+		case s.Back || s.Restored > then-ago[hash]:
+			kept = append(kept, hash)
+		}
+	}
+	return emptied, kept, nil
+}
+
+// trashSeen is where the photos hashes of phone's library stand.
+func trashSeen(phone Phone, hashes []string) (map[string]library.Seen, error) {
+	_, c, err := openHere(library.OpenCatalog)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.TrashSeen(phone.Profile, hashes)
 }

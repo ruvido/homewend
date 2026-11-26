@@ -54,7 +54,7 @@ func addPhotos(t testing.TB, c *Catalog, profile string, n int) {
 }
 
 // heart is a photo's heart, as it is heard.
-func heart(n int) Mark { return Mark{hashed(n), Favorite, json.RawMessage("true")} }
+func heart(n int) Mark { return Mark{hashed(n), "", Favorite, json.RawMessage("true")} }
 
 // act is an action of photo 0's heart; ago below -1 is no time.
 func act(n int64, on bool, ago int64) MarkAction {
@@ -462,7 +462,7 @@ func before(t *testing.T, version int) string {
 // kept; one that looks for links still does, and no opening after the first
 // writes.
 func TestHeartsBecomeMarks(t *testing.T) {
-	for version, want := range map[int]int{librariesSince: editsSince, linksBeforeMarks: linksSince} {
+	for version, want := range map[int]int{librariesSince: editsSince, linksBeforeMarks: copiesSince} {
 		path := before(t, version)
 		for name, open := range map[string]func(string) (*Catalog, error){"to look": OpenCatalogReadOnly, "to write": OpenCatalog} {
 			c, err := open(path)

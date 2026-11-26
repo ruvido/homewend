@@ -36,7 +36,8 @@ const (
 )
 
 // features are the calls a phone may find, or not on an older computer.
-var features = []string{"marks", "edits", "library"}
+// Copies are said beside them, as "copies": true (docs/edit.md, "Copies").
+var features = []string{"marks", "edits", "library", "dates", "empty"}
 
 // phoneListener is the second listener, on the local network, for the
 // phones' calls only: nothing of /api/ is reachable from it. Over TLS with
@@ -237,10 +238,16 @@ func askedHashes(w http.ResponseWriter, r *http.Request) ([]string, bool) {
 	return in.Hashes, true
 }
 
+// isHash is whether s is a SHA-256 in lowercase hex.
+func isHash(s string) bool {
+	b, err := hex.DecodeString(s)
+	return err == nil && len(b) == 32 && strings.ToLower(s) == s
+}
+
 // askedHash is the hash a call names, and answers 400 when it is not one.
 func askedHash(w http.ResponseWriter, r *http.Request) (string, bool) {
 	hash := r.PathValue("hash")
-	if b, err := hex.DecodeString(hash); err != nil || len(b) != 32 || strings.ToLower(hash) != hash {
+	if !isHash(hash) {
 		phoneError(w, http.StatusBadRequest, "the hash is SHA-256 in lowercase hex")
 		return "", false
 	}
@@ -261,14 +268,14 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			return
 		}
 		host, _ := os.Hostname()
-		phoneReply(w, map[string]any{"phone": phone.ID, "token": token, "computer": host, "owner": phone.Profile, "ownerId": phone.OwnerID, "features": features}, nil)
+		phoneReply(w, map[string]any{"phone": phone.ID, "token": token, "computer": host, "owner": phone.Profile, "ownerId": phone.OwnerID, "features": features, "copies": true}, nil)
 	})
 	// The phone asks, when it opens, whether it is still paired, with whom,
 	// and where the computer is now: an address changed meanwhile heals.
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		heard(phone, r.RemoteAddr)
 		host, _ := os.Hostname()
-		hello := map[string]any{"computer": host, "owner": phone.Profile, "ownerId": phone.OwnerID, "hosts": l.hosts(), "features": features}
+		hello := map[string]any{"computer": host, "owner": phone.Profile, "ownerId": phone.OwnerID, "hosts": l.hosts(), "features": features, "copies": true}
 		// The library unanswered (its disk away, a catalog not read): hello
 		// still says the phone is paired and where the computer is.
 		if lib, err := engine.LibraryOf(phone); err == nil && lib.Known {
@@ -348,6 +355,17 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			phoneReply(w, map[string][]string{m.reply: done}, err)
 		}))
 	}
+	// Emptied on the phone, maybe while this computer was away.
+	mux.Handle("POST /v1/trash/empty", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+		var in struct{ Photos []engine.SeenInTrash }
+		err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxAsk)).Decode(&in)
+		if err != nil || len(in.Photos) > maxHave || slices.ContainsFunc(in.Photos, func(p engine.SeenInTrash) bool { return !isHash(p.Hash) }) {
+			phoneError(w, http.StatusBadRequest, fmt.Sprintf("at most %d photos, each a hash and an ago", maxHave))
+			return
+		}
+		emptied, kept, err := engine.EmptyTrashOf(phone, in.Photos)
+		phoneReply(w, map[string][]string{"emptied": emptied, "kept": kept}, err)
+	}))
 	mux.Handle("PUT /v1/photo/{hash}", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		hash, ok := askedHash(w, r)
 		if !ok {

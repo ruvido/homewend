@@ -16,6 +16,7 @@ export function urlOf(p: Place): string {
 		case 'archive':
 		case 'trash':
 		case 'favorites':
+		case 'videos':
 			return `/library?${p.kind}`;
 		case 'phones':
 			return '/phones';

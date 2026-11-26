@@ -13,6 +13,7 @@ import boxArrowInDown from 'bootstrap-icons/icons/box-arrow-in-down.svg?raw';
 import boxArrowInRight from 'bootstrap-icons/icons/box-arrow-in-right.svg?raw';
 import calendar from 'bootstrap-icons/icons/calendar.svg?raw';
 import calendarX from 'bootstrap-icons/icons/calendar-x.svg?raw';
+import cameraVideo from 'bootstrap-icons/icons/camera-video.svg?raw';
 import checkCircle from 'bootstrap-icons/icons/check-circle.svg?raw';
 import checkLg from 'bootstrap-icons/icons/check-lg.svg?raw';
 import chevronDown from 'bootstrap-icons/icons/chevron-down.svg?raw';
@@ -79,6 +80,7 @@ const raw = {
 	'box-arrow-in-right': boxArrowInRight,
 	'calendar': calendar,
 	'calendar-x': calendarX,
+	'camera-video': cameraVideo,
 	'check-circle': checkCircle,
 	'check-lg': checkLg,
 	'chevron-down': chevronDown,

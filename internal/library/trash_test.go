@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -90,7 +91,7 @@ func (l *trashing) trash(keys ...Key) {
 // empty empties keys and wants those left.
 func (l *trashing) empty(keys []Key, left ...Key) (gone []string) {
 	l.Helper()
-	got, gone, err := EmptyTrash(l.root, l.db(), keys, anyTurn, plainly, nil)
+	got, gone, err := EmptyTrash(l.root, l.db(), keys, math.MaxInt64, anyTurn, plainly, nil)
 	if err != nil || len(got) != len(left) {
 		l.Fatalf("left %v %v, want %v", got, err, left)
 	}
@@ -219,7 +220,7 @@ func TestAPhotoRestoredAsEmptyReads(t *testing.T) {
 	l.trash(a, b, d, anns)
 	os.Remove(under(l.root, ".trash/ann/d.jpg"))
 	turns := 0
-	left, _, err := EmptyTrash(l.root, l.db(), []Key{a, b, d, anns}, func() (func(), error) {
+	left, _, err := EmptyTrash(l.root, l.db(), []Key{a, b, d, anns}, math.MaxInt64, func() (func(), error) {
 		if turns++; turns == 1 { // all were read
 			l.mark(false, a, anns)
 			write(t, l.root, ".trash/ron/b.jpg", []byte("an edit"))
@@ -723,7 +724,7 @@ func TestAFileGoneAlready(t *testing.T) {
 	if err := os.Rename(l.root, whole); err != nil {
 		t.Skip(err)
 	}
-	if left, _, err := EmptyTrash(l.root, l.db(), []Key{e}, anyTurn, plainly, nil); err == nil || len(left) != 1 {
+	if left, _, err := EmptyTrash(l.root, l.db(), []Key{e}, math.MaxInt64, anyTurn, plainly, nil); err == nil || len(left) != 1 {
 		t.Errorf("emptied with the disk away: %v %v", left, err)
 	}
 	if err := os.Rename(whole, l.root); err != nil {
@@ -827,7 +828,7 @@ func TestAFolderThatCannotBeWritten(t *testing.T) {
 	d := l.add("ron/d.jpg", "a third")
 	l.trash(d)
 	l.exec(`CREATE TRIGGER full BEFORE UPDATE OF out, path ON library_photos BEGIN SELECT RAISE(ABORT, 'full'); END`)
-	if left, _, err := EmptyTrash(l.root, l.db(), []Key{d}, anyTurn, plainly, nil); err == nil || len(left) != 1 {
+	if left, _, err := EmptyTrash(l.root, l.db(), []Key{d}, math.MaxInt64, anyTurn, plainly, nil); err == nil || len(left) != 1 {
 		t.Errorf("left %v %v", left, err)
 	}
 	l.at(d, ".trash/ron/d.jpg")
@@ -1018,7 +1019,7 @@ func TestKilledAtAnyMoment(t *testing.T) {
 		for n := 0; ; n++ {
 			c.Mark(Trashed, keys, true)
 			TidyTrash(root, db, keys, anyTurn, plainly)
-			EmptyTrash(root, db, keys[:min(n, len(keys))], anyTurn, plainly, nil)
+			EmptyTrash(root, db, keys[:min(n, len(keys))], math.MaxInt64, anyTurn, plainly, nil)
 			c.Mark(Trashed, keys, false)
 			TidyTrash(root, db, nil, anyTurn, plainly)
 		}
@@ -1082,7 +1083,7 @@ func TestEmptyTakesItsTurnForAFew(t *testing.T) {
 	}
 	l.trash(keys...)
 	turns := 0
-	left, gone, err := EmptyTrash(l.root, l.db(), keys, func() (func(), error) {
+	left, gone, err := EmptyTrash(l.root, l.db(), keys, math.MaxInt64, func() (func(), error) {
 		if n, err := l.c.Count(Filter{Trashed: true}); err != nil || n != len(keys)-turns*fewErased {
 			t.Errorf("turn %d: %d in the Trash %v", turns, n, err)
 		}
@@ -1100,7 +1101,7 @@ func TestEmptyTakesItsTurnForAFew(t *testing.T) {
 	l.trash(keys...)
 	turns = 0
 	busy := errors.New("busy")
-	left, _, err = EmptyTrash(l.root, l.db(), keys, func() (func(), error) {
+	left, _, err = EmptyTrash(l.root, l.db(), keys, math.MaxInt64, func() (func(), error) {
 		if turns++; turns > 1 {
 			return nil, busy
 		}
@@ -1242,7 +1243,7 @@ func TestAnEditedPhotoIsEmptied(t *testing.T) {
 	write(t, l.root, ".trash/ron/d.jpg", []byte("a third, edited"))
 	l.add(".trash/ron/d.jpg", "a third, edited") // the same path is another photo's too
 	var told []int
-	left, _, err := EmptyTrash(l.root, l.db(), []Key{a, b, d}, anyTurn, plainly, func(n int) { told = append(told, n) })
+	left, _, err := EmptyTrash(l.root, l.db(), []Key{a, b, d}, math.MaxInt64, anyTurn, plainly, func(n int) { told = append(told, n) })
 	if err != nil || len(left) != 2 || slices.Contains(left, a) || !slices.Equal(told, []int{3}) {
 		t.Errorf("left %v %v, told %v", left, err, told)
 	}
@@ -1293,4 +1294,62 @@ func TestAnEditedPhotoAtAPathOfOtherCapitals(t *testing.T) {
 	}
 	l.empty([]Key{a}, a)
 	l.file(".trash/ron/a.jpg", true)
+}
+
+// One restored after the Empty was asked, and put back, is not deleted: told
+// in the library's turn, after it was read.
+func TestOneRestoredSinceIsLeft(t *testing.T) {
+	l := newTrashing(t)
+	k := l.add("ron/2020/01/a.jpg", "a")
+	l.trash(k)
+	asked := time.Now().UnixMilli()
+	turn := func() (func(), error) {
+		// Between the reading and the claim.
+		l.mark(false, k)
+		l.mark(true, k)
+		return func() {}, nil
+	}
+	left, _, err := EmptyTrash(l.root, l.db(), []Key{k}, asked, turn, plainly, nil)
+	if err != nil || !slices.Equal(left, []Key{k}) {
+		t.Errorf("left %v %v", left, err)
+	}
+	var out int
+	if err := l.c.db.QueryRow(`SELECT out FROM library_photos`).Scan(&out); err != nil || out != 0 || !exists(under(l.root, TrashDir+"/ron/2020/01/a.jpg")) {
+		t.Errorf("deleted: out %d %v", out, err)
+	}
+}
+
+// Only a photo of the library with its file there takes the turn for its
+// date: one in the Trash, or away, waits; one deleted for good is due no more.
+func TestDueDatesTakeTurnsOnlyForThoseThere(t *testing.T) {
+	l := newTrashing(t)
+	there, trashed, away, erased := l.add("ron/a.jpg", "a"), l.add("ron/b.jpg", "b"), l.add("ron/c.jpg", "c"), l.add("ron/d.jpg", "d")
+	l.trash(trashed, erased)
+	l.empty([]Key{erased})
+	os.Remove(under(l.root, "ron/c.jpg"))
+	for _, k := range []Key{there, trashed, away, erased} {
+		if _, err := l.c.db.Exec(`INSERT INTO extra_marks (profile, hash, copy, state, value, at, seq, due) VALUES (?, ?, '', 'date', '{"taken":1715000000000,"zone":"+02:00"}', 1, 1, 1)`, k.Profile, k.Hash); err != nil {
+			t.Fatal(err)
+		}
+	}
+	turns := 0
+	if err := GiveDueDates(l.root, l.db(), func() (func(), error) { turns++; return func() {}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	var due []string
+	rows, _ := l.c.db.Query(`SELECT hash FROM extra_marks WHERE due = 1 ORDER BY hash`)
+	for rows.Next() {
+		var h string
+		rows.Scan(&h)
+		due = append(due, h)
+	}
+	rows.Close()
+	want := []string{trashed.Hash, away.Hash}
+	slices.Sort(want)
+	if turns != 1 || !slices.Equal(due, want) {
+		t.Errorf("%d turns, due %v, want 1 and %v", turns, due, want)
+	}
+	if !exists(under(l.root, "ron/2024/05/a.jpg")) {
+		t.Error("not given its date")
+	}
 }

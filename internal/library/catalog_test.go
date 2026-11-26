@@ -109,7 +109,7 @@ func TestAPhotoOfTwoIsCountedOnce(t *testing.T) {
 	if years, err := c.CountsByYear(nil); err != nil || years["2024"] != 2 {
 		t.Errorf("years %v %v, want 2", years, err)
 	}
-	if archived, trashed, favorite, err := c.CountsByState(nil); err != nil || archived != 1 || trashed != 0 || favorite != 2 {
+	if archived, trashed, favorite, _, err := c.CountsByState(nil); err != nil || archived != 1 || trashed != 0 || favorite != 2 {
 		t.Errorf("states %d %d %d %v, want 1 0 2", archived, trashed, favorite, err)
 	}
 	if albums, err := c.AlbumsByOwner(nil); err != nil || len(albums) != 1 || albums[0].Count != 2 {
@@ -148,7 +148,7 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []int{1, 2, 3, 0, 1} {
-		if got, _, err := c.TurnLeft(Key{Hash: "a"}); err != nil || got != want {
+		if got, _, err := c.Turn(Key{Hash: "a"}, 1); err != nil || got != want {
 			t.Fatalf("turned to %d, %v; want %d", got, err, want)
 		}
 	}
@@ -159,7 +159,7 @@ func TestATurnIsKeptAndComesRound(t *testing.T) {
 	if page, err := c.Page(Filter{}); err != nil || len(page) != 1 || page[0].Turn != 1 {
 		t.Fatalf("%+v, %v: want one photo turned once", page, err)
 	}
-	if _, _, err := c.TurnLeft(Key{Hash: "nope"}); !errors.Is(err, fs.ErrNotExist) {
+	if _, _, err := c.Turn(Key{Hash: "nope"}, 1); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("an unknown photo turned: %v", err)
 	}
 }
@@ -214,7 +214,7 @@ func TestTheFavorites(t *testing.T) {
 	}
 	defer c.Close()
 	empty := func(what string) {
-		if a, tr, f, err := c.CountsByState(nil); a != 0 || tr != 0 || f != 0 || err != nil {
+		if a, tr, f, _, err := c.CountsByState(nil); a != 0 || tr != 0 || f != 0 || err != nil {
 			t.Errorf("%s: %d %d %d %v", what, a, tr, f, err)
 		}
 	}
@@ -256,7 +256,7 @@ func TestTheFavorites(t *testing.T) {
 		if err != nil || got != x.want {
 			t.Errorf("favorites with %v hidden: %q %v, want %q", x.hidden, got, err, x.want)
 		}
-		archived, trashed, favorite, err := c.CountsByState(x.hidden)
+		archived, trashed, favorite, _, err := c.CountsByState(x.hidden)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -715,5 +715,21 @@ func TestALookWhereNothingCanBeWritten(t *testing.T) {
 				t.Errorf("looked: %v", err)
 			}
 		})
+	}
+}
+
+// The videos are a list of their own, archived ones too, as the favorites.
+func TestTheVideos(t *testing.T) {
+	c, _ := marking(t, 0)
+	if _, err := c.db.Exec(`INSERT INTO library_photos (hash, profile, path, name, bytes, source, kind, origin, archived, trashed) VALUES
+		('a', 'ron', 'a', 'A.MP4', 1, '', '', '', 1, 0), ('b', 'ron', 'b', 'b.mov', 1, '', '', '', 0, 1), ('c', 'ron', 'c', 'c.jpg', 1, '', '', '', 0, 0)`); err != nil {
+		t.Fatal(err)
+	}
+	page, err := c.Page(Filter{Video: true})
+	if err != nil || len(page) != 1 || page[0].Hash != "a" {
+		t.Errorf("%+v %v", page, err)
+	}
+	if _, _, _, videos, err := c.CountsByState(nil); err != nil || videos != 1 {
+		t.Errorf("%d videos, %v", videos, err)
 	}
 }
