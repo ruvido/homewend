@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,11 +34,12 @@ func TestOverviewOfTheLibrary(t *testing.T) {
 		{ID: "profile-sam", Email: "sam@example.com", Profile: t.TempDir()},
 	}
 
-	o, err := overview(root, accounts, []string{"profile-sam"}, "")
+	// Photos of no profile yet are nobody's to hide.
+	o, err := overview(root, accounts, []string{"sam"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(o.Accounts) != 1 || o.Accounts[0].Shown || o.Total != 4 {
+	if len(o.Accounts) != 1 || o.Total != 4 {
 		t.Fatalf("got %+v", o)
 	}
 	want := []YearCount{{"2024", 2}, {"2019", 1}, {"", 1}}
@@ -84,57 +84,44 @@ func TestFolderIsInTheProfile(t *testing.T) {
 		want                 string
 	}{
 		{"two profiles shown", nil, "", "2025", "", false, "lib"},
-		{"one shown", []string{"google/bob@example.com"}, "", "2025", "", false, "lib/ann/2025"},
+		{"one shown", []string{"bob", "eve"}, "", "2025", "", false, "lib/ann/2025"},
 		{"an account's album", nil, "google/bob@example.com", "", "Greece", false, "lib/bob/albums/Greece"},
-		{"no date", []string{"google/ann@example.com"}, "", "", "", true, "lib/bob/undated"},
-		{"the profile", []string{"google/ann@example.com"}, "", "", "", false, "lib/bob"},
+		{"no date", []string{"ann", "eve"}, "", "", "", true, "lib/bob/undated"},
+		{"the profile", []string{"ann", "eve"}, "", "", "", false, "lib/bob"},
+		{"a person with no account", []string{"ann", "bob"}, "", "", "", false, "lib/eve"},
 	}
 	for _, c := range cases {
-		got := folder("lib", accounts, c.hidden, c.account, c.year, c.album, c.noDate)
+		got := folder("lib", accounts, []string{"ann", "bob", "eve"}, c.hidden, c.account, c.year, c.album, c.noDate)
 		if got != filepath.FromSlash(c.want) {
 			t.Errorf("%s: %s, want %s", c.name, got, c.want)
 		}
 	}
 }
 
-// The photos not on the disk are those of the accounts shown, everywhere:
-// a hidden account's are not counted, nor taken out with the rest. None
+// The photos not on the disk are those of the people shown, everywhere:
+// a hidden person's are not counted, nor taken out with the rest. None
 // gone is none listed, not the whole library.
-func TestMissingAreThoseOfTheAccountsShown(t *testing.T) {
+func TestMissingAreThoseOfThePeopleShown(t *testing.T) {
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, library.WorkDir), 0o755)
 	c, err := library.OpenCatalog(catalogPath(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gone, err := shownOf(missingIn(root), c, []string{"google/sam@example.com"}); err != nil || len(gone) != 0 {
-		t.Fatalf("%v, %v; want none gone", gone, err)
+	if gone := shownOf(missingIn(root), []string{"sam"}); len(gone) != 0 {
+		t.Fatalf("%v; want none gone", gone)
 	}
 	if page, err := c.Page(library.Filter{Only: keysOf(nil)}); err != nil || len(page) != 0 {
 		t.Fatalf("%d photos, %v; none gone must list none", len(page), err)
 	}
 	for _, h := range []string{"sam", "bob"} {
-		c.Put(library.Photo{Hash: h, Path: h + ".jpg", Name: h + ".jpg"})
+		c.Put(library.Photo{Hash: h, Profile: h, Path: h + "/" + h + ".jpg", Name: h + ".jpg"})
 	}
 	c.Close()
-	db, err := sql.Open("sqlite", catalogPath(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, h := range []string{"sam", "bob"} {
-		if _, err := db.Exec(`INSERT INTO owners (account, photo) SELECT ?, id FROM library_photos WHERE hash = ?`, "google/"+h+"@example.com", h); err != nil {
-			t.Fatal(err)
-		}
-	}
-	db.Close()
-	accounts := []AccountInfo{
-		{ID: "google/sam@example.com", Email: "sam@example.com", Profile: t.TempDir()},
-		{ID: "google/bob@example.com", Email: "bob@example.com", Profile: t.TempDir()},
-	}
 	if _, err := lookForMissing(root); err != nil {
 		t.Fatal(err)
 	}
-	o, err := overview(root, accounts, []string{"google/bob@example.com"}, "")
+	o, err := overview(root, nil, []string{"bob"}, "")
 	if err != nil || o.Missing[""] != 1 {
 		t.Errorf("missing %v, %v; want sam's only", o.Missing, err)
 	}

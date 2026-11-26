@@ -70,6 +70,8 @@
 	let emptying = $state.raw<PhotoKey[] | null>(null);
 	let emptyBusy = $state(false);
 	let reload = $state(0);
+	// The people hidden: another of them is another list, as a reload is.
+	const hidden = $derived((app.settings.hidden ?? []).join('/'));
 
 	// The photos picked (K1), by id; the last one picked, for Shift.
 	let selected = $state(new Set<string>());
@@ -82,6 +84,7 @@
 	$effect(() => {
 		void place;
 		void reload;
+		void hidden;
 		void filter;
 		selected = new Set();
 		anchor = -1;
@@ -261,6 +264,7 @@
 	$effect(() => {
 		const p = place;
 		void reload;
+		void hidden;
 		void live;
 		let stopped = false;
 		// Another place starts empty, at its top: its title over the last

@@ -528,26 +528,21 @@ func (c *Catalog) addOwner(k Key, account string) error {
 }
 
 // LocalSource begins the source of a card or a folder imported,
-// "local/<its name>": no account, never hidden with one.
+// "local/<its name>": no account.
 const LocalSource = "local/"
 
-// ownedBy is the SQL that keeps the photos of these accounts, those of
-// nobody's (recorded before owners were kept), and those a card or a folder
-// brought in ("local/…"): hiding an account hides what came from it, not a card's
-// photos it happened to hold too. Nil accounts keeps them all.
-func ownedBy(accounts []string) (string, []any) {
-	if accounts == nil {
+// shownOnly is the SQL that leaves out the photos of the hidden profiles,
+// column naming the photo's profile; none hidden keeps them all. A photo of
+// no profile yet (”, relayout's) is nobody's to hide.
+func shownOnly(column string, hidden []string) (string, []any) {
+	if len(hidden) == 0 {
 		return "", nil
 	}
-	clause := "(id NOT IN (SELECT photo FROM owners) OR id IN (SELECT photo FROM owners WHERE account LIKE '" + LocalSource + "%')"
-	var args []any
-	if len(accounts) > 0 {
-		clause += " OR id IN (SELECT photo FROM owners WHERE account IN (?" + strings.Repeat(",?", len(accounts)-1) + "))"
-		for _, a := range accounts {
-			args = append(args, a)
-		}
+	args := make([]any, len(hidden))
+	for i, p := range hidden {
+		args[i] = p
 	}
-	return clause + ")", args
+	return column + " NOT IN (?" + strings.Repeat(",?", len(hidden)-1) + ")", args
 }
 
 // Filter is what the interface asks for: a page of the grid, narrowed.
@@ -566,9 +561,9 @@ type Filter struct {
 	Profile string
 	// Only keeps only these photos; nil is all, empty is none.
 	Only []Key
-	// Accounts keeps the photos of these accounts, by address; nil is all.
-	Accounts []string
-	Limit    int // the first of them; 0 is all
+	// Hidden leaves out the photos of these profiles.
+	Hidden []string
+	Limit  int // the first of them; 0 is all
 }
 
 // Page returns photos newest first, narrowed by the filter: what a list shows
@@ -652,10 +647,10 @@ func (c *Catalog) Count(f Filter) (int, error) {
 
 // CountsByState is how many photos are archived, in the Trash and given a
 // heart, as many as Page has for each, in one reading of the rows.
-func (c *Catalog) CountsByState(accounts []string) (archived, trashed, favorite int, err error) {
+func (c *Catalog) CountsByState(hidden []string) (archived, trashed, favorite int, err error) {
 	query := `SELECT COALESCE(SUM(trashed = 0 AND archived), 0), COALESCE(SUM(trashed), 0), COALESCE(SUM(trashed = 0 AND favorite), 0)
 		FROM library_photos WHERE out = 0 AND (trashed = 1 OR archived = 1 OR favorite = 1)`
-	clause, args := ownedBy(accounts)
+	clause, args := shownOnly("profile", hidden)
 	if clause != "" {
 		query += " AND " + clause
 	}
@@ -702,7 +697,7 @@ func (f Filter) where(query string) (string, []any) {
 		where = append(where, "(hash, profile) IN (SELECT value ->> 'hash', value ->> 'profile' FROM json_each(?))")
 		args = append(args, string(list))
 	}
-	if clause, more := ownedBy(f.Accounts); clause != "" {
+	if clause, more := shownOnly("profile", f.Hidden); clause != "" {
 		where = append(where, clause)
 		args = append(args, more...)
 	}
@@ -759,9 +754,9 @@ func scanPhotos(rows *sql.Rows) ([]Photo, error) {
 
 // CountsByYear is how many photos each year holds, and under "" those whose
 // date nobody knows.
-func (c *Catalog) CountsByYear(accounts []string) (map[string]int, error) {
+func (c *Catalog) CountsByYear(hidden []string) (map[string]int, error) {
 	query := `SELECT COALESCE(strftime('%Y', taken, 'unixepoch'), ''), COUNT(*) FROM library_photos WHERE NOT ` + away + ` AND archived = 0`
-	clause, args := ownedBy(accounts)
+	clause, args := shownOnly("profile", hidden)
 	if clause != "" {
 		query += " AND " + clause
 	}
@@ -929,10 +924,10 @@ type AlbumCount struct {
 const albumRows = ` FROM album_members m JOIN library_photos p ON p.id = m.photo LEFT JOIN album_owners o ON o.album = m.album AND o.profile = p.profile`
 
 // AlbumsByOwner lists the albums, each under every account that brought it,
-// with the photos of the accounts shown (nil: all).
-func (c *Catalog) AlbumsByOwner(accounts []string) ([]AlbumCount, error) {
+// with the photos of the profiles not hidden.
+func (c *Catalog) AlbumsByOwner(hidden []string) ([]AlbumCount, error) {
 	query := `SELECT COALESCE(o.account, ''), m.album, COUNT(*)` + albumRows + ` WHERE NOT ` + away
-	clause, args := ownedBy(accounts)
+	clause, args := shownOnly("p.profile", hidden)
 	if clause != "" {
 		query += " AND " + clause
 	}

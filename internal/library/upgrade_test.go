@@ -355,12 +355,12 @@ func TestAPhotoOfTwoLibraries(t *testing.T) {
 		if err != nil || len(page) != 1 || page[0].Profile != p {
 			t.Errorf("%s's album: %+v %v", p, page, err)
 		}
-		if page, _ := c.Page(Filter{Accounts: []string{"google/" + p + "@x"}}); len(page) != 1 || page[0].Profile != p {
-			t.Errorf("%s's account alone: %+v", p, page)
-		}
 	}
-	if list, _ := c.AlbumsByOwner([]string{"google/ron@x"}); len(list) != 1 || list[0] != (AlbumCount{"google/ron@x", "Trip", 1}) {
-		t.Errorf("albums with sam's account hidden: %v", list)
+	if page, _ := c.Page(Filter{Hidden: []string{"sam"}}); len(page) != 1 || page[0].Profile != "ron" {
+		t.Errorf("ron's alone: %+v", page)
+	}
+	if list, _ := c.AlbumsByOwner([]string{"sam"}); len(list) != 1 || list[0] != (AlbumCount{"google/ron@x", "Trip", 1}) {
+		t.Errorf("albums with sam hidden: %v", list)
 	}
 	for _, state := range []State{Archived, Trashed, Favorite} {
 		if done, err := c.Mark(state, []Key{ron, {hash, "ann"}}, true); err != nil || len(done) != 1 || done[0] != ron {

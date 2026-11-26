@@ -19,7 +19,7 @@
 		sidebar: SidebarData;
 		place: Place;
 		onplace?: (p: Place) => void;
-		ontoggle?: (account: string) => void;
+		ontoggle?: (profile: string) => void;
 		children: Snippet;
 		status?: Snippet;
 		banner?: Snippet;

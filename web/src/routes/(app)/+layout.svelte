@@ -14,7 +14,7 @@
 	import LibraryBanner from '#lib/components/LibraryBanner.svelte';
 	import Titlebar from '#lib/components/Titlebar.svelte';
 	import Steps from '#lib/components/Steps.svelte';
-	import { app, refresh, shownJob, sidebarOf, toggleAccount, watchJobs } from '#lib/app.svelte.js';
+	import { app, refresh, shownJob, sidebarOf, togglePerson, watchJobs } from '#lib/app.svelte.js';
 	import { placeOf, urlOf } from '#lib/places.js';
 	import { text } from '#lib/strings.js';
 
@@ -109,7 +109,7 @@
 		sidebar={sidebarOf(app.overview)}
 		{place}
 		onplace={(p) => goto(urlOf(p))}
-		ontoggle={toggleAccount}
+		ontoggle={togglePerson}
 		status={job ? bar : undefined}
 		banner={strip}
 	>

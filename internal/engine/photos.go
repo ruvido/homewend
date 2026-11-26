@@ -214,18 +214,17 @@ const (
 
 // Photos are the grid's, newest first: all of it, a year ("" for no date),
 // an album of an account ("": not known), or a view; with a limit, the first of them.
-// Only the photos of the accounts shown are in it.
+// Only the photos of the profiles shown are in it.
 func Photos(s Settings, year, album, albumOf string, noDate bool, view string, limit int) (PhotoList, error) {
 	c, root, err := openLibrary()
 	if err != nil || c == nil {
 		return listOf([]GridPhoto{}, []string{}), err
 	}
 	defer c.Close()
-	accounts, profiles, err := people(s)
+	_, profiles, err := people(s)
 	if err != nil {
 		return PhotoList{}, err
 	}
-	shown := shownAddresses(accounts, s.Hidden)
 	var all []library.Gone
 	if view == ViewMissing {
 		// It waits for the first look: none yet is not none missing.
@@ -235,15 +234,12 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 	} else {
 		all = missingIn(root)
 	}
-	gone, err := shownOf(all, c, shown)
-	if err != nil {
-		return PhotoList{}, err
-	}
+	gone := shownOf(all, s.Hidden)
 	isGone := map[library.Key]bool{}
 	for _, g := range gone {
 		isGone[g.Key] = true
 	}
-	f := library.Filter{Year: year, Album: album, AlbumOf: albumOf, NoDate: noDate, Limit: limit, Accounts: shown}
+	f := library.Filter{Year: year, Album: album, AlbumOf: albumOf, NoDate: noDate, Limit: limit, Hidden: s.Hidden}
 	// An archived photo is still in its album, still a favorite and still missing.
 	f.Grid = album == "" && view == ""
 	f.Archived = view == ViewArchive
@@ -383,21 +379,13 @@ func offMissing(photos []library.Key) {
 	missing.list = without(missing.list, missing.taken)
 }
 
-// shownOf are those of gone that are of the accounts shown (nil: all): the
-// sidebar, the strip, the view and the take-out count the same ones.
-func shownOf(gone []library.Gone, c *library.Catalog, shown []string) ([]library.Gone, error) {
-	if shown == nil || len(gone) == 0 {
-		return gone, nil
+// shownOf are those of gone that are of the profiles shown: the sidebar,
+// the strip, the view and the take-out count the same ones.
+func shownOf(gone []library.Gone, hidden []string) []library.Gone {
+	if len(hidden) == 0 {
+		return gone
 	}
-	page, err := c.Page(library.Filter{Only: keysOf(gone), Accounts: shown})
-	if err != nil {
-		return nil, err
-	}
-	in := map[library.Key]bool{}
-	for _, p := range page {
-		in[p.Key()] = true
-	}
-	return slices.DeleteFunc(slices.Clone(gone), func(g library.Gone) bool { return !in[g.Key] }), nil
+	return slices.DeleteFunc(slices.Clone(gone), func(g library.Gone) bool { return slices.Contains(hidden, g.Profile) })
 }
 
 // keysOf is never nil: to the catalog's filter nil is every photo.
@@ -410,7 +398,7 @@ func keysOf(gone []library.Gone) []library.Key {
 }
 
 // TakeOutMissing takes out of its library the photo one whose file is
-// gone, or with none every one of the accounts shown: a clean-up, so that a card that still
+// gone, or with none every one of the profiles shown: a clean-up, so that a card that still
 // has them brings them in again, unless keepOut. It says how many.
 func TakeOutMissing(one *library.Key, keepOut bool) (int, error) {
 	root, err := LibraryHere()
@@ -431,19 +419,12 @@ func TakeOutMissing(one *library.Key, keepOut bool) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	accounts, err := Accounts()
-	if err != nil {
-		return 0, err
-	}
 	// What is taken out is what is gone now.
 	gone, err := lookForMissing(root)
 	if err != nil {
 		return 0, err
 	}
-	gone, err = shownOf(gone, c, shownAddresses(accounts, s.Hidden))
-	if err != nil {
-		return 0, err
-	}
+	gone = shownOf(gone, s.Hidden)
 	var keys []library.Key
 	for _, g := range gone {
 		if one == nil || g.Key == *one {
@@ -771,20 +752,26 @@ func Folder(s Settings, account, year, album string, noDate bool) (string, error
 	if err != nil {
 		return "", err
 	}
-	accounts, err := Accounts()
+	accounts, profiles, err := people(s)
 	if err != nil {
 		return "", err
 	}
-	return folder(root, accounts, s.Hidden, account, year, album, noDate), nil
+	return folder(root, accounts, profiles, s.Hidden, account, year, album, noDate), nil
 }
 
-func folder(root string, accounts []AccountInfo, hidden []string, account, year, album string, noDate bool) string {
+func folder(root string, accounts []AccountInfo, known, hidden []string, account, year, album string, noDate bool) string {
 	var profiles []string
-	for _, a := range accounts {
-		named := account != "" && a.ID == account
-		shown := account == "" && a.Email != "" && !slices.Contains(hidden, a.ID)
-		if (named || shown) && !slices.Contains(profiles, a.Profile) {
-			profiles = append(profiles, a.Profile)
+	if account != "" {
+		for _, a := range accounts {
+			if a.ID == account {
+				profiles = append(profiles, a.Profile)
+			}
+		}
+	} else {
+		for _, p := range known {
+			if !slices.Contains(hidden, p) {
+				profiles = append(profiles, p)
+			}
 		}
 	}
 	if len(profiles) != 1 {

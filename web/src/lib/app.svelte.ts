@@ -189,16 +189,16 @@ export async function refresh() {
 	}
 }
 
-/** Shows or hides an account's photos, and remembers it. */
-export async function toggleAccount(id: string) {
+/** Shows or hides a person's photos, and remembers it. */
+export async function togglePerson(profile: string) {
 	const hidden = new Set(app.settings.hidden ?? []);
-	if (hidden.has(id)) hidden.delete(id);
-	else hidden.add(id);
+	if (hidden.has(profile)) hidden.delete(profile);
+	else hidden.add(profile);
 	app.settings = await putSettings({ ...app.settings, hidden: [...hidden] });
 	app.overview = await getOverview();
 }
 
-/** Every photo not on the disk, of the accounts shown. */
+/** Every photo not on the disk, of the people shown. */
 export const missingTotal = (o: Overview) => Object.values(o.missing).reduce((a, b) => a + b, 0);
 
 /** A person's place in the engine's profiles: their colour, the same everywhere. */
@@ -209,8 +209,9 @@ export const personOfAccount = (id: string) => personOf(app.overview?.accounts.f
 /** The engine's overview as the sidebar draws it. */
 export function sidebarOf(o: Overview): Sidebar {
 	return {
+		people: o.profiles.map((p, index) => ({ id: p, name: p, email: '', shown: !app.settings.hidden?.includes(p), index })),
 		// An account is its address: Homewend asks Google for nothing more.
-		accounts: o.accounts.map((a) => ({ id: a.id, email: a.email, name: a.email, shown: a.shown, photos: a.photos, index: o.profiles.indexOf(a.profile) })),
+		accounts: o.accounts.map((a) => ({ id: a.id, email: a.email, name: a.email, photos: a.photos, index: o.profiles.indexOf(a.profile) })),
 		total: o.total,
 		years: o.years.map((y) => ({
 			label: y.year || text.noDate,

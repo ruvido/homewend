@@ -57,8 +57,7 @@ func TestACardTakenOutHalfwayIsSaid(t *testing.T) {
 	}
 }
 
-// A folder's photos carry its name as their source, and stay in the grid
-// when every Google account is hidden.
+// A folder's photos carry its name as their source.
 func TestAnImportedPhotoIsNamedByItsFolder(t *testing.T) {
 	config(t)
 	root := t.TempDir()
@@ -80,9 +79,9 @@ func TestAnImportedPhotoIsNamedByItsFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer catalog.Close()
-	shown, err := catalog.Page(library.Filter{Accounts: []string{}, Limit: 10})
+	shown, err := catalog.Page(library.Filter{Limit: 10})
 	if err != nil || len(shown) != 1 {
-		t.Fatalf("%d shown with every account hidden, %v; want the imported one", len(shown), err)
+		t.Fatalf("%d shown, %v; want the imported one", len(shown), err)
 	}
 	_, sources, err := catalog.About(shown[0].Key())
 	if err != nil || len(sources) != 1 || sources[0] != "local/old-laptop" {

@@ -17,7 +17,7 @@ import (
 type Settings struct {
 	// Theme is "system", "light" or "dark"; empty is "system".
 	Theme string `json:"theme,omitempty"`
-	// Hidden are the accounts, by id, whose photos the window leaves out.
+	// Hidden are the profiles whose photos the window leaves out.
 	Hidden []string `json:"hidden,omitempty"`
 	// Library is the library folder, chosen once.
 	Library string `json:"library,omitempty"`
@@ -221,7 +221,19 @@ func LoadSettings() (Settings, error) {
 	return loadSettings(path)
 }
 
-func loadSettings(path string) (Settings, error) { return readJSON[Settings](path) }
+func loadSettings(path string) (Settings, error) {
+	s, err := readJSON[Settings](path)
+	// Hidden were accounts, "google/<address>", before they were profiles,
+	// which have no "/": each is its profile's now, written at the next save.
+	for i, h := range s.Hidden {
+		if strings.Contains(h, "/") {
+			s.Hidden[i] = s.ProfileFor(h)
+		}
+	}
+	slices.Sort(s.Hidden)
+	s.Hidden = slices.Compact(s.Hidden)
+	return s, err
+}
 
 // settingsMu holds one change of the settings at a time: an import
 // remembers its profile while the window may save its theme, and the

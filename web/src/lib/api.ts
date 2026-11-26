@@ -10,6 +10,7 @@ export type Theme = 'system' | 'light' | 'dark';
 
 export interface Settings {
 	theme?: Theme;
+	/** The profiles whose photos the window leaves out. */
 	hidden?: string[];
 	/** The profile of each account, by id, once it has been asked. */
 	profiles?: Record<string, string>;
@@ -25,12 +26,12 @@ export interface AccountInfo {
 }
 
 export interface Overview {
-	accounts: (AccountInfo & { shown: boolean; photos: number })[];
+	accounts: (AccountInfo & { photos: number })[];
 	total: number;
 	years: { year: string; count: number }[];
 	albums: { account: string; name: string; count: number }[];
 	takeouts: number;
-	/** The photos of the accounts shown in the Archive, in the Trash and with a heart. */
+	/** The photos of the people shown in the Archive, in the Trash and with a heart. */
 	archived: number;
 	trashed: number;
 	favorites: number;

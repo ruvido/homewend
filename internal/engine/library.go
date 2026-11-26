@@ -6,7 +6,6 @@ package engine
 import (
 	"fmt"
 	"path/filepath"
-	"slices"
 	"sort"
 	"sync"
 
@@ -14,14 +13,15 @@ import (
 )
 
 // Overview is what the window's sidebar shows: the accounts, and the years
-// and albums of the library folder chosen once (DefaultLibrary).
+// and albums of the library folder chosen once (DefaultLibrary), of the
+// profiles shown.
 type Overview struct {
-	Accounts []ShownAccount `json:"accounts"`
+	Accounts []AccountCount `json:"accounts"`
 	Total    int            `json:"total"`
 	Years    []YearCount    `json:"years"`
 	Albums   []AlbumCount   `json:"albums"`
 	Takeouts int            `json:"takeouts"`
-	// Archived, Trashed and Favorites count the photos of the accounts shown
+	// Archived, Trashed and Favorites count the photos of the profiles shown
 	// in the Archive, in the Trash and with a heart.
 	Archived  int `json:"archived"`
 	Trashed   int `json:"trashed"`
@@ -39,11 +39,10 @@ type Overview struct {
 	Gone string `json:"gone,omitempty"`
 }
 
-// ShownAccount is an account and whether the window shows its photos.
-type ShownAccount struct {
+// AccountCount is an account and how many photos of the library it brought.
+type AccountCount struct {
 	AccountInfo
-	Shown  bool `json:"shown"`
-	Photos int  `json:"photos"` // in the library, brought by this account
+	Photos int `json:"photos"`
 }
 
 // YearCount is a year, newest first, or "" for photos with no date.
@@ -100,7 +99,7 @@ func sameChanges(before, after library.Written) {
 	unseen.after, unseen.before = after.Changes, shown
 }
 
-// LibraryOverview reads the catalog of every shown account. An account with no
+// LibraryOverview reads the catalog for the profiles shown. An account with no
 // library yet counts nothing; that is not an error.
 func LibraryOverview(s Settings) (Overview, error) {
 	root, err := DefaultLibrary()
@@ -135,23 +134,8 @@ func LibraryOverview(s Settings) (Overview, error) {
 	return o, err
 }
 
-// shownAddresses are the addresses of the accounts shown, or nil when every
-// account is: the catalog then needs no filter.
-func shownAddresses(accounts []AccountInfo, hidden []string) []string {
-	if len(hidden) == 0 {
-		return nil
-	}
-	shown := []string{}
-	for _, a := range accounts {
-		if a.Email != "" && !slices.Contains(hidden, a.ID) {
-			shown = append(shown, a.ID)
-		}
-	}
-	return shown
-}
-
 func overview(root string, accounts []AccountInfo, hidden []string, filled string) (Overview, error) {
-	o := Overview{Profiles: []string{}, Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []ShownAccount{}, Missing: map[string]int{}}
+	o := Overview{Profiles: []string{}, Years: []YearCount{}, Albums: []AlbumCount{}, Accounts: []AccountCount{}, Missing: map[string]int{}}
 	idOf := map[string]string{}
 	for _, a := range accounts {
 		// A profile that is signed out is nobody yet.
@@ -159,7 +143,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 			continue
 		}
 		idOf[a.ID] = a.ID
-		o.Accounts = append(o.Accounts, ShownAccount{AccountInfo: a, Shown: !slices.Contains(hidden, a.ID)})
+		o.Accounts = append(o.Accounts, AccountCount{AccountInfo: a})
 		if notes, err := loadNotes(a.Dir); err == nil {
 			o.Takeouts += len(asked(notes))
 		}
@@ -178,12 +162,11 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 		return o, err
 	}
 	defer c.Close()
-	shown := shownAddresses(accounts, hidden)
-	years, err := c.CountsByYear(shown)
+	years, err := c.CountsByYear(hidden)
 	if err != nil {
 		return o, err
 	}
-	albums, err := c.AlbumsByOwner(shown)
+	albums, err := c.AlbumsByOwner(hidden)
 	if err != nil {
 		return o, err
 	}
@@ -191,14 +174,10 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	if err != nil {
 		return o, err
 	}
-	if o.Archived, o.Trashed, o.Favorites, err = c.CountsByState(shown); err != nil {
+	if o.Archived, o.Trashed, o.Favorites, err = c.CountsByState(hidden); err != nil {
 		return o, err
 	}
-	gone, err := shownOf(missingIn(root), c, shown)
-	if err != nil {
-		return o, err
-	}
-	for _, g := range gone {
+	for _, g := range shownOf(missingIn(root), hidden) {
 		o.Missing[g.Year]++
 	}
 	for i := range o.Accounts {
@@ -210,7 +189,7 @@ func overview(root string, accounts []AccountInfo, hidden []string, filled strin
 	}
 	for _, al := range albums {
 		id := idOf[al.Account]
-		if al.Account != "" && (id == "" || slices.Contains(hidden, id)) {
+		if al.Account != "" && id == "" {
 			continue
 		}
 		o.Albums = append(o.Albums, AlbumCount{Account: id, Name: al.Name, Count: al.Count})

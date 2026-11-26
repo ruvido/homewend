@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -25,6 +26,19 @@ func TestSettingsRoundTrip(t *testing.T) {
 	s, err := loadSettings(path)
 	if err != nil || s.Theme != "dark" {
 		t.Fatalf("got %+v, %v; want dark", s, err)
+	}
+}
+
+// Hidden accounts, as they were kept, are their people hidden: once each.
+func TestHiddenAccountsBecomeTheirProfiles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	old := `{"hidden":["google/ann@example.com","google/ann.work@example.com","google/bob@example.com","eve"],"profiles":{"google/ann.work@example.com":"ann"}}`
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := loadSettings(path)
+	if err != nil || !slices.Equal(s.Hidden, []string{"ann", "bob", "eve"}) {
+		t.Fatalf("hidden %v, %v; want ann, bob and eve", s.Hidden, err)
 	}
 }
 

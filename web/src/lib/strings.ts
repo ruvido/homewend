@@ -77,7 +77,7 @@ export const text = {
 	settings: 'Settings',
 	more: (n: number) => `${n} more`,
 	fewer: 'Show fewer',
-	showAccount: (name: string) => `Show ${name}'s photos`,
+	showPerson: (name: string) => `Show ${name}'s photos`,
 
 	settingsTitle: 'Settings',
 	appearance: 'APPEARANCE',

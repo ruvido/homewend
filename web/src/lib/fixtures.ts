@@ -4,10 +4,14 @@
 // Made-up data for the components page only: the screens read the engine.
 import type { Sidebar } from './library.js';
 
-export const twoAccounts: Sidebar = {
+export const twoPeople: Sidebar = {
+	people: [
+		{ id: 'alex', name: 'alex', email: '', shown: true, index: 0 },
+		{ id: 'sam', name: 'sam', email: '', shown: true, index: 1 }
+	],
 	accounts: [
-		{ id: 'a', name: 'Alex Morgan', email: 'alex.morgan@example.com', shown: true },
-		{ id: 'b', name: 'Sam Rivera', email: 'sam.rivera@example.com', shown: true }
+		{ id: 'a', name: 'Alex Morgan', email: 'alex.morgan@example.com', index: 0 },
+		{ id: 'b', name: 'Sam Rivera', email: 'sam.rivera@example.com', index: 1 }
 	],
 	total: 38584,
 	years: [
@@ -32,12 +36,10 @@ export const twoAccounts: Sidebar = {
 	missing: 0
 };
 
-export const tenAccounts: Sidebar = {
-	...twoAccounts,
-	accounts: [
-		...twoAccounts.accounts,
-		...['Jordan Lee', 'Casey Kim', 'Riley Chen', 'Taylor Brooks', 'Morgan Diaz', 'Avery Patel', 'Quinn Ross', 'Drew Evans'].map(
-			(name, i) => ({ id: `x${i}`, name, email: `${name.toLowerCase().replace(' ', '.')}@example.com`, shown: false })
-		)
+export const tenPeople: Sidebar = {
+	...twoPeople,
+	people: [
+		...twoPeople.people,
+		...['jordan', 'casey', 'riley', 'taylor', 'morgan', 'avery', 'quinn', 'drew'].map((name, i) => ({ id: name, name, email: '', shown: false, index: i + 2 }))
 	]
 };

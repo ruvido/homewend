@@ -26,7 +26,7 @@
 		/** Only the rows that have an icon, as a 56px column. */
 		rail?: boolean;
 		onplace?: (p: Place) => void;
-		ontoggle?: (account: string) => void;
+		ontoggle?: (profile: string) => void;
 		/** A click anywhere on the rail opens the full sidebar instead. */
 		onexpand?: () => void;
 	} = $props();
@@ -46,13 +46,13 @@
 		await lookCards();
 	}
 
-	let allAccounts = $state(false);
+	let allPeople = $state(false);
 	let allYears = $state(false);
 
-	// Right-click on an account, a year or an album: open its folder, or copy
+	// Right-click on a person, a year or an album: open its folder, or copy
 	// where it is.
 	const opener = new Opener<{ path: string; key: string }>();
-	function context(e: MouseEvent, key: string, where: { account?: string; year?: string; album?: string; noDate?: boolean }) {
+	function context(e: MouseEvent, key: string, where: { profile?: string; account?: string; year?: string; album?: string; noDate?: boolean }) {
 		if (rail) return;
 		opener.open(e, async () => ({ path: (await folderOf(where)).path, key }));
 	}
@@ -60,16 +60,13 @@
 	let folded = $state<Record<string, boolean>>({});
 	let allAlbums = $state<Record<string, boolean>>({});
 
-	const many = $derived(data.accounts.length > 1);
-	const accounts = $derived(
-		allAccounts ? data.accounts : data.accounts.slice(0, FOLD.accounts)
-	);
-	// Albums by account, in the accounts' order; only shown accounts have any.
-	// Albums the library does not tie to an account form one group.
+	const many = $derived(data.people.length > 1);
+	const people = $derived(allPeople ? data.people : data.people.slice(0, FOLD.people));
+	// Albums by account, in the accounts' order; those of the people hidden
+	// are not counted. Albums the library does not tie to an account form one group.
 	const groups = $derived(
 		data.albums.some((al) => al.account)
 			? data.accounts
-					.filter((a) => a.shown)
 					.map((a) => ({ account: a, albums: data.albums.filter((al) => al.account === a.id) }))
 					.filter((g) => g.albums.length > 0)
 			: data.albums.length > 0
@@ -77,8 +74,8 @@
 				: []
 	);
 	const is = (p: Place) => samePlace(p, place);
-	// On the rail a row opens the sidebar and its page; an account only opens
-	// the sidebar, where its checkbox is.
+	// On the rail a row opens the sidebar and its page; a person only opens
+	// the sidebar, where their checkbox is.
 	const go = (p: Place) => {
 		if (rail) onexpand?.();
 		onplace?.(p);
@@ -89,31 +86,29 @@
 <nav class:rail>
 	<div class="scroll">
 		<div class="group">
-			{#each accounts as account (account.id)}
+			{#each people as person (person.id)}
 				<button
 					class="row"
-					title={rail ? account.name : undefined}
-					aria-pressed={many ? account.shown : undefined}
-					aria-label={many ? text.showAccount(account.name) : account.name}
-					onclick={() => toggle(account.id)}
-					oncontextmenu={(e) => context(e, 'a:' + account.id, { account: account.id })}
-					class:target={opener.menu?.key === 'a:' + account.id}
+					title={rail ? person.name : undefined}
+					aria-pressed={many ? person.shown : undefined}
+					aria-label={many ? text.showPerson(person.name) : person.name}
+					onclick={() => toggle(person.id)}
+					oncontextmenu={(e) => context(e, 'p:' + person.id, { profile: person.id })}
+					class:target={opener.menu?.key === 'p:' + person.id}
 				>
-					<span class="lead"><Avatar {account} index={account.index ?? data.accounts.indexOf(account)} /></span>
-					<span class="label">{account.name}</span>
+					<span class="lead"><Avatar account={person} index={person.index} /></span>
+					<span class="label">{person.name}</span>
 					{#if many}
-						<span class="check" class:on={account.shown}>
-							{#if account.shown}<Icon name="check-lg" size={12} />{/if}
+						<span class="check" class:on={person.shown}>
+							{#if person.shown}<Icon name="check-lg" size={12} />{/if}
 						</span>
 					{/if}
 				</button>
 			{/each}
-			{#if data.accounts.length > FOLD.accounts && !rail}
-				<button class="row more" onclick={() => (allAccounts = !allAccounts)}>
+			{#if data.people.length > FOLD.people && !rail}
+				<button class="row more" onclick={() => (allPeople = !allPeople)}>
 					<span class="lead"><Icon name="chevron-down" size={16} /></span>
-					<span class="label"
-						>{allAccounts ? text.fewer : text.more(data.accounts.length - FOLD.accounts)}</span
-					>
+					<span class="label">{allPeople ? text.fewer : text.more(data.people.length - FOLD.people)}</span>
 				</button>
 			{/if}
 		</div>

@@ -1,14 +1,14 @@
 // homewend — Copyright (C) 2026 ruvido
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// What the sidebar shows, for any number of Google accounts.
+// What the sidebar shows, for any number of people and Google accounts.
 
 export interface Account {
 	id: string;
 	name: string;
 	email: string;
-	/** Whether its photos are in what the window shows. */
-	shown: boolean;
+	/** A person's: whether their photos are in what the window shows. */
+	shown?: boolean;
 	/** Photos in the library this account brought. */
 	photos?: number;
 	/** The person's place in the engine's profiles: their colour. */
@@ -32,6 +32,8 @@ export interface Album {
 }
 
 export interface Sidebar {
+	/** The people, each a profile: a folder of the library. */
+	people: Account[];
 	accounts: Account[];
 	total: number;
 	years: Year[];
@@ -84,4 +86,4 @@ export function initials(name: string): string {
 }
 
 /** How many of a list show before "N more". */
-export const FOLD = { accounts: 4, years: 4, albums: 3 } as const;
+export const FOLD = { people: 4, years: 4, albums: 3 } as const;

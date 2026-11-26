@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,38 +44,42 @@ func TestCountsByYear(t *testing.T) {
 	}
 }
 
-func TestOwnersFilterThePhotos(t *testing.T) {
+// Hiding a person leaves out the photos of their library, whatever brought
+// them, and their albums; a photo of no profile yet is nobody's to hide.
+func TestHiddenProfilesFilterThePhotos(t *testing.T) {
 	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 	y := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
-	for _, p := range []struct{ hash, owner string }{{"a", "ann@x"}, {"b", "bo@x"}, {"c", ""}, {"d", "ann@x"}} {
-		c.Put(Photo{Hash: p.hash, Path: p.hash, Name: p.hash, Taken: y})
-		c.addOwner(Key{Hash: p.hash}, p.owner)
+	for _, k := range []Key{{"a", "ann"}, {"b", "bo"}, {"c", ""}, {"d", "ann"}} {
+		c.Put(Photo{Hash: k.Hash, Profile: k.Profile, Path: k.Profile + "/" + k.Hash, Name: k.Hash, Taken: y})
 	}
-	c.addOwner(Key{Hash: "d"}, "bo@x") // in both exports
-	c.addAlbum("Trip", Key{Hash: "a"}, "ann@x")
-	c.addAlbum("Kids", Key{Hash: "b"}, "bo@x")
+	c.addOwner(Key{"d", "ann"}, "google/bo@x") // bo's account brought it to ann's library
+	c.addAlbum("Trip", Key{"a", "ann"}, "google/ann@x")
+	c.addAlbum("Kids", Key{"b", "bo"}, "google/bo@x")
 
-	count := func(accounts []string) int {
-		got, err := c.CountsByYear(accounts)
-		if err != nil {
-			t.Fatal(err)
+	for _, x := range []struct {
+		hidden []string
+		want   int
+		albums []AlbumCount
+	}{
+		{nil, 4, []AlbumCount{{"google/bo@x", "Kids", 1}, {"google/ann@x", "Trip", 1}}},
+		{[]string{"bo"}, 3, []AlbumCount{{"google/ann@x", "Trip", 1}}},
+		{[]string{"ann"}, 2, []AlbumCount{{"google/bo@x", "Kids", 1}}},
+		{[]string{"ann", "bo"}, 1, nil},
+	} {
+		years, err := c.CountsByYear(x.hidden)
+		if err != nil || years["2024"] != x.want {
+			t.Errorf("%v hidden: %v %v, want %d", x.hidden, years, err, x.want)
 		}
-		return got["2024"]
-	}
-	if count(nil) != 4 || count([]string{"ann@x"}) != 3 || count([]string{"bo@x"}) != 3 || count([]string{}) != 1 {
-		t.Fatalf("all %d, ann %d, bo %d, nobody %d", count(nil), count([]string{"ann@x"}), count([]string{"bo@x"}), count([]string{}))
-	}
-	page, err := c.Page(Filter{Accounts: []string{"bo@x"}})
-	if err != nil || len(page) != 3 {
-		t.Fatalf("bo's page: %d, %v", len(page), err)
-	}
-	albums, err := c.AlbumsByOwner(nil)
-	if err != nil || len(albums) != 2 || albums[0] != (AlbumCount{"bo@x", "Kids", 1}) || albums[1] != (AlbumCount{"ann@x", "Trip", 1}) {
-		t.Fatalf("albums %+v, %v", albums, err)
+		if page, err := c.Page(Filter{Hidden: x.hidden}); err != nil || len(page) != x.want || slices.ContainsFunc(page, func(p Photo) bool { return slices.Contains(x.hidden, p.Profile) }) {
+			t.Errorf("%v hidden: page %+v %v", x.hidden, page, err)
+		}
+		if albums, err := c.AlbumsByOwner(x.hidden); err != nil || !slices.Equal(albums, x.albums) {
+			t.Errorf("%v hidden: albums %+v %v", x.hidden, albums, err)
+		}
 	}
 }
 
@@ -166,7 +171,7 @@ func TestAnArchivedPhoto(t *testing.T) {
 	}
 }
 
-// The Favorites are the photos with a heart of the accounts asked, archived
+// The Favorites are the photos with a heart of the profiles shown, archived
 // ones too, those in the Trash not; the counts of the states are their lists'.
 func TestTheFavorites(t *testing.T) {
 	c, err := OpenCatalog(filepath.Join(t.TempDir(), "catalog.db"))
@@ -182,18 +187,17 @@ func TestTheFavorites(t *testing.T) {
 	empty("no photo")
 	keys := map[string]Key{}
 	for i, h := range []string{"a", "b", "c", "d", "e"} {
-		keys[h] = Key{h, "ron"}
+		k := Key{h, "ann"}
+		if h == "a" || h == "c" {
+			k.Profile = "ron"
+		}
+		keys[h] = k
 		taken := time.Date(2020, 5, 1+i, 0, 0, 0, 0, time.UTC)
-		if err := c.Put(Photo{Hash: h, Profile: "ron", Path: "ron/" + h, Name: h, Taken: taken}); err != nil {
+		if err := c.Put(Photo{Hash: h, Profile: keys[h].Profile, Path: keys[h].Profile + "/" + h, Name: h, Taken: taken}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	empty("no state")
-	for h, account := range map[string]string{"a": "ron", "c": "ron", "b": "ann", "d": "ann", "e": "ann"} {
-		if err := c.addOwner(keys[h], "google/"+account+"@example.com"); err != nil {
-			t.Fatal(err)
-		}
-	}
 	for state, hashes := range map[State]string{Favorite: "abcd", Archived: "bce", Trashed: "ce"} {
 		for _, h := range hashes {
 			if done, err := c.Mark(state, []Key{keys[string(h)]}, true); err != nil || len(done) != 1 {
@@ -202,28 +206,28 @@ func TestTheFavorites(t *testing.T) {
 		}
 	}
 	for _, x := range []struct {
-		accounts []string
-		want     string
+		hidden []string
+		want   string
 	}{
 		{nil, "dba"},
-		{[]string{"google/ron@example.com"}, "a"},
-		{[]string{"google/ann@example.com"}, "db"},
-		{[]string{}, ""},
+		{[]string{"ann"}, "a"},
+		{[]string{"ron"}, "db"},
+		{[]string{"ann", "ron"}, ""},
 	} {
-		page, err := c.Page(Filter{Favorite: true, Accounts: x.accounts})
+		page, err := c.Page(Filter{Favorite: true, Hidden: x.hidden})
 		got := ""
 		for _, p := range page {
 			got += p.Hash
 		}
 		if err != nil || got != x.want {
-			t.Errorf("favorites of %v: %q %v, want %q", x.accounts, got, err, x.want)
+			t.Errorf("favorites with %v hidden: %q %v, want %q", x.hidden, got, err, x.want)
 		}
-		archived, trashed, favorite, err := c.CountsByState(x.accounts)
+		archived, trashed, favorite, err := c.CountsByState(x.hidden)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for i, f := range []Filter{{Archived: true}, {Trashed: true}, {Favorite: true}} {
-			f.Accounts = x.accounts
+			f.Hidden = x.hidden
 			if n, err := c.Count(f); err != nil || n != []int{archived, trashed, favorite}[i] {
 				t.Errorf("%+v: list %d %v, counts %d %d %d", f, n, err, archived, trashed, favorite)
 			}
