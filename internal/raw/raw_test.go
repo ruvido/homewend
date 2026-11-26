@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 	case "":
 		os.Exit(m.Run())
 	case "ok":
-		fmt.Println(`{"width":2,"height":1,"make":"Fujifilm","model":"X-T5","lens":"XF35mmF1.4 R","iso":400,"wb":[2.1,1,1.6,0],"exposure_shift":-0.72,"baseline_exposure":0,"preview":{"offset":1024,"length":2048,"width":160,"height":120}}`)
+		fmt.Println(`{"width":2,"height":1,"make":"Fujifilm","model":"X-T5","lens":"XF35mmF1.4 R","iso":400,"wb":[2.1,1,1.6,0],"exposure_shift":-0.72,"baseline_exposure":0,"frame":{"width":2,"height":1},"preview":{"offset":1024,"length":2048,"width":160,"height":120}}`)
 		binary.Write(os.Stdout, binary.LittleEndian, []uint16{1, 2, 3, 65535, 0, 300})
 	case "fail":
 		fmt.Fprintln(os.Stderr, "open: Unsupported file format or not RAW file")
@@ -68,6 +68,7 @@ func TestDevelop(t *testing.T) {
 	want := Meta{Make: "Fujifilm", Model: "X-T5", Lens: "XF35mmF1.4 R", ISO: 400,
 		WB: [4]float64{2.1, 1, 1.6, 0}, ExposureShift: -0.72,
 		Preview: &Preview{Offset: 1024, Length: 2048, Width: 160, Height: 120}}
+	want.Frame.Width, want.Frame.Height = 2, 1
 	if !reflect.DeepEqual(*meta, want) {
 		t.Errorf("meta = %+v, want %+v", *meta, want)
 	}

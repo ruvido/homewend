@@ -28,8 +28,8 @@ var ErrNoHelper = errors.New("raw photos need homewend-raw, which is not install
 const timeout = 2 * time.Minute
 
 // Image is the developed photo: linear ProPhoto RGB, 16 bits a sample, rows
-// top to bottom, already upright. Three samples a pixel and not
-// image.RGBA64's four: a 40 MP photo is 240 MB as it is.
+// top to bottom as the sensor has them, not turned. Three samples a pixel and
+// not image.RGBA64's four: a 40 MP photo is 240 MB as it is.
 type Image struct {
 	Width, Height int
 	Pix           []uint16
@@ -48,6 +48,9 @@ type Meta struct {
 	BaselineExposure float64 `json:"baseline_exposure"`
 	// Preview is the largest JPEG the camera embedded, nil if none.
 	Preview *Preview
+	// Frame is the size of the camera's own picture, in the middle of the
+	// sensor's, as the raw file says; zero if it does not.
+	Frame struct{ Width, Height int }
 }
 
 // Preview is where an embedded JPEG lies in the raw file.

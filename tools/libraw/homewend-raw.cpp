@@ -4,13 +4,14 @@
 // homewend-raw develops one camera raw file with LibRaw, as
 // "dcraw_emu -w -o 4 -4 -q 2 -H 2" does: the white balance as shot,
 // ProPhoto primaries, linear, 16 bits, no auto-brightening, PPG demosaic
-// (one-pass for X-Trans), highlights blended.
+// (one-pass for X-Trans), highlights blended; and not turned (-t 0), as the
+// JPEG the camera embedded is not: the program reading both turns them alike.
 //
 // Usage: homewend-raw FILE
 //
 // It writes to stdout one line of JSON (size and metadata), then the pixels:
 // width*height RGB triples of 16-bit samples in the machine's byte order,
-// rows top to bottom, already turned upright. An error is a line on stderr
+// rows top to bottom, as the sensor has them. An error is a line on stderr
 // and a non-zero exit.
 #include <cstdio>
 #include <string>
@@ -59,6 +60,7 @@ int main(int argc, char **argv)
   out.output_bps = 16;
   out.user_qual = 2; // -q 2
   out.highlight = 2; // -H 2
+  out.user_flip = 0;  // -t 0
 
   int err;
   if ((err = raw.open_file(argv[1])) != LIBRAW_SUCCESS)
@@ -97,6 +99,10 @@ int main(int argc, char **argv)
   // Fuji's RawExposureBias and Canon's highlight tone priority, in stops.
   printf(",\"exposure_shift\":%g", d.makernotes.common.ExposureCalibrationShift);
   printf(",\"baseline_exposure\":%g", d.color.dng_levels.baseline_exposure);
+  // The size of the camera's own picture, smaller than the sensor's (Fuji).
+  const libraw_raw_inset_crop_t &crop = d.sizes.raw_inset_crops[0];
+  if (crop.cwidth && crop.cheight)
+    printf(",\"frame\":{\"width\":%d,\"height\":%d}", crop.cwidth, crop.cheight);
   if (preview)
     printf(",\"preview\":{\"offset\":%lld,\"length\":%u,\"width\":%d,\"height\":%d}",
            (long long)preview->toffset, preview->tlength, preview->twidth,
