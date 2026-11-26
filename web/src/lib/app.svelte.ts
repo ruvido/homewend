@@ -21,7 +21,8 @@ import {
 	type Overview,
 	type Settings,
 	type Thumbs,
-	type Emptying
+	type Emptying,
+	type Backing
 } from './api.js';
 import type { Sidebar, YearState } from './library.js';
 import { chooseUrl } from './places.js';
@@ -47,6 +48,8 @@ export const app = $state<{
 	thumbs: Thumbs | null;
 	/** An Empty Trash under way, for its dialog to show; null when none runs. */
 	emptying: Emptying | null;
+	/** The phones backing up now, each with how far it has come. */
+	backups: Backing[];
 }>({
 	settings: {},
 	overview: null,
@@ -58,7 +61,8 @@ export const app = $state<{
 	picked: {},
 	libraryMoved: 0,
 	thumbs: null,
-	emptying: null
+	emptying: null,
+	backups: []
 });
 
 function measure(account: string, j: JobState) {
@@ -125,6 +129,7 @@ export function watchJobs(): () => void {
 		app.thumbs = making && wasMaking ? got.thumbs : null;
 		wasMaking = making;
 		app.emptying = got && got.emptying.of > 0 ? got.emptying : null;
+		app.backups = got?.backups ?? [];
 		const moved = changes !== undefined && now !== changes;
 		changes = now;
 		if (moved) app.libraryMoved++;

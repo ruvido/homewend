@@ -338,8 +338,13 @@ type Held struct {
 func Have(phone Phone, hashes []string) (Held, error) {
 	out := Held{Have: []string{}, Out: []string{}, Archived: []string{}}
 	root, catalog, err := lookAtLibrary()
-	if err != nil || catalog == nil {
+	if err != nil {
 		return out, err
+	}
+	// A library with no catalog yet lacks them all.
+	if catalog == nil {
+		backupAsked(phone, hashes, out)
+		return out, nil
 	}
 	defer catalog.Close()
 	for _, h := range hashes {
@@ -357,6 +362,7 @@ func Have(phone Phone, hashes []string) (Held, error) {
 			}
 		}
 	}
+	backupAsked(phone, hashes, out)
 	shelf, err := catalog.Shelf(phone.Profile)
 	if errors.Is(err, library.ErrNoMarks) {
 		return out, nil
@@ -429,6 +435,13 @@ type Received struct {
 // turn is taken: a slow phone does not hold up a card's import. Those another
 // library has are not read from the phone.
 func ReceivePhoto(ctx context.Context, phone Phone, hash, name string, size int64, body io.Reader) (Received, error) {
+	end := backupSending(phone)
+	got, err := receivePhoto(ctx, phone, hash, name, size, body)
+	end(hash, err == nil && got.Path != "")
+	return got, err
+}
+
+func receivePhoto(ctx context.Context, phone Phone, hash, name string, size int64, body io.Reader) (Received, error) {
 	root, catalog, err := lookAtLibrary()
 	if err != nil {
 		return Received{}, err

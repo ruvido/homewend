@@ -14,6 +14,7 @@
 	import { ApiError, getPhones, startPairing, stopPairing, unpair, type Phone, type Unpaired } from '#lib/api.js';
 	import { clock, day, span } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
+	import { app } from '#lib/app.svelte.js';
 
 	// null until the first answer: "No phone yet" never flashes before the list.
 	let phones = $state<Phone[] | null>(null);
@@ -87,8 +88,6 @@
 		((code = ''), (adding = false), (naming = false), (typed = ''));
 	}
 
-	// shortcut: the state is read from when the phone was last heard; "Backing
-	// up" with its "818 of 1,032" needs the phone to say how many are left.
 	const minute = 60_000;
 	type State = 'up' | 'going' | 'away' | 'paired';
 	const states: Record<State, { tone: string; status: string }> = {
@@ -97,10 +96,12 @@
 		up: { tone: 'ok', status: text.phoneBackedUp },
 		paired: { tone: 'faint', status: text.phonePaired }
 	};
+	// P1: the computer counts what a phone said it would send (app.backups).
+	const backingOf = (p: Phone) => app.backups.find((b) => b.id === p.id);
 	function stateOf(p: Phone): State {
 		const now = Date.now();
 		if (p.seen && now - Date.parse(p.seen) > 7 * 24 * 60 * minute) return 'away';
-		if (p.backup && now - Date.parse(p.backup) < 2 * minute) return 'going';
+		if (backingOf(p)) return 'going';
 		return p.photos > 0 ? 'up' : 'paired';
 	}
 	const counts = $derived.by(() => {
@@ -153,11 +154,12 @@
 					<tbody>
 						{#each phones as p (p.id)}
 							{@const s = states[stateOf(p)]}
+							{@const b = backingOf(p)}
 							<tr out:swap={{ leaving: true }} animate:flip={moving()}>
 								<td><span class="name"><Icon name="phone" size={16} /><b>{p.name}</b></span></td>
 								<td>{p.profile}</td>
 								<td>{p.backup ? `${day(new Date(p.backup))}, ${clock(new Date(p.backup))}` : '—'}</td>
-								<td>{p.photos.toLocaleString('en')}</td>
+								<td>{b ? text.ofTotal(b.done, b.of) : p.photos.toLocaleString('en')}</td>
 								<td><span class="status {s.tone}"><i></i><b>{s.status}</b></span></td>
 								<td class="act">
 									<span class="slot"

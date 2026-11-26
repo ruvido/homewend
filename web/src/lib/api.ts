@@ -71,8 +71,10 @@ export const putProfile = (account: string, profile: string) =>
 /** Renames a profile: its folder in the library, and all that names it. */
 export const renameProfile = (from: string, to: string) => call<unknown>('POST', '/api/profile/rename', { from, to });
 export const getOverview = () => call<Overview>('GET', '/api/overview');
-/** Moves each time the library's catalog changes, whoever changed it; with it, the thumbnails being made. */
-export const getChanges = () => call<{ changes: string; thumbs: Thumbs; emptying: Emptying }>('GET', '/api/changes');
+/** Moves each time the library's catalog changes, whoever changed it; with it, the thumbnails being made and the phones backing up. */
+export const getChanges = () => call<{ changes: string; thumbs: Thumbs; emptying: Emptying; backups: Backing[] }>('GET', '/api/changes');
+/** A phone backing up: done of the photos it said it would send; gone when they are in, or it went quiet. */
+export type Backing = { id: string; name: string; done: number; of: number };
 /** How many of the photos an Empty Trash was asked for it has done; of is 0 while none runs. */
 export type Emptying = { done: number; of: number };
 /** How many photos of the library have their thumbnail: made in the background. */

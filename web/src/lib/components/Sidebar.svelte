@@ -241,6 +241,13 @@
 	</div>
 
 	<div class="pinned">
+		<!-- U2: a phone backing up, the same line, its name and its count. -->
+		{#each app.backups as b (b.id)}
+			<div class="work" in:reveal out:reveal={{ leaving: true }} role="progressbar" aria-label={b.name} aria-valuemin={0} aria-valuenow={b.done} aria-valuemax={b.of} title={rail ? b.name : undefined}>
+				<span class="label">{b.name}<i>{text.ofTotal(b.done, b.of)}</i></span>
+				<div class="track"><b style:width="{(b.done / b.of) * 100}%"></b></div>
+			</div>
+		{/each}
 		{#if app.thumbs}
 			<!-- U1: work in the background, quiet, on every page. -->
 			<div class="work" in:reveal out:reveal={{ leaving: true }} role="progressbar" aria-label={text.thumbnails} aria-valuemin={0} aria-valuenow={app.thumbs.done} aria-valuemax={app.thumbs.of} title={rail ? text.thumbnails : undefined}>
