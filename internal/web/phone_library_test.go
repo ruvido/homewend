@@ -78,11 +78,11 @@ type aMonth struct {
 }
 
 type aPhoto struct {
-	Hash, Taken, Name, Type string
-	Bytes                   int64
-	Turn                    int
-	Archived                bool
-	Albums                  []string
+	Hash, Copy, Taken, Name, Type string
+	Bytes                         int64
+	Turn                          int
+	Archived                      bool
+	Albums                        []string
 }
 
 func (p *testPhone) month(month string) (m aMonth) {

@@ -1040,3 +1040,38 @@ func (c *Catalog) albumNames(photos []Photo) (map[Key][]string, error) {
 	}
 	return albums, rows.Err()
 }
+
+// Seen is where a photo stands for a phone that saw it in the Trash: in it,
+// deleted for good, or back in the library; and when it last left the Trash,
+// in ms, 0 never since that was kept.
+type Seen struct {
+	InTrash, Erased, Back bool
+	Restored              int64
+}
+
+// TrashSeen is where the photos hashes of profile's library stand; one it
+// does not have, or keeps out, is not in it.
+func (c *Catalog) TrashSeen(profile string, hashes []string) (map[string]Seen, error) {
+	list, err := json.Marshal(hashes)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.db.Query(`SELECT hash, `+inTheTrash+`, `+deletedForGood+`, out = 0 AND trashed = 0, restored FROM library_photos
+		WHERE profile = ? AND hash IN (SELECT value FROM json_each(?))`, profile, string(list))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	seen := map[string]Seen{}
+	for rows.Next() {
+		var hash string
+		var s Seen
+		if err := rows.Scan(&hash, &s.InTrash, &s.Erased, &s.Back, &s.Restored); err != nil {
+			return nil, err
+		}
+		if s.InTrash || s.Erased || s.Back {
+			seen[hash] = s
+		}
+	}
+	return seen, rows.Err()
+}

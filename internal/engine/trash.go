@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -183,4 +184,63 @@ func forgetPictures(hashes []string) {
 			}
 		}
 	}
+}
+
+// SeenInTrash is a photo a phone saw in the Trash Ago ms before it asked.
+type SeenInTrash struct {
+	Hash string `json:"hash"`
+	Ago  int64  `json:"ago"`
+}
+
+// EmptyTrashOf empties, of phone's library, the photos it saw in the Trash
+// and that were not restored since, by the window's Empty and its checks. It
+// says those deleted for good, those before too, and those kept: restored
+// since. One not of the library, or left in the Trash, is in neither.
+func EmptyTrashOf(phone Phone, seen []SeenInTrash) (emptied, kept []string, err error) {
+	then := time.Now().UnixMilli()
+	// Said twice: since the first time it was seen.
+	ago := map[string]int64{}
+	for _, s := range seen {
+		ago[s.Hash] = max(ago[s.Hash], s.Ago, 0)
+	}
+	hashes := slices.Collect(maps.Keys(ago))
+	states, err := trashSeen(phone, hashes)
+	if err != nil {
+		return []string{}, []string{}, err
+	}
+	var empty []library.Key
+	for hash, s := range states {
+		if s.InTrash && s.Restored <= then-ago[hash] {
+			empty = append(empty, library.Key{Hash: hash, Profile: phone.Profile})
+		}
+	}
+	if len(empty) > 0 {
+		if _, err := EmptyTrash(empty); err != nil {
+			return []string{}, []string{}, err
+		}
+		// As they are now: one restored meanwhile is not deleted.
+		if states, err = trashSeen(phone, hashes); err != nil {
+			return []string{}, []string{}, err
+		}
+	}
+	emptied, kept = []string{}, []string{}
+	for hash, s := range states {
+		switch {
+		case s.Erased:
+			emptied = append(emptied, hash)
+		case s.Back || s.Restored > then-ago[hash]:
+			kept = append(kept, hash)
+		}
+	}
+	return emptied, kept, nil
+}
+
+// trashSeen is where the photos hashes of phone's library stand.
+func trashSeen(phone Phone, hashes []string) (map[string]library.Seen, error) {
+	_, c, err := openHere(library.OpenCatalog)
+	if err != nil || c == nil {
+		return nil, err
+	}
+	defer c.Close()
+	return c.TrashSeen(phone.Profile, hashes)
 }

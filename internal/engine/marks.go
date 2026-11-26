@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"log"
 	"maps"
 	"slices"
 	"sync"
@@ -24,6 +25,20 @@ type MarksAnswer struct {
 // Marks takes the marks a phone says and answers what changed in its library.
 func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 	then := time.Now()
+	// A date moves its photo's file: in the library's turn, taken before
+	// anything is applied, as the window's Change date.
+	root := ""
+	if slices.ContainsFunc(q.Marks, func(m library.MarkAction) bool { return m.State == library.Date }) {
+		var err error
+		if root, err = LibraryHere(); err != nil {
+			return MarksAnswer{}, err
+		}
+		unlock, err := takeLibrary(context.Background(), root)
+		if err != nil {
+			return MarksAnswer{}, err
+		}
+		defer unlock()
+	}
 	c, err := openMarks()
 	if err != nil {
 		return MarksAnswer{}, err
@@ -34,10 +49,17 @@ func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 		a, err = c.Marks(phone.Profile, q, then)
 		return err
 	}
-	if len(q.Marks) > 0 {
+	// A copy's mark may be a copy new to the list.
+	if len(q.Marks) > 0 && !slices.ContainsFunc(q.Marks, func(m library.MarkAction) bool { return m.Copy != "" }) {
 		err = heartsSet(c, answer)
 	} else {
 		err = answer()
+	}
+	for _, d := range a.Dated {
+		// The mark is kept: what failed is in the log, as the window's own.
+		if err := library.GiveMarkedDate(root, c, d); err != nil {
+			log.Printf("a phone's date of %s: %v", d.Hash, err)
+		}
 	}
 	if len(a.Said) > 0 {
 		lookNow()
