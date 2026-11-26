@@ -261,14 +261,14 @@ func phoneRoutes(l *phoneListener) http.Handler {
 			return
 		}
 		host, _ := os.Hostname()
-		phoneReply(w, map[string]any{"phone": phone.ID, "token": token, "computer": host, "owner": phone.Profile, "features": features}, nil)
+		phoneReply(w, map[string]any{"phone": phone.ID, "token": token, "computer": host, "owner": phone.Profile, "ownerId": phone.OwnerID, "features": features}, nil)
 	})
 	// The phone asks, when it opens, whether it is still paired, with whom,
 	// and where the computer is now: an address changed meanwhile heals.
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
 		heard(phone, r.RemoteAddr)
 		host, _ := os.Hostname()
-		hello := map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts(), "features": features}
+		hello := map[string]any{"computer": host, "owner": phone.Profile, "ownerId": phone.OwnerID, "hosts": l.hosts(), "features": features}
 		// The library unanswered (its disk away, a catalog not read): hello
 		// still says the phone is paired and where the computer is.
 		if lib, err := engine.LibraryOf(phone); err == nil && lib.Known {

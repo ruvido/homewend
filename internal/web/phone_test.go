@@ -52,7 +52,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	}
 	code, paired := call("POST", "/v1/pair", "", `{"code":"`+pairCode+`","name":"Pixel"}`)
 	token, _ := paired["token"].(string)
-	if code != http.StatusOK || token == "" || paired["phone"] == "" || paired["owner"] != "ron" {
+	if code != http.StatusOK || token == "" || paired["phone"] == "" || paired["owner"] != "ron" || paired["ownerId"] == "" {
 		t.Fatalf("pairing: %d %v", code, paired)
 	}
 	if code, _ := call("POST", "/v1/have", "", `{"hashes":[]}`); code != http.StatusUnauthorized {
@@ -111,7 +111,7 @@ func TestAPhoneTalksAsTheContractSays(t *testing.T) {
 	if code, _ := call("PUT", "/v1/photo/"+strings.ToUpper(hash)+"?name=IMG_1.JPG", token, photo); code != http.StatusBadRequest {
 		t.Errorf("an uppercase hash: %d, want 400", code)
 	}
-	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["hosts"] == nil || out["photos"] != float64(1) || !hasDisk(out) {
+	if code, out := call("GET", "/v1/hello", token, ""); code != http.StatusOK || out["computer"] == "" || out["owner"] != "ron" || out["ownerId"] != paired["ownerId"] || out["hosts"] == nil || out["photos"] != float64(1) || !hasDisk(out) {
 		t.Errorf("hello: %d %v", code, out)
 	}
 	// The library's disk away: hello still answers, without the disk.

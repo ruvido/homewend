@@ -17,7 +17,8 @@ import (
 // MarksAnswer is what a phone is answered, and whose library it is of.
 type MarksAnswer struct {
 	library.MarkAnswer
-	Owner string `json:"owner"`
+	Owner   string `json:"owner"`
+	OwnerID string `json:"ownerId"`
 }
 
 // Marks takes the marks a phone says and answers what changed in its library.
@@ -41,7 +42,7 @@ func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 	if len(a.Said) > 0 {
 		lookNow()
 	}
-	return MarksAnswer{a, phone.Profile}, err
+	return MarksAnswer{a, phone.Profile, phone.OwnerID}, err
 }
 
 // ErrEmptyLibrary is asking the marks of a library with nothing in it yet:

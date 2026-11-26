@@ -41,6 +41,9 @@ type Phone struct {
 	Seen    time.Time `json:"seen,omitzero"`
 	Backup  time.Time `json:"backup,omitzero"` // the last photo it brought in
 	Photos  int       `json:"photos"`          // brought in, since paired
+	// OwnerID is its profile's owner id (Phones.Owners), as PhoneOf and Pair
+	// give it.
+	OwnerID string `json:"-"`
 }
 
 // Phones is phones.json: the phones, the port they reach this computer on,
@@ -49,6 +52,23 @@ type Phones struct {
 	Port     int        `json:"port,omitempty"`
 	Phones   []Phone    `json:"phones"`
 	Unpaired []Unpaired `json:"unpaired,omitempty"`
+	// Owners are the owner id of each profile a phone was paired into
+	// (docs/marks.md): random, made the first time one is, and kept when the
+	// profile is renamed, so that a phone knows the library is still its
+	// person's under the new name.
+	Owners map[string]string `json:"owners,omitempty"`
+}
+
+// ownerOf is profile's owner id, made if it has none yet; made, whether it was.
+func (p *Phones) ownerOf(profile string) (id string, made bool) {
+	if id := p.Owners[profile]; id != "" {
+		return id, false
+	}
+	if p.Owners == nil {
+		p.Owners = map[string]string{}
+	}
+	p.Owners[profile] = rand.Text()
+	return p.Owners[profile], true
 }
 
 // Unpaired is a phone no longer paired: what it brought, and who ended it.
@@ -174,6 +194,7 @@ func Pair(code, name string) (Phone, string, error) {
 	phone := Phone{ID: rand.Text()[:8], Name: name, Profile: profile, Token: hashText(token), Paired: time.Now()}
 	_, err := UpdatePhones(func(p *Phones) error {
 		p.Phones = append(p.Phones, phone)
+		phone.OwnerID, _ = p.ownerOf(profile)
 		return nil
 	})
 	return phone, token, err
@@ -203,9 +224,12 @@ func PhoneOf(token string) (Phone, error) {
 			return ErrNoPhone
 		}
 		phone = p.Phones[i]
+		// Paired before owner ids, it is given one at once.
+		var made bool
+		phone.OwnerID, made = p.ownerOf(phone.Profile)
 		// A phone asks for thousands of small copies in a row: the file is
 		// not written for each.
-		if time.Since(phone.Seen).Abs() < seenEvery {
+		if time.Since(phone.Seen).Abs() < seenEvery && !made {
 			return errSeen
 		}
 		p.Phones[i].Seen = time.Now()
