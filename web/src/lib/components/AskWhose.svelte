@@ -18,7 +18,7 @@
 		onpick,
 		onelse,
 		oncancel
-	}: { title: string; lead: string; onpick: (profile: string) => void; onelse?: () => void; oncancel: () => void } = $props();
+	}: { title: string; lead?: string; onpick: (profile: string) => void; onelse?: () => void; oncancel: () => void } = $props();
 	let naming = $state(false);
 	let typed = $state('');
 	const name = $derived(typed.trim());
@@ -36,7 +36,7 @@
 />
 
 <Dialog {title}>
-	<p class="muted">{lead}</p>
+	{#if lead}<p class="muted">{lead}</p>{/if}
 	{#if naming}
 		<!-- svelte-ignore a11y_autofocus -->
 		<input bind:value={typed} placeholder={text.yourName} aria-label={text.yourName} spellcheck="false" autocomplete="off" autofocus onkeydown={(e) => e.key === 'Enter' && name && onpick(name)} />

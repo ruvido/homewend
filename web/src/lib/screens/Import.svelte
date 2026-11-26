@@ -593,7 +593,7 @@
 	</div>{/key}{/if}
 <!-- Outside the step: its cross-fade would hold the dialog in its box. -->
 {#if pending !== null}
-	<AskWhose title={text.askProfile} lead={text.askProfileWhere} onpick={whose} oncancel={() => (pending = null)} />
+	<AskWhose title={text.importInto} onpick={whose} oncancel={() => (pending = null)} />
 {/if}
 </div>
 
