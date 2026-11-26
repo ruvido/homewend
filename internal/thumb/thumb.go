@@ -39,6 +39,7 @@ import (
 
 	"github.com/ruvido/homewend/internal/edit"
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/raw"
 )
 
 // Size is the long edge of a thumbnail: the grid's tiles are about 104 to 180
@@ -123,8 +124,13 @@ func Make(ctx context.Context, src, dst string, size int, e edit.Edit) (err erro
 	if !e.None() {
 		img = fit(rgba(edit.Draw(img, e)), size)
 	}
+	return save(dst, img, quality)
+}
+
+// save writes img at dst as a JPEG of quality q, whole or not at all.
+func save(dst string, img image.Image, q int) error {
 	var buf bytes.Buffer
-	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err != nil {
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: q}); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
@@ -145,6 +151,39 @@ func Make(ctx context.Context, src, dst string, size int, e edit.Edit) (err erro
 		os.Remove(f.Name())
 	}
 	return err
+}
+
+// developedQuality is that of a raw file's developed picture, which every
+// other picture of it is made from: 8 bits, as an edit's input is (docs/edit.md).
+const developedQuality = 95
+
+// Develop writes at dst the raw file src developed (package raw), turned as
+// its EXIF says, at full size: from then on its pictures are made from it as
+// from a JPEG. Only a RAF: its embedded JPEG is what the look is fitted to.
+func Develop(ctx context.Context, src, dst string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("developing %s: %v", src, r)
+		}
+	}()
+	f, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	jpg, err := rafPreview(f)
+	if err != nil {
+		return err
+	}
+	preview, err := jpeg.Decode(jpg)
+	if err != nil {
+		return err
+	}
+	img, meta, err := raw.Develop(ctx, src)
+	if err != nil {
+		return err
+	}
+	return save(dst, upright(raw.Picture(img, meta, preview), library.Orientation(src)), developedQuality)
 }
 
 // minDrawn is the long edge an edit is drawn at, at least. Off the edit drawn

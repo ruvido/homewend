@@ -223,7 +223,7 @@ func setEmptying(e Emptying) {
 // forgetPictures deletes the pictures kept of contents no library has, those
 // of a changed file too, which are named after it.
 func forgetPictures(hashes []string) {
-	for _, dir := range []string{"thumbs", "previews"} {
+	for _, dir := range []string{"thumbs", "previews", "developed"} {
 		folder, err := picturesDir(dir)
 		if err != nil {
 			return

@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/ruvido/homewend/internal/edit"
+	"github.com/ruvido/homewend/internal/raw"
 )
 
 // raf is a Fujifilm RAF as a camera writes its head: the name, then where its
@@ -58,5 +59,22 @@ func TestARAFShowsItsPreview(t *testing.T) {
 		if err := Make(context.Background(), bad, dst, Size, edit.Edit{}); !errors.Is(err, ErrNoDecoder) {
 			t.Errorf("%v", err)
 		}
+	}
+}
+
+// With no helper to develop it, a RAF is not developed, and says why; nothing
+// is written.
+func TestARAFWithNoHelper(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var jpg bytes.Buffer
+	if err := jpeg.Encode(&jpg, image.NewRGBA(image.Rect(0, 0, 60, 40)), nil); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "developed.jpg")
+	if err := Develop(context.Background(), raf(t, jpg.Bytes(), 148, uint32(jpg.Len())), dst); !errors.Is(err, raw.ErrNoHelper) {
+		t.Errorf("%v", err)
+	}
+	if _, err := os.Stat(dst); err == nil {
+		t.Error("written")
 	}
 }
