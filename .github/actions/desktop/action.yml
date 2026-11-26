@@ -16,6 +16,12 @@ runs:
     - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: 22
+    # The raw helper, into electron/engine for the app to take in. Linux
+    # only for now: the Mac and Windows apps ship without it, and raw files
+    # there say the helper is missing.
+    - if: runner.os == 'Linux'
+      shell: bash
+      run: tools/libraw/build.sh
     - shell: bash
       run: |
         (cd web && npm ci)

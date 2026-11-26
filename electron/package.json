@@ -32,7 +32,10 @@
 				"to": ".",
 				"filter": [
 					"homewend",
-					"homewend.exe"
+					"homewend.exe",
+					"homewend-raw",
+					"homewend-raw.exe",
+					"LibRaw.*"
 				]
 			}
 		],
