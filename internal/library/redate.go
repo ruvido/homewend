@@ -293,38 +293,46 @@ func dateOf(value string) (time.Time, error) {
 		return time.Time{}, errNotADate
 	}
 	_, offset := zone.Zone()
-	return asClock(time.UnixMilli(*d.Taken).In(time.FixedZone("", offset))), nil
+	when := asClock(time.UnixMilli(*d.Taken).In(time.FixedZone("", offset)))
+	if !Givable(when) {
+		return time.Time{}, errNotADate
+	}
+	return when, nil
 }
+
+// Givable is whether a date may be given to a photo, in the window or by a
+// phone: a year of four digits, as the window writes it.
+func Givable(when time.Time) bool { return !when.IsZero() && when.Year() >= 0 && when.Year() <= 9999 }
 
 // GiveDueDates gives the photos of the library at root the dates phones said,
 // as Change date does, each in the library's turn: those still due, read again
-// in it, a later mark meanwhile being the one given. One in the Trash, or
-// whose file is away, waits for the next pass.
+// in it, a later mark meanwhile being the one given. Only those in the library
+// with their file there take a turn: one in the Trash, or whose file is away,
+// waits for a pass that finds it back; one deleted for good is due no more.
 func GiveDueDates(root, catalog string, turn Turn) error {
-	var keys []Key
+	var photos []Photo
 	err := with(catalog, func(c *Catalog) error {
 		if kept, err := hasTable(c.db, "extra_marks"); err != nil || !kept {
 			return err
 		}
-		rows, err := c.db.Query(`SELECT hash, profile FROM extra_marks WHERE due = 1`)
-		if err != nil {
+		const due = `(profile, hash) IN (SELECT profile, hash FROM extra_marks WHERE due = 1 AND copy = '' AND state = '` + string(Date) + `')`
+		if _, err := c.db.Exec(`UPDATE extra_marks SET due = 0 WHERE due = 1 AND (profile, hash) IN
+			(SELECT profile, hash FROM library_photos WHERE ` + deletedForGood + `)`); err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var k Key
-			if err := rows.Scan(&k.Hash, &k.Profile); err != nil {
-				return err
-			}
-			keys = append(keys, k)
-		}
-		return rows.Err()
+		var err error
+		photos, err = c.photos(`WHERE NOT ` + away + ` AND path NOT LIKE '` + TrashDir + `/%' AND ` + due)
+		return err
 	})
 	if err != nil {
 		return err
 	}
 	var failed []error
-	for _, k := range keys {
+	for _, p := range photos {
+		if !onDisk(root, p) {
+			continue
+		}
+		k := p.Key()
 		unlock, err := turn()
 		if err != nil {
 			return errors.Join(append(failed, err)...)
@@ -353,11 +361,11 @@ func giveDueDate(root string, c *Catalog, k Key) error {
 	}
 	if value == "null" {
 		file := under(root, p.Path)
-		sidecar := filepath.Join(root, WorkDir, "metadata", filepath.FromSlash(p.Path)+".json")
+		sidecar, xmp := under(root, besides(p.Path)[0]), under(root, besides(p.Path)[1])
 		if !exists(sidecar) {
 			sidecar = ""
 		}
-		if err := os.Remove(file + ".xmp"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(xmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		err = redateFiled(root, c, p, DateOf(file, "", sidecar))

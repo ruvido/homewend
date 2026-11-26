@@ -43,7 +43,7 @@ func Marks(phone Phone, q library.MarkQuestion) (MarksAnswer, error) {
 	// A date moves its photo's file: beside, in the library's turn, as the
 	// Trash's moves; nothing said waits for it.
 	if root, here := LibraryHere(); len(a.Dated) > 0 && here == nil {
-		follow(root, a.Dated)
+		giveDates(root)
 	}
 	if len(a.Said) > 0 {
 		lookNow()

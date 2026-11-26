@@ -519,8 +519,10 @@ func (c *Catalog) Marks(profile string, q MarkQuestion, then time.Time) (MarkAns
 			return a, ErrNoMarks
 		} else if err != nil {
 			// No table for them: it could not be given one.
-			if kept, has := hasTable(c.db, "edits"); has == nil && !kept {
-				err = ErrNoMarks
+			for _, table := range []string{"edits", "extra_marks"} {
+				if kept, has := hasTable(c.db, table); has == nil && !kept {
+					err = ErrNoMarks
+				}
 			}
 			return a, err
 		}

@@ -6,7 +6,11 @@ package library
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -193,8 +197,8 @@ func TestADateIsAMark(t *testing.T) {
 		}
 		return a
 	}
-	a := ask(date(1, may, 5000), date(2, `{"taken":"x"}`, 0), onCopy(date(3, may, 0), "c1"))
-	if len(a.Dated) != 1 || a.Dated[0] != (Key{hashed(0), "ron"}) || len(a.Refused) != 1 || a.Refused[0] != 2 || len(a.Said) != 1 {
+	a := ask(date(1, may, 5000), date(2, `{"taken":"x"}`, 0), onCopy(date(3, may, 0), "c1"), date(6, `{"taken":1000000000000000,"zone":"+00:00"}`, 0))
+	if len(a.Dated) != 1 || a.Dated[0] != (Key{hashed(0), "ron"}) || !slices.Equal(a.Refused, []int64{2, 6}) || len(a.Said) != 1 {
 		t.Errorf("%+v", a)
 	}
 	if when, err := dateOf(may); err != nil || when != time.Date(2024, 5, 6, 14, 53, 20, 0, time.UTC) {
@@ -263,5 +267,36 @@ func TestAPhotoFiledTakesItsCopies(t *testing.T) {
 	want := []string{` date {"taken":1715000000000,"zone":"+02:00"} true`, `c1 edit ` + bright + ` false`, `c2 favorite true false`}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("%q, want %q", got, want)
+	}
+}
+
+// Where nothing can be written, a catalog from before copies takes no date
+// and no copy's mark, and says so as it does of an edit.
+func TestCopiesWhereNothingCanBeWritten(t *testing.T) {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" || os.Getenv("HOMEWEND_TEST_VFS") != "" {
+		t.Skip("a mode takes no one's writing away")
+	}
+	c, path := marking(t, 1)
+	c.Close()
+	olderAt(t, path, linksSince, dropExtra)
+	dir := filepath.Dir(path)
+	os.Chmod(path, 0o444)
+	os.Chmod(dir, 0o555)
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	c, err := OpenCatalog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	s, _ := c.Shelf("ron")
+	date := act(1, true, 0)
+	date.State, date.Value = Date, json.RawMessage(`null`)
+	for _, m := range []MarkAction{date, onCopy(act(2, true, 0), "c1")} {
+		if _, err := c.Marks("ron", MarkQuestion{Shelf: s.ID, Install: "A", States: all, Marks: []MarkAction{m}}, time.Now()); err != ErrNoMarks {
+			t.Errorf("%s: %v", m.State, err)
+		}
+	}
+	if l, _, err := c.Listing("ron"); err != nil {
+		t.Errorf("%+v %v", l, err)
 	}
 }

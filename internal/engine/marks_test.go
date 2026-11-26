@@ -357,14 +357,8 @@ func TestADateWaitsForTheLibrary(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, rons.Path)); err != nil {
 		t.Errorf("moved under another's turn: %v", err)
 	}
+	// Let go, the turn gives it: no Overview needed.
 	unlock()
-	s, err := LoadSettings()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LibraryOverview(s); err != nil {
-		t.Fatal(err)
-	}
 	if files, _ := filepath.Glob(filepath.Join(root, "ron", "2024", "05", "*")); len(files) != 2 {
 		t.Errorf("not filed in its turn: %v", files)
 	}

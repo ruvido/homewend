@@ -58,8 +58,6 @@ func follow(root string, photos []library.Key) {
 			for root, photos := range now {
 				gone, err := library.TidyTrash(root, catalogPath(root), photos, yielding(trashTurn(root)), unlisted)
 				forgetPictures(gone)
-				// The dates phones said, given as the library's turn comes.
-				err = errors.Join(err, library.GiveDueDates(root, catalogPath(root), yielding(trashTurn(root))))
 				if errors.Is(err, ErrLibraryBusy) {
 					lookAgain(root)
 				} else if err != nil {
@@ -108,15 +106,67 @@ func tidyTrashOnce(root string) {
 	done := tidying.done[root]
 	tidying.done[root] = true
 	tidying.Unlock()
+	// Dates kept waiting by another program's turn.
+	if _, waits := datesWaiting.Load(root); waits {
+		giveDates(root)
+	}
 	if done {
 		return
 	}
 	follow(root, nil)
 }
 
+// dating is the one run that gives photos the dates phones said, and whether
+// it is asked again meanwhile; datesWaiting the libraries whose turn it did
+// not get, given them as the turn is let go.
+var (
+	dating struct {
+		sync.Mutex
+		running, again bool
+	}
+	datesWaiting sync.Map
+)
+
+// giveDates gives root's photos the dates phones said, beside the requests,
+// each in the library's turn.
+func giveDates(root string) {
+	dating.Lock()
+	if dating.running {
+		dating.again = true
+		dating.Unlock()
+		return
+	}
+	dating.running = true
+	dating.Unlock()
+	beside(func() {
+		for {
+			datesWaiting.Delete(root)
+			err := library.GiveDueDates(root, catalogPath(root), yielding(trashTurn(root)))
+			if errors.Is(err, ErrLibraryBusy) {
+				datesWaiting.Store(root, true)
+			} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				log.Printf("the dates phones said: %v", err)
+			}
+			dating.Lock()
+			if !dating.again {
+				dating.running = false
+				dating.Unlock()
+				return
+			}
+			dating.again = false
+			dating.Unlock()
+		}
+	})
+}
+
 // EmptyTrash deletes for good those of photos that are in the Trash, and says
 // those it left there: the ones shown to the person who asked, no others.
 func EmptyTrash(photos []library.Key) ([]library.Key, error) {
+	return emptyTrash(photos, time.Now().UnixMilli())
+}
+
+// emptyTrash is EmptyTrash, of those not restored after before (ms).
+func emptyTrash(photos []library.Key, before int64) ([]library.Key, error) {
 	setEmptying(Emptying{0, len(photos)})
 	defer setEmptying(Emptying{})
 	root, err := LibraryHere()
@@ -133,7 +183,7 @@ func EmptyTrash(photos []library.Key) ([]library.Key, error) {
 		return nil, err
 	}
 	unlock()
-	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, turn, unlisted, func(n int) { setEmptying(Emptying{n, len(photos)}) })
+	left, gone, err := library.EmptyTrash(root, catalogPath(root), photos, before, turn, unlisted, func(n int) { setEmptying(Emptying{n, len(photos)}) })
 	forgetPictures(gone)
 	if err != nil {
 		lookAgain(root) // what it claimed and could not record
@@ -217,7 +267,9 @@ func EmptyTrashOf(phone Phone, seen []SeenInTrash) (emptied, kept []string, err 
 		}
 	}
 	if len(empty) > 0 {
-		if _, err := EmptyTrash(empty); err != nil {
+		// One restored after then, read or not, is not deleted: told in the
+		// library's turn.
+		if _, err := emptyTrash(empty, then); err != nil {
 			return []string{}, []string{}, err
 		}
 		// As they are now: one restored meanwhile is not deleted.

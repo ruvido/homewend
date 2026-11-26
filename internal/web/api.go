@@ -161,7 +161,7 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 			Photos []library.Key `json:"photos"`
 			When   time.Time     `json:"when"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Photos) == 0 || body.When.IsZero() {
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Photos) == 0 || !library.Givable(body.When) {
 			http.Error(w, "photos and a date are needed", http.StatusBadRequest)
 			return
 		}
