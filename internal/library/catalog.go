@@ -865,11 +865,11 @@ func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
 		} else if err != nil {
 			return err
 		}
-		edits, err := markIn(tx, Edit)
+		edits, err := markIn(tx, Edit, false)
 		if err != nil {
 			return err
 		}
-		was, err := edits.of(k)
+		was, err := edits.of(k, "")
 		if err != nil {
 			return err
 		}
@@ -883,7 +883,8 @@ func (c *Catalog) TurnLeft(k Key) (turn int, digest string, err error) {
 			return nil
 		}
 		turn, digest = 0, EditDigest(string(turned))
-		return edits.give(k, was, mark{value: string(turned), at: time.Now().UnixMilli()})
+		_, err = edits.give(k, "", was, mark{value: string(turned), at: time.Now().UnixMilli()})
+		return err
 	})
 	return turn, digest, err
 }
@@ -1071,8 +1072,12 @@ func (c *Catalog) inTx(do func(*sql.Tx) error) error {
 
 // setDate records a date given to a photo already in its library.
 func (c *Catalog) setDate(k Key, capture Capture) error {
+	var taken any // a file that says no date has none
+	if !capture.When.IsZero() {
+		taken = capture.When.Unix()
+	}
 	_, err := c.db.Exec(`UPDATE library_photos SET taken = ?, source = ?, kind = ? WHERE hash = ? AND profile = ?`,
-		capture.When.Unix(), string(capture.Source), string(capture.Kind()), k.Hash, k.Profile)
+		taken, string(capture.Source), string(capture.Kind()), k.Hash, k.Profile)
 	return err
 }
 
@@ -1102,19 +1107,19 @@ func (c *Catalog) refile(k Key, profile, path string, gone bool) error {
 			}
 			into := Key{k.Hash, profile}
 			for _, state := range []State{Favorite, Edit} {
-				marks, err := markIn(tx, state)
+				marks, err := markIn(tx, state, false)
 				if err != nil {
 					return err
 				}
-				its, err := marks.of(k)
+				its, err := marks.of(k, "")
 				if err != nil {
 					return err
 				}
-				was, err := marks.of(into)
+				was, err := marks.of(into, "")
 				if err != nil {
 					return err
 				}
-				if err := marks.give(into, was, its); err != nil {
+				if _, err := marks.give(into, "", was, its); err != nil {
 					return err
 				}
 			}

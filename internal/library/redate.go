@@ -4,8 +4,11 @@
 package library
 
 import (
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -247,8 +250,76 @@ func GiveDates(root string, catalog *Catalog, photos []Key, when time.Time) (int
 		if err := redateFiled(root, catalog, p, Capture{When: at, Source: FromGiven}); err != nil {
 			return i, err
 		}
+		// A phone hears it, and a date it set before does not undo it.
+		if err := catalog.noteDate(p.Key(), at); err != nil {
+			return i, err
+		}
 	}
 	return len(records), nil
+}
+
+// noteDate is the date mark of a date given in the window, now.
+func (c *Catalog) noteDate(k Key, when time.Time) error {
+	return c.inTx(func(tx *sql.Tx) error {
+		dates, err := markIn(tx, Date, true)
+		if err != nil {
+			return err
+		}
+		was, err := dates.of(k, "")
+		if err != nil {
+			return err
+		}
+		at := localAt(when)
+		value := fmt.Sprintf(`{"taken":%d,"zone":%q}`, at.UnixMilli(), at.Format("-07:00"))
+		_, err = dates.give(k, "", was, mark{value: value, at: time.Now().UnixMilli()})
+		return err
+	})
+}
+
+// errNotADate is a date mark that is none.
+var errNotADate = errors.New("not a date")
+
+// dateOf is the clock a date mark says, in the zone it was given in.
+func dateOf(value string) (time.Time, error) {
+	var d struct {
+		Taken *int64 `json:"taken"`
+		Zone  string `json:"zone"`
+	}
+	if err := json.Unmarshal([]byte(value), &d); err != nil || d.Taken == nil {
+		return time.Time{}, errNotADate
+	}
+	zone, err := time.Parse("-07:00", d.Zone)
+	if err != nil {
+		return time.Time{}, errNotADate
+	}
+	_, offset := zone.Zone()
+	return asClock(time.UnixMilli(*d.Taken).In(time.FixedZone("", offset))), nil
+}
+
+// GiveMarkedDate gives a photo the date a phone said, as Change date does;
+// null takes it back to its file's own, and its .xmp goes. One in the Trash,
+// or whose file is gone, keeps its place: the mark stays.
+func GiveMarkedDate(root string, catalog *Catalog, d Dated) error {
+	p, err := catalog.Photo(d.Key)
+	if err != nil || inTrash(p.Path) || !onDisk(root, p) {
+		return err
+	}
+	if d.Value != "null" {
+		when, err := dateOf(d.Value)
+		if err != nil {
+			return err
+		}
+		return redateFiled(root, catalog, p, Capture{When: when, Source: FromGiven})
+	}
+	file := under(root, p.Path)
+	sidecar := filepath.Join(root, WorkDir, "metadata", filepath.FromSlash(p.Path)+".json")
+	if !exists(sidecar) {
+		sidecar = ""
+	}
+	if err := os.Remove(file + ".xmp"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return redateFiled(root, catalog, p, DateOf(file, "", sidecar))
 }
 
 // NamedPhotos are the photos of the library that take their name's date
@@ -307,7 +378,7 @@ func redateFiled(root string, catalog *Catalog, p Photo, capture Capture) error 
 // UTC. A time the clock skipped (the hour lost to summer time) keeps the
 // time given, with the offset just after it.
 func writeXMP(photo string, when time.Time) error {
-	offset := time.Date(when.Year(), when.Month(), when.Day(), when.Hour(), when.Minute(), when.Second(), 0, time.Local).Format("-07:00")
+	offset := localAt(when).Format("-07:00")
 	stamp := when.Format("2006-01-02T15:04:05") + offset
 	body := "<?xpacket begin=\"\ufeff\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" + `<x:xmpmeta xmlns:x="adobe:ns:meta/">
  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
@@ -325,4 +396,9 @@ func writeXMP(photo string, when time.Time) error {
 		return err
 	}
 	return os.Rename(tmp, photo+".xmp")
+}
+
+// localAt is the clock when, kept as UTC, on this computer's.
+func localAt(when time.Time) time.Time {
+	return time.Date(when.Year(), when.Month(), when.Day(), when.Hour(), when.Minute(), when.Second(), 0, time.Local)
 }

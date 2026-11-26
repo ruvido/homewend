@@ -121,7 +121,7 @@ func TestHeartsAndEditsAreHeard(t *testing.T) {
 	goneHeart := act(4, true, 0)
 	goneHeart.Hash = hashed(9)
 	a := tell(t, c, "A", 0, edited(1, warm, 0), act(2, true, 0), gone, goneHeart)
-	e := Mark{hashed(0), Edit, json.RawMessage(warm)}
+	e := Mark{hashed(0), "", Edit, json.RawMessage(warm)}
 	if want := []Mark{e, heart(0)}; !reflect.DeepEqual(a.Said, want) || !reflect.DeepEqual(a.Marks, want) || a.Cursor != 2 || !slices.Equal(a.Unknown, []string{hashed(9)}) {
 		t.Errorf("%+v", a)
 	}
@@ -367,7 +367,7 @@ func TestAProgramFromBeforeEdits(t *testing.T) {
 	defer again.Close()
 	editIs(t, again, "ron", bright)
 	var version int
-	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != linksSince {
+	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != copiesSince {
 		t.Errorf("version %d %v", version, err)
 	}
 	var numbers bool
@@ -381,7 +381,7 @@ func TestAProgramFromBeforeEdits(t *testing.T) {
 // An older catalog is given its edits' table once, its hearts and shelf as
 // they were, and still looks for the links it had to.
 func TestACatalogFromBeforeEdits(t *testing.T) {
-	for version, want := range map[int]int{marksSince: editsSince, linksBeforeEdits: linksSince} {
+	for version, want := range map[int]int{marksSince: editsSince, linksBeforeEdits: copiesSince} {
 		c, path := marking(t, 1)
 		say(t, c, "A", act(1, true, 0))
 		was, _ := c.Shelf("ron")
@@ -421,7 +421,7 @@ func TestACatalogFromBeforeEdits(t *testing.T) {
 			if err := FindLinks(t.TempDir(), path, nil, func(string) string { return "" }, func() (func(), error) { turns++; return func() {}, nil }); err != nil {
 				t.Fatal(err)
 			}
-			if turns != linksSince-looked {
+			if (turns == 1) != (looked < linksSince) {
 				t.Errorf("links looked for %d times, look %d of %d", turns, i, want)
 			}
 		}
@@ -480,8 +480,8 @@ func TestLinksFoundWithNoTable(t *testing.T) {
 		tell(t, c, "A", 0, act(1, true, 0), edited(2, bright, 0))
 		editIs(t, c, "ron", bright)
 		var now int
-		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != linksSince {
-			t.Errorf("from %d: version %d %v, want %d", version, now, err, linksSince)
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != copiesSince {
+			t.Errorf("from %d: version %d %v, want %d", version, now, err, copiesSince)
 		}
 		c.Close()
 	}
