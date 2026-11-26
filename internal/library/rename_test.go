@@ -6,8 +6,10 @@ package library
 import (
 	"errors"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -91,6 +93,12 @@ func (l *trashing) everyFile() {
 	}
 }
 
+// listsExactly is whether the folder above rel lists it, by its exact name.
+func listsExactly(root, rel string) bool {
+	entries, _ := os.ReadDir(filepath.Dir(under(root, rel)))
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() == path.Base(rel) })
+}
+
 // renamed fails unless ron is to in every way, and nothing is left of ron.
 func (l *trashing) renamed(to string) {
 	l.Helper()
@@ -104,10 +112,15 @@ func (l *trashing) renamed(to string) {
 			l.Errorf("%s of %s", p.Path, to)
 		}
 	}
-	for _, dir := range []string{"ron", ".trash/ron", ".trash/.2/ron", metadataDir + "/ron", renameJournal(l.root)} {
-		if exists(under(l.root, dir)) || exists(dir) {
-			l.Errorf("%s is left", dir)
+	// By the names the folders list: on a disk that ignores capitals, ron is
+	// found where Ron is, and a rename to Ron not done would not show.
+	for _, dir := range []string{"", ".trash/", ".trash/.2/", metadataDir + "/"} {
+		if listsExactly(l.root, dir+"ron") || !listsExactly(l.root, dir+to) {
+			l.Errorf("%sron is left, or %s%s not there", dir, dir, to)
 		}
+	}
+	if exists(renameJournal(l.root)) {
+		l.Error("the journal is left")
 	}
 	for _, file := range []string{to + "/albums/Sea/a.jpg", metadataDir + "/" + to + "/2026/a.jpg.json"} {
 		if !exists(under(l.root, file)) {
