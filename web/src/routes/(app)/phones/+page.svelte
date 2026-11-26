@@ -10,10 +10,7 @@
 	import PairCard from '#lib/components/PairCard.svelte';
 	import PrimaryButton from '#lib/components/PrimaryButton.svelte';
 	import Whose from '#lib/components/Whose.svelte';
-	import Avatar from '#lib/components/Avatar.svelte';
-	import Dialog from '#lib/components/Dialog.svelte';
-	import SecondaryButton from '#lib/components/SecondaryButton.svelte';
-	import { app, personOf } from '#lib/app.svelte.js';
+	import AskWhose from '#lib/components/AskWhose.svelte';
 	import { ApiError, getPhones, startPairing, stopPairing, unpair, type Phone, type Unpaired } from '#lib/api.js';
 	import { clock, day, span } from '#lib/format.js';
 	import { text } from '#lib/strings.js';
@@ -136,19 +133,9 @@
 		</div>
 	{/if}
 	{#if asking}
-		<Dialog title={text.whosePhone}>
-			<p class="muted">{text.whosePhoneLead}</p>
-			<div class="who">
-				{#each app.overview?.profiles ?? [] as p (p)}
-					<button onclick={() => whose(p)}><Avatar account={{ id: p, name: p, email: '', shown: true }} index={personOf(p)} /><b>{p}</b></button>
-				{/each}
-				<button onclick={() => whose('')}><span class="glyph"><Icon name="person-plus" size={16} /></span><b>{text.someoneElse}</b></button>
-			</div>
-			{#snippet actions()}
-				<SecondaryButton onclick={() => (asking = false)}>{text.cancel}</SecondaryButton>
-			{/snippet}
-		</Dialog>
+		<AskWhose title={text.whosePhone} lead={text.whosePhoneLead} onpick={whose} onelse={() => whose('')} oncancel={() => (asking = false)} />
 	{/if}
+
 	{#if phones?.length === 0 && !unpaired.length && !adding}
 		<p class="muted">{text.noPhones}</p>
 	{/if}
@@ -265,37 +252,4 @@
 			width: 0;
 		}
 	}
-	/* P6: one row a person, a click goes on to the code. */
-	.who {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-8);
-	}
-	.who button {
-		display: flex;
-		align-items: center;
-		gap: var(--space-12);
-		padding: var(--space-8) var(--space-12);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-10);
-		background: var(--bg);
-		color: var(--fg);
-		font-size: var(--text-body);
-		text-align: left;
-	}
-	.who button:hover {
-		background: var(--soft);
-	}
-	.who b {
-		font-weight: var(--weight-semibold);
-	}
-	.glyph {
-		width: var(--size-avatar);
-		height: var(--size-avatar);
-		display: grid;
-		place-items: center;
-		border-radius: var(--radius-full);
-		background: var(--soft);
-		color: var(--muted);
-	}
-</style>
+	</style>

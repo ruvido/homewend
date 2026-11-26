@@ -101,6 +101,7 @@ export const text = {
 	askProfileLead: (email: string) =>
 		`${email} signed in. Its photos go in a folder of the library: say whose they are. Asked once, for each account.`,
 	askProfileField: 'Name',
+	askProfileWhere: 'They go into their library.',
 	continue: 'Continue',
 	accountGone: 'This account is no longer on this computer. Add it again.',
 	profileCase: 'There is a profile of this name already, with other capitals.',

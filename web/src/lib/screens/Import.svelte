@@ -7,10 +7,10 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
-	import Whose from '#lib/components/Whose.svelte';
+	import AskWhose from '#lib/components/AskWhose.svelte';
 	import { swap } from '#lib/motion.js';
 	import Skeleton from '#lib/components/Skeleton.svelte';
-	import { app, cards as cardList, lookCards, refresh, watchCards } from '#lib/app.svelte.js';
+	import { cards as cardList, lookCards, refresh, watchCards } from '#lib/app.svelte.js';
 	import {
 		ApiError,
 		BRING_ALL_BACK,
@@ -51,11 +51,19 @@
 	// screen starts at the choice. One under way, or a card out, is.
 	let choosing = $state(true);
 
-	// Whose photos they are: a name chosen or typed, else the one the engine
-	// goes to, else the first there is. "Into ron's photos. Change" (option A).
-	const profiles = $derived(app.overview?.profiles ?? []);
-	let typed = $state('');
-	const profile = $derived(typed.trim() || app.overview?.profile || profiles[0] || '');
+	// Whose photos they are: asked each time a card or a folder is brought in
+	// (P6), nobody chosen beforehand.
+	let profile = $state('');
+	// What waits for that answer: a card's path, or a folder still to choose.
+	let pending = $state<string | null>(null);
+	const FOLDER = '';
+	function whose(p: string) {
+		const dir = pending;
+		pending = null;
+		profile = p;
+		if (dir === FOLDER) chooseFolder();
+		else if (dir) bringIn(dir);
+	}
 
 	// How the folder is named on every screen, as the engine names it.
 	const name = $derived(im?.top ?? '');
@@ -105,7 +113,7 @@
 			// A copy under way, or waiting for its card, is where the window opens.
 			if (im?.running || im?.problem === 'taken-out') {
 				choosing = false;
-				if (im.profile) typed = im.profile;
+				if (im.profile) profile = im.profile;
 				// What was given before the window closed goes on with it.
 				redates = im.redates ?? [];
 				choice = im.choice ?? null;
@@ -339,19 +347,18 @@
 		<!-- J1: the library the photos go to, then a card or a folder, brought in at once. -->
 		<h1>{cards.length > 0 ? text.importChoose : text.importNoCard}</h1>
 		{#if cards.length === 0}<p class="lead">{text.importNoCardLead}</p>{/if}
-		<Whose bind:typed {profile} />
 		<!-- One grid: the buttons share one width and one edge. -->
 		<div class="sources">
 			{#each cards as c (c.path)}
 				<span class="tile"><Icon name="hdd" size={22} /></span>
 				<span class="what"><b>{c.name}</b><small class="mono">{c.path}</small></span>
-				<span class="act"><PrimaryButton disabled={!profile} onclick={() => bringIn(c.path)}>{text.bringIn}</PrimaryButton></span>
+				<span class="act"><PrimaryButton onclick={() => (pending = c.path)}>{text.bringIn}</PrimaryButton></span>
 			{/each}
 			<span class="tile"><Icon name="folder" size={22} /></span>
 			<span class="what"><b>{text.anotherFolder}</b><small>{text.anotherFolderDesc}</small></span>
 			<!-- The system's own window picks the folder: the desktop app has it, a browser does not. -->
 			<span class="act"
-				><SecondaryButton disabled={!profile || !window.shell} onclick={chooseFolder}>{text.chooseFolderEllipsis}</SecondaryButton></span
+				><SecondaryButton disabled={!window.shell} onclick={() => (pending = FOLDER)}>{text.chooseFolderEllipsis}</SecondaryButton></span
 			>
 		</div>
 	{:else if view === 'reading' && im}
@@ -584,6 +591,10 @@
 		<div class="actions"><PrimaryButton onclick={() => (choosing = true)}>{text.lookAgain}</PrimaryButton></div>
 	{/if}
 	</div>{/key}{/if}
+<!-- Outside the step: its cross-fade would hold the dialog in its box. -->
+{#if pending !== null}
+	<AskWhose title={text.askProfile} lead={text.askProfileWhere} onpick={whose} oncancel={() => (pending = null)} />
+{/if}
 </div>
 
 <style>
