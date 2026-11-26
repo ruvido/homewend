@@ -435,6 +435,7 @@ export const text = {
 	infoFrom: 'From',
 	favorite: 'Favorite',
 	favorites: 'Favorites',
+	videos: 'Videos',
 	backToLibrary: 'Back to the library',
 	infoFile: 'File',
 	estimatedTag: 'Estimated',
@@ -463,7 +464,8 @@ export const text = {
 		none: ''
 	},
 	noDateSub: (n: string) => `${n} photos and videos · no date in the file or its name`,
-	rotateLeft: 'Rotate',
+	rotateLeft: 'Rotate left',
+	rotateRight: 'Rotate right',
 	archive: 'Archive',
 	unarchive: 'Unarchive',
 	trash: 'Trash',

@@ -233,6 +233,7 @@ export function sidebarOf(o: Overview): Sidebar {
 		archived: o.archived,
 		trashed: o.trashed,
 		favorites: o.favorites,
+		videos: o.videos,
 		missing: missingTotal(o)
 	};
 }
