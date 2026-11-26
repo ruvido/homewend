@@ -388,9 +388,9 @@
 	</div>
 	<Viewer {photos} bind:index={open} {actsOf} {editable} held={asking !== null} failed={markFailed} onact={(a, p) => act(a, [p])} onturned={(id, now) => turned(new Map([[id, now]]))} onfavorite={favorite} ontakenout={() => reload++} ondated={(id) => ((reopen = id), (open = null), reload++)} />
 	{#if asking}
-		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk. -->
-		<Dialog title={text.trashAsk(asking.photos.length)}>
-			{#if asking.photos.length > photosIn(asking.photos)}<p>{text.trashAskCopies}</p>{/if}
+		<!-- Q2: Delete asks first; the photos go to the Trash, never off the disk,
+		     counted as the grid shows them: each shown person's copy goes. -->
+		<Dialog title={text.trashAsk(photosIn(asking.photos))}>
 			<p>{text.trashAskLead}</p>
 			{#if markFailed}<p class="failed">{markFailed}</p>{/if}
 			{#snippet actions()}

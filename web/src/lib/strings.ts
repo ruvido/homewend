@@ -472,7 +472,6 @@ export const text = {
 	archiveSub: (n: number) => `${count(n, 'photo')} · not in All photos, still in their albums`,
 	trashSub: (n: number) => `${count(n, 'photo')} · emptied only by you`,
 	trashAsk: (n: number) => `Move ${count(n, 'photo')} to the Trash?`,
-	trashAskCopies: "A photo two people have goes from each one's library.",
 	trashAskLead: 'They leave the library and every phone. Restore them from the Trash.',
 	moveToTrash: 'Move to Trash',
 	emptyTrash: 'Empty Trash',
