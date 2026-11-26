@@ -33,6 +33,8 @@
 
 	let list = $state<Takeout[] | null>(null);
 	let failed = $state('');
+	// Google not answering: the takeouts asked for, as this computer knows them.
+	let local = $state<Takeout[]>([]);
 	let signedOut = $state(false);
 	let tries = $state(0);
 	// One sign-in at a time, shared with the download's banner: none can start
@@ -53,6 +55,7 @@
 		// The list seen last shows at once; Google's answer replaces it.
 		list = seen.get(a) ?? null;
 		failed = '';
+		local = [];
 		signedOut = false;
 		refused = '';
 		getTakeouts(a).then(
@@ -81,6 +84,7 @@
 				if (account !== a) return;
 				failed = e instanceof ApiError && e.status === 424 ? text.noBrowser : text.takeoutsFailed;
 				signedOut = e instanceof ApiError && e.status === 401;
+				getTakeouts(a, true).then((l) => account === a && (local = l), () => {});
 			}
 		);
 	});
@@ -128,7 +132,7 @@
 		return { status: text.statusReady, detail: until, tone: 'ok', act: 'download' };
 	}
 
-	// One no longer on Google: how it ended, and nothing to do.
+	// One no longer on Google, or Google not answering: how it ended here.
 	function pastOf(t: Takeout): { status: string; tone: string } {
 		const l = t.local;
 		// Its library is away: what came is not known.
@@ -212,6 +216,7 @@
 				<button class="pill" onclick={() => tries++}>{text.retry}</button>
 			{/if}
 		</div>
+		{#if local.length}{@render past(text.takeoutCol, local)}{/if}
 	{:else if list === null}
 		<Skeleton label={text.readingTakeouts} />
 	{:else if list.length === 0}
@@ -251,23 +256,7 @@
 				</table>
 			</div>
 		{/if}
-		{#if gone.length}
-			<div class="table" in:reveal out:reveal={{ leaving: true }}>
-				<table>
-					{@render head(text.goneCol)}
-					<tbody>
-						{#each gone as t (t.id)}
-							{@const r = pastOf(t)}
-							<tr in:swap animate:flip={moving()}>
-								{@render facts(t)}
-								<td><span class="status {r.tone}"><i></i><b>{r.status}</b></span></td>
-								<td class="act"></td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
+		{#if gone.length}{@render past(text.goneCol, gone)}{/if}
 	{/if}
 </div>
 
@@ -279,6 +268,25 @@
 
 {#snippet two(first: string, sep: string, then: string)}
 	{first}{#if first && then}<span class="sep">{sep}</span>{/if}{#if then}<span class="then">{then}</span>{/if}
+{/snippet}
+
+<!-- Rows told from this computer: how each ended here, nothing to do. -->
+{#snippet past(name: string, rows: Takeout[])}
+	<div class="table" in:reveal out:reveal={{ leaving: true }}>
+		<table>
+			{@render head(name)}
+			<tbody>
+				{#each rows as t (t.id)}
+					{@const r = pastOf(t)}
+					<tr in:swap animate:flip={moving()}>
+						{@render facts(t)}
+						<td><span class="status {r.tone}"><i></i><b>{r.status}</b></span></td>
+						<td class="act"></td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	</div>
 {/snippet}
 
 {#snippet facts(t: Takeout)}

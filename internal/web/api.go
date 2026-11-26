@@ -367,6 +367,12 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 			reply(w, nil, err)
 			return
 		}
+		// local: what this computer knows, for when Google does not answer.
+		if r.URL.Query().Get("local") != "" {
+			list, err := engine.Asked(sess)
+			reply(w, list, err)
+			return
+		}
 		list, err := engine.WithPast(sess)
 		reply(w, list, err)
 	})

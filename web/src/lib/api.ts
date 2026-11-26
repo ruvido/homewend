@@ -228,7 +228,7 @@ export const stopJob = (account: string) => call<JobState>('POST', `/api/job/sto
 
 export interface Takeout {
 	id: string;
-	status: 'preparing' | 'ready' | 'expired';
+	status: 'preparing' | 'ready' | 'expired' | '';
 	year: number;
 	known: boolean;
 	Created: string;
@@ -240,7 +240,9 @@ export interface Takeout {
 	local?: { profile: string; parts: number; of: number; bytes?: number; declared?: number; present?: number };
 }
 
-export const getTakeouts = (account: string) => call<Takeout[]>('GET', `/api/takeouts?${q({ account })}`);
+/** local: only what this computer knows, Google not asked; then no status is known. */
+export const getTakeouts = (account: string, local = false) =>
+	call<Takeout[]>('GET', `/api/takeouts?${q({ account, local: local ? '1' : undefined })}`);
 
 export const logout = (account: string) => call<object>('POST', `/api/logout?${q({ account })}`);
 export const getVersion = () => call<{ version: string }>('GET', '/api/about');

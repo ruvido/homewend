@@ -199,7 +199,7 @@ func TestPastIsWhatWasAskedAndGoogleNoLongerLists(t *testing.T) {
 		// A failed request takes the export of the next: the last one is right.
 		{Year: 2020, Asked: now.Add(-6 * day), Job: "never"},
 	}
-	list := past(notes, []Takeout{{Export: gone("listed", 0)}}, lib)
+	list := past(notes, []Takeout{{Export: gone("listed", 0)}}, lib, Expired)
 	want := []struct {
 		job   string
 		year  int
@@ -231,5 +231,14 @@ func TestLocalOfAnExpiredTakeoutStillListed(t *testing.T) {
 	}
 	if l := localOf(lib, gone("job", 0)); l == nil || l.Parts != 1 || l.Of != 1 || l.Present != 3 {
 		t.Errorf("got %+v, want its 1 part, 3 files here", l)
+	}
+}
+
+// Google not answering, every export asked for is told from this computer,
+// and none is said to be gone.
+func TestPastWithoutGoogleSaysNoStatus(t *testing.T) {
+	list := past([]note{{Year: 2025, Asked: now, Job: "listed"}}, nil, "", "")
+	if len(list) != 1 || list[0].Status != "" || list[0].Expired || list[0].Local != nil {
+		t.Errorf("got %+v, want the one asked, no status", list)
 	}
 }

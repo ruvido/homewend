@@ -148,10 +148,45 @@ func Takeouts(sess *session.Session) ([]Takeout, error) {
 	if err != nil {
 		return nil, err
 	}
-	notes, err := loadNotes(sess.Profile)
+	notes, root, err := stored(sess)
 	if err != nil {
 		return nil, err
 	}
+	return listed(exports, notes, root), nil
+}
+
+// WithPast lists the account's exports as Takeouts does, and those Homewend
+// asked for that Google no longer lists, expired.
+func WithPast(sess *session.Session) ([]Takeout, error) {
+	exports, err := takeout.Exports(sess)
+	if err != nil {
+		return nil, err
+	}
+	notes, root, err := stored(sess)
+	if err != nil {
+		return nil, err
+	}
+	list := listed(exports, notes, root)
+	return append(list, past(notes, list, root, Expired)...), nil
+}
+
+// Asked lists the exports Homewend asked for, from this computer alone, for
+// when Google does not answer: whether Google still has them is not known,
+// and their status is left empty.
+func Asked(sess *session.Session) ([]Takeout, error) {
+	notes, root, err := stored(sess)
+	return past(notes, nil, root, ""), err
+}
+
+// stored is what this computer knows of the account's exports: the notes, and
+// the library their downloads went in ("" when none is chosen).
+func stored(sess *session.Session) ([]note, string, error) {
+	notes, err := loadNotes(sess.Profile)
+	root, _ := DefaultLibrary()
+	return notes, root, err
+}
+
+func listed(exports []takeout.Export, notes []note, root string) []Takeout {
 	byJob := asked(notes)
 	list := make([]Takeout, len(exports))
 	for i, e := range exports {
@@ -160,44 +195,27 @@ func Takeouts(sess *session.Session) ([]Takeout, error) {
 			list[i].Year, list[i].Known = n.Year, true
 		}
 	}
-	if root, err := DefaultLibrary(); err == nil && root != "" {
+	if root != "" {
 		for i := range list {
 			list[i].Years, _ = manifestYears(root, list[i].Job)
 			list[i].Local = localOf(root, list[i].Export)
 		}
 	}
 	sort.SliceStable(list, func(i, j int) bool { return list[i].Created.After(list[j].Created) })
-	return list, nil
-}
-
-// WithPast lists the account's exports as Takeouts does, and those Homewend
-// asked for that Google no longer lists, expired.
-func WithPast(sess *session.Session) ([]Takeout, error) {
-	list, err := Takeouts(sess)
-	if err != nil {
-		return nil, err
-	}
-	notes, err := loadNotes(sess.Profile)
-	if err != nil {
-		return nil, err
-	}
-	root, err := DefaultLibrary()
-	if err != nil {
-		return nil, err
-	}
-	return append(list, past(notes, list, root)...), nil
+	return list
 }
 
 // past are the exports noted that listed does not hold, newest first, with
-// what is known of them here: what Google said of them is gone.
-func past(notes []note, listed []Takeout, root string) []Takeout {
+// what is known of them here: what Google said of them is gone. status is
+// Expired when Google was asked, "" when it did not answer.
+func past(notes []note, listed []Takeout, root string, status Status) []Takeout {
 	byJob := asked(notes)
 	for _, t := range listed {
 		delete(byJob, t.Job)
 	}
 	var list []Takeout
 	for job, n := range byJob {
-		t := Takeout{Export: takeout.Export{Job: job, Created: n.Asked, Expired: true}, ID: ShortID(job), Status: Expired, Year: n.Year, Known: true}
+		t := Takeout{Export: takeout.Export{Job: job, Created: n.Asked, Expired: status == Expired}, ID: ShortID(job), Status: status, Year: n.Year, Known: true}
 		if root != "" {
 			t.Local = localOf(root, t.Export)
 		}
