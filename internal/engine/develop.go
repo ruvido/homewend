@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/ruvido/homewend/internal/raw"
 	"github.com/ruvido/homewend/internal/thumb"
@@ -37,6 +38,13 @@ var developing sync.Map
 var developSlot = make(chan struct{}, 1)
 
 var noHelper sync.Once
+
+// developedCount grows each time a raw file has been developed: a window
+// showing one asks for its picture again.
+var developedCount atomic.Int64
+
+// Developed is how many raw files have been developed since the app started.
+func Developed() int64 { return developedCount.Load() }
 
 // developsFrom is whether a picture of src at size, with an edit or not, is
 // made from its developed picture.
@@ -66,6 +74,7 @@ func developed(src, name string) string {
 		case err == nil:
 			developing.Delete(name)
 			forgetCamera(name)
+			developedCount.Add(1)
 		case errors.Is(err, raw.ErrNoHelper):
 			noHelper.Do(func() { log.Printf("raw files are shown as their cameras' JPEGs: %v", err) })
 		default:

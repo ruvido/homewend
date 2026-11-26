@@ -68,6 +68,30 @@
 	// thumbnail. Its edit another since, that stays until the new one's has.
 	let ready = $state.raw<GridPhoto>();
 	const seen = $derived(p && ready?.id === p.id && ready.edit !== p.edit ? ready : p);
+	// A RAF is shown from its camera's JPEG while it is developed: once a raw
+	// file is, its preview is asked again and shown over the one before, once whole.
+	let again = $state(0);
+	let under = $state('');
+	let since = untrack(() => app.developed);
+	const previewSrc = $derived(p ? pictureOf(p, 'preview') + (again ? `&developed=${again}` : '') : '');
+	$effect(() => {
+		const n = app.developed;
+		untrack(() => {
+			if (n === since) return;
+			since = n;
+			if (!p || p.missing || ext !== 'raf') return;
+			under = previewSrc;
+			again = n;
+			ready = undefined;
+		});
+	});
+	$effect(() => {
+		void id;
+		untrack(() => {
+			under = '';
+			again = 0;
+		});
+	});
 	// The previews of the photos either side, asked before they are wanted:
 	// the browser keeps them, and moving on is at once.
 	$effect(() => {
@@ -106,7 +130,7 @@
 	let asked = $state<{ src: string; fx: number; fy: number } | null>(null);
 	// w × h the picture as shown, turned; iw × ih the picture itself.
 	let zoomed = $state<{ src: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
-	const zoomSrc = $derived(p ? image && !p.edit ? originalOf(p) : pictureOf(p, 'preview') : '');
+	const zoomSrc = $derived(p ? image && !p.edit ? originalOf(p) : previewSrc : '');
 	$effect(() => {
 		// Another photo, or edit of it: fitted again.
 		if (zoomSrc !== zoomed?.src) zoomed = null;
@@ -308,13 +332,13 @@
 						{:else}
 							<!-- The thumbnail at once; the preview, from the cache, over it only
 							     once whole: a big file is never seen drawing itself. -->
-							<img src={pictureOf(seen ?? p)} alt={p.name} style={fit} />
+							<img src={under || pictureOf(seen ?? p)} alt={p.name} style={fit} />
 							<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 							<img
 								style={fit}
 								class="full"
 								class:ready={ready?.id === p.id}
-								src={pictureOf(p, 'preview')}
+								src={previewSrc}
 								alt=""
 								bind:this={fitted}
 								onload={() => p && (ready = p)}

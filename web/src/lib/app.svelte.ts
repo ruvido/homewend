@@ -50,6 +50,8 @@ export const app = $state<{
 	emptying: Emptying | null;
 	/** The phones backing up now, each with how far it has come. */
 	backups: Backing[];
+	/** Grows each time a raw file has been developed: its picture is asked again. */
+	developed: number;
 }>({
 	settings: {},
 	overview: null,
@@ -62,7 +64,8 @@ export const app = $state<{
 	libraryMoved: 0,
 	thumbs: null,
 	emptying: null,
-	backups: []
+	backups: [],
+	developed: 0
 });
 
 function measure(account: string, j: JobState) {
@@ -130,6 +133,7 @@ export function watchJobs(): () => void {
 		wasMaking = making;
 		app.emptying = got && got.emptying.of > 0 ? got.emptying : null;
 		app.backups = got?.backups ?? [];
+		if (got) app.developed = got.developed;
 		const moved = changes !== undefined && now !== changes;
 		changes = now;
 		if (moved) app.libraryMoved++;

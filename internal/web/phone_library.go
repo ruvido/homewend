@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +67,9 @@ func libraryRoutes(mux *http.ServeMux) {
 				return
 			}
 			cacheFor(w, kept)
+			// The name the copy is kept by: a RAW's while it is developed is
+			// another than the developed one's (docs/library.md).
+			w.Header().Set("ETag", `"`+strings.TrimSuffix(filepath.Base(file), ".jpg")+`"`)
 			to, stop := newToPhone(w, r)
 			defer stop()
 			http.ServeFile(to, r, file)

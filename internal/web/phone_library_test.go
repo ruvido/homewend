@@ -556,7 +556,7 @@ func TestAPhonesPictures(t *testing.T) {
 	for path, long := range map[string]int{"/v1/thumb/": 256, "/v1/screen/": 400, "/v1/preview/": 400} {
 		res, body := ron.gets(path + sea)
 		img, err := jpeg.DecodeConfig(bytes.NewReader(body))
-		if res.StatusCode != http.StatusOK || err != nil || img.Width != long || res.Header.Get("Content-Type") != "image/jpeg" || res.Header.Get("Cache-Control") != forEver {
+		if res.StatusCode != http.StatusOK || err != nil || img.Width != long || res.Header.Get("Content-Type") != "image/jpeg" || res.Header.Get("Cache-Control") != forEver || res.Header.Get("ETag") != `"`+sea+`"` {
 			t.Errorf("%s: %d %v %v %v", path, res.StatusCode, img, err, res.Header)
 		}
 		if res, body := ron.gets(path + bad); res.StatusCode != http.StatusNotFound || strings.TrimSpace(string(body)) != `{"none":true}` || strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
@@ -572,6 +572,18 @@ func TestAPhonesPictures(t *testing.T) {
 		}
 		for _, hash := range []string{"x", strings.ToUpper(sea), sea[1:], sea + "0", "..%2F..%2Fcatalog.db", strings.Repeat("g", 64)} {
 			ron.is("no hash", path+hash, http.StatusBadRequest)
+		}
+	}
+	// A RAF not developed (no helper here) is its camera's JPEG, by another name.
+	t.Setenv("PATH", t.TempDir())
+	head := make([]byte, 148)
+	copy(head, "FUJIFILMCCD-RAW 0201FF159501X-T3")
+	binary.BigEndian.PutUint32(head[84:], 148)
+	binary.BigEndian.PutUint32(head[88:], uint32(len(photo)))
+	film := shelve(t, lib, "ron/2026/11/DSCF0001.RAF", append(head, photo...), november)
+	for _, path := range []string{"/v1/screen/", "/v1/preview/"} {
+		if res, _ := ron.gets(path + film); res.StatusCode != http.StatusOK || res.Header.Get("ETag") != `"`+film+`-camera"` || strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
+			t.Errorf("%s of a RAF: %d %v", path, res.StatusCode, res.Header)
 		}
 	}
 	// Another program's edit is not the content's picture.
