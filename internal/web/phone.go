@@ -19,6 +19,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/mdns"
@@ -187,6 +188,26 @@ func localAddresses() []string {
 	return ips
 }
 
+// heard logs a phone's hello when it comes back after a silence, and now and
+// then while it stays: whether a phone reached the computer, and from where,
+// without a line every half minute.
+func heard(phone engine.Phone, from string) {
+	hellos.Lock()
+	defer hellos.Unlock()
+	now := time.Now()
+	last := hellos.at[phone.ID]
+	hellos.at[phone.ID] = now
+	if now.Sub(last) > time.Minute || now.Sub(hellos.said[phone.ID]) > 10*time.Minute {
+		hellos.said[phone.ID] = now
+		log.Printf("phone %q: hello from %s", phone.Name, from)
+	}
+}
+
+var hellos = struct {
+	sync.Mutex
+	at, said map[string]time.Time
+}{at: map[string]time.Time{}, said: map[string]time.Time{}}
+
 // askedHashes reads the hashes a phone sends, at most maxHave, and answers
 // 400 when they are not that.
 func askedHashes(w http.ResponseWriter, r *http.Request) ([]string, bool) {
@@ -227,6 +248,7 @@ func phoneRoutes(l *phoneListener) http.Handler {
 	// The phone asks, when it opens, whether it is still paired, with whom,
 	// and where the computer is now: an address changed meanwhile heals.
 	mux.Handle("GET /v1/hello", paired(func(w http.ResponseWriter, r *http.Request, phone engine.Phone) {
+		heard(phone, r.RemoteAddr)
 		host, _ := os.Hostname()
 		hello := map[string]any{"computer": host, "owner": phone.Profile, "hosts": l.hosts(), "features": features}
 		// The library unanswered (its disk away, a catalog not read): hello
