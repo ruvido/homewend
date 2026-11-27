@@ -124,11 +124,12 @@ func Make(ctx context.Context, src, dst string, size int, e edit.Edit) (err erro
 	if !e.None() {
 		img = fit(rgba(edit.Draw(img, e)), size)
 	}
-	return save(dst, img, quality)
+	return save(dst, img, quality, false)
 }
 
-// save writes img at dst as a JPEG of quality q, whole or not at all.
-func save(dst string, img image.Image, q int) error {
+// save writes img at dst as a JPEG of quality q, whole or not at all;
+// durable also syncs it, for a picture costly to make again.
+func save(dst string, img image.Image, q int, durable bool) error {
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: q}); err != nil {
 		return err
@@ -143,6 +144,9 @@ func save(dst string, img image.Image, q int) error {
 		return err
 	}
 	_, err = f.Write(buf.Bytes())
+	if err == nil && durable {
+		err = f.Sync()
+	}
 	err = errors.Join(err, f.Close())
 	if err == nil {
 		err = os.Rename(f.Name(), dst)
@@ -185,7 +189,7 @@ func Develop(ctx context.Context, src, dst string, long int, background bool) (e
 	if err != nil {
 		return err
 	}
-	return save(dst, upright(raw.Picture(img, meta, preview, long), library.Orientation(src)), developedQuality)
+	return save(dst, upright(raw.Picture(img, meta, preview, long), library.Orientation(src)), developedQuality, true)
 }
 
 // Short says whether src has fewer pixels than the edit e, drawn at size,
