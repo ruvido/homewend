@@ -60,7 +60,7 @@ func fake(t *testing.T, mode string) {
 
 func TestDevelop(t *testing.T) {
 	fake(t, "ok")
-	img, meta, err := Develop(context.Background(), "photo.RAF", true)
+	img, meta, err := Develop(context.Background(), "photo.RAF", Developed, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestDevelopFails(t *testing.T) {
 	} {
 		t.Run(mode, func(t *testing.T) {
 			fake(t, mode)
-			_, _, err := Develop(context.Background(), "photo.RAF", false)
+			_, _, err := Develop(context.Background(), "photo.RAF", Developed, false)
 			if err == nil || !strings.Contains(err.Error(), says) {
 				t.Errorf("err = %v, want it to say %q", err, says)
 			}
@@ -94,7 +94,7 @@ func TestDevelopTimeout(t *testing.T) {
 	fake(t, "hang")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, _, err := Develop(ctx, "photo.RAF", true)
+	_, _, err := Develop(ctx, "photo.RAF", Developed, true)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want the deadline", err)
 	}
@@ -102,7 +102,7 @@ func TestDevelopTimeout(t *testing.T) {
 
 func TestDevelopNoHelper(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	if _, _, err := Develop(context.Background(), "photo.RAF", false); !errors.Is(err, ErrNoHelper) {
+	if _, _, err := Develop(context.Background(), "photo.RAF", Developed, false); !errors.Is(err, ErrNoHelper) {
 		t.Errorf("err = %v, want ErrNoHelper", err)
 	}
 }
@@ -117,7 +117,7 @@ func TestDevelopRAF(t *testing.T) {
 	if _, err := find(); err != nil {
 		t.Skip(err)
 	}
-	img, meta, err := Develop(context.Background(), files[0], false)
+	img, meta, err := Develop(context.Background(), files[0], Developed, false)
 	if err != nil {
 		t.Fatal(err)
 	}

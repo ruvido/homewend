@@ -59,7 +59,7 @@ func TestARAFWithNoHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(t.TempDir(), "developed.jpg")
-	if err := Develop(context.Background(), raf(t, jpg.Bytes(), 148, uint32(jpg.Len())), dst, PreviewSize, true); !errors.Is(err, raw.ErrNoHelper) {
+	if err := Develop(context.Background(), raf(t, jpg.Bytes(), 148, uint32(jpg.Len())), dst, PreviewSize, nil, true); !errors.Is(err, raw.ErrNoHelper) {
 		t.Errorf("%v", err)
 	}
 	if _, err := os.Stat(dst); err == nil {

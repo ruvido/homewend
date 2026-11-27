@@ -45,7 +45,19 @@ type Meta struct {
 	// Frame is the size of the camera's own picture, in the middle of the
 	// sensor's, as the raw file says; zero if it does not.
 	Frame struct{ Width, Height int }
+	// RGBCam takes the camera's RGB to linear sRGB.
+	RGBCam [3][3]float64 `json:"rgb_cam"`
 }
+
+// Mode is how a file is decoded: developed, or as a film negative to invert,
+// whole or at half the size.
+type Mode string
+
+const (
+	Developed    Mode = ""
+	Negative     Mode = "-negative"
+	NegativeHalf Mode = "-negative-half"
+)
 
 // header is the helper's first line.
 type header struct {
@@ -59,9 +71,9 @@ func Installed() bool {
 	return err == nil
 }
 
-// Develop develops the raw file at path; in the background, at the lowest
-// priority the system has.
-func Develop(ctx context.Context, path string, background bool) (*Image, *Meta, error) {
+// Develop decodes the raw file at path as mode says; in the background, at
+// the lowest priority the system has.
+func Develop(ctx context.Context, path string, mode Mode, background bool) (*Image, *Meta, error) {
 	helper, err := find()
 	if err != nil {
 		return nil, nil, err
@@ -69,6 +81,9 @@ func Develop(ctx context.Context, path string, background bool) (*Image, *Meta, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, helper, path)
+	if mode != Developed {
+		cmd = exec.CommandContext(ctx, helper, string(mode), path)
+	}
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	stdout, err := cmd.StdoutPipe()

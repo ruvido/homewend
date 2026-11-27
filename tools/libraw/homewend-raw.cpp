@@ -7,7 +7,13 @@
 // (one-pass for X-Trans), highlights blended; and not turned (-t 0), as the
 // JPEG the camera embedded is not: the program reading both turns them alike.
 //
-// Usage: homewend-raw FILE
+// With -negative it decodes a film negative instead, as
+// "dcraw_emu -4 -o 0 -r 1 1 1 1 -q 2 -H 0": the camera's own RGB, linear, no
+// white balance, highlights clipped; the inversion is the engine's, and the
+// camera matrix after it, which the header gives as rgb_cam. With -negative-half,
+// at half the size (-h), for the analysis.
+//
+// Usage: homewend-raw [-negative | -negative-half] FILE
 //
 // It writes to stdout one line of JSON (size and metadata), then the pixels:
 // width*height RGB triples of 16-bit samples in the machine's byte order,
@@ -47,11 +53,13 @@ static int fail(const char *what, int err)
 
 int main(int argc, char **argv)
 {
-  if (argc != 2)
+  std::string mode = argc == 3 ? argv[1] : "";
+  if (argc < 2 || argc > 3 || (argc == 3 && mode != "-negative" && mode != "-negative-half"))
   {
-    fprintf(stderr, "usage: homewend-raw FILE\n");
+    fprintf(stderr, "usage: homewend-raw [-negative | -negative-half] FILE\n");
     return 2;
   }
+  const char *file = argv[argc - 1];
   static LibRaw raw; // static: the object is too big for the stack
   libraw_output_params_t &out = raw.imgdata.params;
   out.use_camera_wb = 1; // -w
@@ -62,11 +70,20 @@ int main(int argc, char **argv)
   out.user_qual = 2; // -q 2
   out.highlight = 2; // -H 2
   out.user_flip = 0;  // -t 0
+  if (!mode.empty())
+  {
+    out.use_camera_wb = 0;
+    out.output_color = 0; // -o 0, the camera's RGB
+    for (int c = 0; c < 4; c++)
+      out.user_mul[c] = 1; // -r 1 1 1 1
+    out.highlight = 0;     // -H 0
+    out.half_size = mode == "-negative-half"; // -h
+  }
   // A file whose header lies about its size is refused, not given all the memory.
   raw.imgdata.rawparams.max_raw_memory_mb = 1024;
 
   int err;
-  if ((err = raw.open_file(argv[1])) != LIBRAW_SUCCESS)
+  if ((err = raw.open_file(file)) != LIBRAW_SUCCESS)
     return fail("open", err);
   // As the engine reads it: no side past 65535, no more than 200 MP.
   const libraw_image_sizes_t &size = raw.imgdata.sizes;
@@ -98,7 +115,11 @@ int main(int argc, char **argv)
   const libraw_raw_inset_crop_t &crop = d.sizes.raw_inset_crops[0];
   if (crop.cwidth && crop.cheight)
     printf(",\"frame\":{\"width\":%d,\"height\":%d}", crop.cwidth, crop.cheight);
-  printf("}\n");
+  // Camera RGB to linear sRGB, rows as dcraw normalises them.
+  printf(",\"rgb_cam\":[");
+  for (int i = 0; i < 3; i++)
+    printf("%s[%g,%g,%g]", i ? "," : "", d.color.rgb_cam[i][0], d.color.rgb_cam[i][1], d.color.rgb_cam[i][2]);
+  printf("]}\n");
   bool written = fwrite(img->data, 1, img->data_size, stdout) == img->data_size;
   LibRaw::dcraw_clear_mem(img);
   if (!written || fflush(stdout) != 0)

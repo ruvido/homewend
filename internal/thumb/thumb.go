@@ -164,14 +164,22 @@ const developedQuality = 95
 // Develop writes at dst the raw file src developed (package raw), turned as
 // its EXIF says, long pixels on its long side at most, 0 for all: from then
 // on its pictures are made from it as from a JPEG. Only a RAF: its embedded
-// JPEG is what the look is fitted to. In the background, at the lowest
+// JPEG is what the look is fitted to. A film negative, with its bounds, is
+// printed instead, and the look is not its. In the background, at the lowest
 // priority the system has.
-func Develop(ctx context.Context, src, dst string, long int, background bool) (err error) {
+func Develop(ctx context.Context, src, dst string, long int, negative *raw.Bounds, background bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("developing %s: %v", src, r)
 		}
 	}()
+	if negative != nil {
+		img, meta, err := raw.Develop(ctx, src, raw.Negative, background)
+		if err != nil {
+			return err
+		}
+		return save(dst, upright(raw.Positive(img, meta, *negative, long), library.Orientation(src)), developedQuality, true)
+	}
 	f, err := os.Open(src)
 	if err != nil {
 		return err
@@ -185,7 +193,7 @@ func Develop(ctx context.Context, src, dst string, long int, background bool) (e
 	if err != nil {
 		return err
 	}
-	img, meta, err := raw.Develop(ctx, src, background)
+	img, meta, err := raw.Develop(ctx, src, raw.Developed, background)
 	if err != nil {
 		return err
 	}
