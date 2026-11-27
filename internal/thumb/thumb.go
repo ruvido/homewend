@@ -158,9 +158,11 @@ func save(dst string, img image.Image, q int) error {
 const developedQuality = 95
 
 // Develop writes at dst the raw file src developed (package raw), turned as
-// its EXIF says, at full size: from then on its pictures are made from it as
-// from a JPEG. Only a RAF: its embedded JPEG is what the look is fitted to.
-func Develop(ctx context.Context, src, dst string) (err error) {
+// its EXIF says, long pixels on its long side at most, 0 for all: from then
+// on its pictures are made from it as from a JPEG. Only a RAF: its embedded
+// JPEG is what the look is fitted to. In the background, at the lowest
+// priority the system has.
+func Develop(ctx context.Context, src, dst string, long int, background bool) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("developing %s: %v", src, r)
@@ -179,11 +181,22 @@ func Develop(ctx context.Context, src, dst string) (err error) {
 	if err != nil {
 		return err
 	}
-	img, meta, err := raw.Develop(ctx, src)
+	img, meta, err := raw.Develop(ctx, src, background)
 	if err != nil {
 		return err
 	}
-	return save(dst, upright(raw.Picture(img, meta, preview), library.Orientation(src)), developedQuality)
+	return save(dst, upright(raw.Picture(img, meta, preview, long), library.Orientation(src)), developedQuality)
+}
+
+// Short says whether src has fewer pixels than the edit e, drawn at size,
+// uses: what it keeps of src is smaller than size.
+func Short(src string, size int, e edit.Edit) bool {
+	w, h := Dimensions(src)
+	if w == 0 {
+		return false
+	}
+	kw, kh := e.Size(w, h)
+	return max(kw, kh) < max(size, minDrawn)
 }
 
 // minDrawn is the long edge an edit is drawn at, at least. Off the edit drawn

@@ -30,6 +30,7 @@ import (
 
 	"github.com/ruvido/homewend/internal/engine"
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/thumb/thumbtest"
 )
 
 // gets asks for path, with headers as "name: value".
@@ -576,11 +577,11 @@ func TestAPhonesPictures(t *testing.T) {
 	}
 	// A RAF not developed (no helper here) is its camera's JPEG, by another name.
 	t.Setenv("PATH", t.TempDir())
-	head := make([]byte, 148)
-	copy(head, "FUJIFILMCCD-RAW 0201FF159501X-T3")
-	binary.BigEndian.PutUint32(head[84:], 148)
-	binary.BigEndian.PutUint32(head[88:], uint32(len(photo)))
-	film := shelve(t, lib, "ron/2026/11/DSCF0001.RAF", append(head, photo...), november)
+	rafFile, err := os.ReadFile(thumbtest.RAF(t, t.TempDir(), photo, 148, uint32(len(photo))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	film := shelve(t, lib, "ron/2026/11/DSCF0001.RAF", rafFile, november)
 	for _, path := range []string{"/v1/screen/", "/v1/preview/"} {
 		if res, _ := ron.gets(path + film); res.StatusCode != http.StatusOK || res.Header.Get("ETag") != `"`+film+`-camera"` || strings.Contains(res.Header.Get("Cache-Control"), "immutable") {
 			t.Errorf("%s of a RAF: %d %v", path, res.StatusCode, res.Header)

@@ -6,7 +6,6 @@ package thumb
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"image"
 	"image/color"
@@ -17,22 +16,11 @@ import (
 
 	"github.com/ruvido/homewend/internal/edit"
 	"github.com/ruvido/homewend/internal/raw"
+	"github.com/ruvido/homewend/internal/thumb/thumbtest"
 )
 
-// raf is a Fujifilm RAF as a camera writes its head: the name, then where its
-// JPEG is, then raw data that is not read.
 func raf(t *testing.T, preview []byte, at, n uint32) string {
-	t.Helper()
-	head := make([]byte, 148)
-	copy(head, "FUJIFILMCCD-RAW 0201FF159501X-T3")
-	binary.BigEndian.PutUint32(head[84:], at)
-	binary.BigEndian.PutUint32(head[88:], n)
-	path := filepath.Join(t.TempDir(), "DSCF0050.RAF")
-	data := append(append(head, preview...), bytes.Repeat([]byte{7}, 4096)...)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return path
+	return thumbtest.RAF(t, t.TempDir(), preview, at, n)
 }
 
 // A RAF shows its camera's JPEG; one that has none, or points past its end, is
@@ -71,7 +59,7 @@ func TestARAFWithNoHelper(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(t.TempDir(), "developed.jpg")
-	if err := Develop(context.Background(), raf(t, jpg.Bytes(), 148, uint32(jpg.Len())), dst); !errors.Is(err, raw.ErrNoHelper) {
+	if err := Develop(context.Background(), raf(t, jpg.Bytes(), 148, uint32(jpg.Len())), dst, PreviewSize, true); !errors.Is(err, raw.ErrNoHelper) {
 		t.Errorf("%v", err)
 	}
 	if _, err := os.Stat(dst); err == nil {

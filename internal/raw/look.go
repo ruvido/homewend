@@ -114,14 +114,39 @@ type look struct {
 
 // Picture is img developed as its camera would, 8-bit sRGB, cut to the
 // camera's frame, or else to the shape of preview, the JPEG the camera
-// embedded, which it is fitted to. It is not turned: the preview is not either.
-func Picture(img *Image, meta *Meta, preview image.Image) *image.RGBA {
+// embedded, which it is fitted to; long pixels on its long side at most, 0
+// for all. It is not turned: the preview is not either.
+func Picture(img *Image, meta *Meta, preview image.Image, long int) *image.RGBA {
 	frame := cut(img.Width, img.Height, preview.Bounds().Dx(), preview.Bounds().Dy())
 	if f := meta.Frame; f.Width > 0 && f.Height > 0 && f.Width <= img.Width && f.Height <= img.Height {
 		frame = image.Rect(0, 0, f.Width, f.Height).Add(image.Pt((img.Width-f.Width)/2, (img.Height-f.Height)/2))
 	}
-	l := fit(img, frame, preview, meta)
-	return develop(img, frame, l)
+	if w, h := frame.Dx(), frame.Dy(); long > 0 && max(w, h) > long {
+		// Developed at the size asked: a fifth of the work at 2560 of 24 MP.
+		img, frame = scaled(img, frame, long)
+	}
+	return develop(img, frame, fit(img, frame, preview, meta))
+}
+
+// scaled is frame of img with long pixels on its long side, each the mean of
+// the light it covers.
+func scaled(img *Image, frame image.Rectangle, long int) (*Image, image.Rectangle) {
+	w, h := frame.Dx(), frame.Dy()
+	sw, sh := long, max(1, int(math.Round(float64(long*h)/float64(w))))
+	if h > w {
+		sw, sh = max(1, int(math.Round(float64(long*w)/float64(h)))), long
+	}
+	px := shrunk(w, h, sw, sh, func(y int, dst []float32) {
+		row := img.Pix[((frame.Min.Y+y)*img.Width+frame.Min.X)*3:]
+		for i := range dst {
+			dst[i] = float32(row[i])
+		}
+	})
+	out := &Image{Width: sw, Height: sh, Pix: make([]uint16, len(px))}
+	for i, v := range px {
+		out.Pix[i] = uint16(min(max(v+0.5, 0), 65535))
+	}
+	return out, image.Rect(0, 0, sw, sh)
 }
 
 // cut is the middle of a w×h picture with the shape of pw×ph.
@@ -975,13 +1000,19 @@ func percentile10(v []float64) float64 {
 // row puts in its dst, at sw×sh.
 func shrunk(w, h, sw, sh int, row func(y int, dst []float32)) []float32 {
 	xs, ys := shares(w, sw), shares(h, sh)
-	// A band of rows a core, each into its own sums.
+	// A band of rows a core, each into the sums of the rows it reaches.
+	type part struct {
+		from int
+		sums []float32
+	}
 	bands := min(h, runtime.GOMAXPROCS(0))
-	sums := make([][]float64, bands)
+	parts := make([]part, bands)
 	parallel(bands, func(band int, _ *buffers) {
-		out := make([]float64, sw*sh*3)
+		y0, y1 := h*band/bands, h*(band+1)/bands
+		from := ys[y0].to
+		sums := make([]float32, (ys[y1-1].next-from+1)*sw*3)
 		line, across := make([]float32, w*3), make([]float32, sw*3)
-		for y := h * band / bands; y < h*(band+1)/bands; y++ {
+		for y := y0; y < y1; y++ {
 			row(y, line)
 			clear(across)
 			for x, s := range xs {
@@ -1001,26 +1032,29 @@ func shrunk(w, h, sw, sh int, row func(y int, dst []float32)) []float32 {
 				to    int
 				share float32
 			}{{ys[y].to, ys[y].share}, {ys[y].next, 1 - ys[y].share}} {
-				o := out[3*part.to*sw:][:len(across)]
+				if part.share == 0 {
+					continue
+				}
+				o := sums[3*(part.to-from)*sw:][:len(across)]
 				for i, v := range across {
-					o[i] += float64(v * part.share)
+					o[i] += v * part.share
 				}
 			}
 		}
-		sums[band] = out
+		parts[band] = part{from, sums}
 	})
-	out := sums[0]
-	for _, more := range sums[1:] {
-		for i, v := range more {
-			out[i] += v
+	out := make([]float32, sw*sh*3)
+	for _, p := range parts {
+		o := out[3*p.from*sw:]
+		for i, v := range p.sums {
+			o[i] += v
 		}
 	}
-	scale := float64(sw) / float64(w) * float64(sh) / float64(h)
-	res := make([]float32, len(out))
-	for i, v := range out {
-		res[i] = float32(v * scale)
+	scale := float32(float64(sw) / float64(w) * float64(sh) / float64(h))
+	for i := range out {
+		out[i] *= scale
 	}
-	return res
+	return out
 }
 
 // share is where a source pixel falls on n pixels fewer: share of it in to,

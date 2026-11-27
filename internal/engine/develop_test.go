@@ -6,7 +6,6 @@ package engine
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"image"
 	"image/jpeg"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/ruvido/homewend/internal/thumb"
+	"github.com/ruvido/homewend/internal/thumb/thumbtest"
 )
 
 // A RAF's preview is its camera's JPEG, not kept, until its developed
@@ -32,16 +32,8 @@ func TestARAFIsShownDevelopedOnceItIs(t *testing.T) {
 		}
 		return b.Bytes()
 	}
-	// A RAF's head says where its JPEG is.
 	preview := picture(600, 400)
-	head := make([]byte, 148)
-	copy(head, "FUJIFILMCCD-RAW 0201FF159501X-T3")
-	binary.BigEndian.PutUint32(head[84:], 148)
-	binary.BigEndian.PutUint32(head[88:], uint32(len(preview)))
-	src := filepath.Join(t.TempDir(), "DSCF0001.RAF")
-	if err := os.WriteFile(src, append(head, preview...), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	src := thumbtest.RAF(t, t.TempDir(), preview, 148, uint32(len(preview)))
 	const hash = "abcdef"
 	source := func() (string, string, error) { return src, "", nil }
 	size := func(file string) (int, int) {
@@ -108,5 +100,42 @@ func TestOnlyARAFIsDeveloped(t *testing.T) {
 		if got := developsFrom(c.src, c.size, c.edited); got != c.want {
 			t.Errorf("%+v: %v", c, got)
 		}
+	}
+}
+
+// A RAF asked for goes before the library's, and still counts in its
+// progress until it is developed.
+func TestAskedGoesFirst(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	// Started already, as by an earlier test: no one develops in this one.
+	set := func(asked, lib []rawJob, of int, started bool, wake chan struct{}) {
+		developer.Lock()
+		developer.asked, developer.library, developer.now, developer.of, developer.started, developer.wake = asked, lib, nil, of, started, wake
+		developer.Unlock()
+	}
+	set(nil, []rawJob{{name: "a", library: true}, {name: "b", library: true}}, 3, true, make(chan struct{}, 1))
+	defer set(nil, nil, 0, false, nil)
+	if got := developed(rawJob{name: "b", src: "b.RAF"}, true); got != "" {
+		t.Fatalf("%q", got)
+	}
+	developed(rawJob{name: "c", src: "c.RAF"}, true)
+	developer.Lock()
+	if len(developer.asked) != 2 || developer.asked[0].name != "b" || !developer.asked[0].library || len(developer.library) != 1 {
+		t.Errorf("asked %+v, library %+v", developer.asked, developer.library)
+	}
+	developer.Unlock()
+	if d := DevelopingNow(); d.Done != 1 || d.Of != 3 || len(d.Now) != 2 || d.Now[0] != "b" {
+		t.Errorf("%+v", d)
+	}
+	// Asked ahead, not raised.
+	developed(rawJob{name: "a", src: "a.RAF"}, false)
+	if d := DevelopingNow(); len(d.Now) != 2 {
+		t.Errorf("%+v", d)
+	}
+	// Asked twice, once in the queue.
+	developed(rawJob{name: "c", src: "c.RAF"}, true)
+	if d := DevelopingNow(); len(d.Now) != 2 {
+		t.Errorf("%+v", d)
 	}
 }

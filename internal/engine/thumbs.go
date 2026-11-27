@@ -103,10 +103,8 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 		name := thumb.Edited(p.Hash, edit)
 		return !kept[name] && !failed[name]
 	}
+	developLibrary(root, photos)
 	for _, p := range photos {
-		if developsFrom(p.Name, thumb.PreviewSize, false) {
-			forgetUndeveloped(p.Hash, p.Edit)
-		}
 		if lacks(p, "") || lacks(p, p.Edit) {
 			todo = append(todo, p)
 		}

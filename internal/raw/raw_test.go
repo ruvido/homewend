@@ -24,11 +24,13 @@ func TestMain(m *testing.M) {
 	case "":
 		os.Exit(m.Run())
 	case "ok":
-		fmt.Println(`{"width":2,"height":1,"make":"Fujifilm","model":"X-T5","lens":"XF35mmF1.4 R","iso":400,"wb":[2.1,1,1.6,0],"exposure_shift":-0.72,"baseline_exposure":0,"frame":{"width":2,"height":1},"preview":{"offset":1024,"length":2048,"width":160,"height":120}}`)
+		fmt.Println(`{"width":2,"height":1,"model":"X-T5","exposure_shift":-0.72,"frame":{"width":2,"height":1}}`)
 		binary.Write(os.Stdout, binary.LittleEndian, []uint16{1, 2, 3, 65535, 0, 300})
 	case "fail":
 		fmt.Fprintln(os.Stderr, "open: Unsupported file format or not RAW file")
 		os.Exit(1)
+	case "huge":
+		fmt.Println(`{"width":100000,"height":100000}`)
 	case "short":
 		fmt.Println(`{"width":2,"height":1}`)
 		binary.Write(os.Stdout, binary.LittleEndian, []uint16{1, 2})
@@ -58,16 +60,14 @@ func fake(t *testing.T, mode string) {
 
 func TestDevelop(t *testing.T) {
 	fake(t, "ok")
-	img, meta, err := Develop(context.Background(), "photo.RAF")
+	img, meta, err := Develop(context.Background(), "photo.RAF", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if img.Width != 2 || img.Height != 1 || fmt.Sprint(img.Pix) != "[1 2 3 65535 0 300]" {
 		t.Errorf("image = %+v", img)
 	}
-	want := Meta{Make: "Fujifilm", Model: "X-T5", Lens: "XF35mmF1.4 R", ISO: 400,
-		WB: [4]float64{2.1, 1, 1.6, 0}, ExposureShift: -0.72,
-		Preview: &Preview{Offset: 1024, Length: 2048, Width: 160, Height: 120}}
+	want := Meta{Model: "X-T5", ExposureShift: -0.72}
 	want.Frame.Width, want.Frame.Height = 2, 1
 	if !reflect.DeepEqual(*meta, want) {
 		t.Errorf("meta = %+v, want %+v", *meta, want)
@@ -78,10 +78,11 @@ func TestDevelopFails(t *testing.T) {
 	for mode, says := range map[string]string{
 		"fail":  "Unsupported file format",
 		"short": "unexpected EOF",
+		"huge":  "size 100000x100000",
 	} {
 		t.Run(mode, func(t *testing.T) {
 			fake(t, mode)
-			_, _, err := Develop(context.Background(), "photo.RAF")
+			_, _, err := Develop(context.Background(), "photo.RAF", false)
 			if err == nil || !strings.Contains(err.Error(), says) {
 				t.Errorf("err = %v, want it to say %q", err, says)
 			}
@@ -93,7 +94,7 @@ func TestDevelopTimeout(t *testing.T) {
 	fake(t, "hang")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, _, err := Develop(ctx, "photo.RAF")
+	_, _, err := Develop(ctx, "photo.RAF", true)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want the deadline", err)
 	}
@@ -101,7 +102,7 @@ func TestDevelopTimeout(t *testing.T) {
 
 func TestDevelopNoHelper(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
-	if _, _, err := Develop(context.Background(), "photo.RAF"); !errors.Is(err, ErrNoHelper) {
+	if _, _, err := Develop(context.Background(), "photo.RAF", false); !errors.Is(err, ErrNoHelper) {
 		t.Errorf("err = %v, want ErrNoHelper", err)
 	}
 }
@@ -116,11 +117,11 @@ func TestDevelopRAF(t *testing.T) {
 	if _, err := find(); err != nil {
 		t.Skip(err)
 	}
-	img, meta, err := Develop(context.Background(), files[0])
+	img, meta, err := Develop(context.Background(), files[0], false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(img.Pix) != img.Width*img.Height*3 || meta.Make == "" || meta.WB[1] == 0 {
+	if len(img.Pix) != img.Width*img.Height*3 || meta.Model == "" {
 		t.Errorf("%dx%d %+v", img.Width, img.Height, meta)
 	}
 }

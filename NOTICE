@@ -19,9 +19,11 @@ are used in internal/library/sidecar_test.go, and GooglePhotosTakeoutHelper
 (https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper, Apache-2.0).
 
 The desktop app for Linux carries homewend-raw (tools/libraw), which is
-linked statically with LibRaw 0.21.5 (https://www.libraw.org), Copyright (C)
+linked with LibRaw 0.21.5 (https://www.libraw.org), Copyright (C)
 2008-2021 LibRaw LLC, offered under the GNU Lesser General Public License
 2.1 or the CDDL 1.0 and used here under the LGPL 2.1.
 Its licence and copyright notice are in the app beside the helper, as
-LibRaw.LICENSE.LGPL and LibRaw.COPYRIGHT. The helper can be relinked with
-another LibRaw: its source and build script are in tools/libraw.
+LibRaw.LICENSE.LGPL and LibRaw.COPYRIGHT. LibRaw's source, as built, is
+attached to each GitHub release that carries the app
+(LibRaw-0.21.5.tar.gz); with it and tools/libraw (the helper's source and
+build script), the helper can be relinked with another LibRaw.

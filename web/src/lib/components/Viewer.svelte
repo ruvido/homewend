@@ -68,28 +68,35 @@
 	// thumbnail. Its edit another since, that stays until the new one's has.
 	let ready = $state.raw<GridPhoto>();
 	const seen = $derived(p && ready?.id === p.id && ready.edit !== p.edit ? ready : p);
-	// A RAF is shown from its camera's JPEG while it is developed: once a raw
-	// file is, its preview is asked again and shown over the one before, once whole.
+	// A RAF is shown from its camera's JPEG while it is developed: the header
+	// says so, and once it is, its preview is asked again and shown over the
+	// one before, once whole.
+	const developing = $derived(!!p && app.developing.now.includes(p.hash));
+	let waited = false;
 	let again = $state(0);
 	let under = $state('');
-	let since = untrack(() => app.developed);
 	const previewSrc = $derived(p ? pictureOf(p, 'preview') + (again ? `&developed=${again}` : '') : '');
+	// Another photo begins again; before the one below, which reads it.
 	$effect(() => {
-		const n = app.developed;
+		void id;
 		untrack(() => {
-			if (n === since) return;
-			since = n;
-			if (!p || p.missing || ext !== 'raf') return;
-			under = previewSrc;
-			again = n;
-			ready = undefined;
+			waited = false;
+			under = '';
+			again = 0;
 		});
 	});
 	$effect(() => {
 		void id;
+		const done = !!p && app.developing.recent.includes(p.hash);
+		const now = developing;
 		untrack(() => {
-			under = '';
-			again = 0;
+			if (now) waited = true;
+			else if (waited && done) {
+				waited = false;
+				under = previewSrc;
+				again++;
+				ready = undefined;
+			}
 		});
 	});
 	// The previews of the photos either side, asked before they are wanted:
@@ -98,7 +105,8 @@
 		if (index === null) return;
 		for (const d of [-1, 1]) {
 			const q = photos[index + d];
-			if (q && !q.missing && !q.video) new Image().src = pictureOf(q, 'preview');
+			// Said ahead: a raw file's is not developed sooner for it.
+			if (q && !q.missing && !q.video) fetch(pictureOf(q, 'preview'), { headers: { 'X-Ahead': '1' } }).catch(() => {});
 		}
 	});
 
@@ -130,7 +138,7 @@
 	let asked = $state<{ src: string; fx: number; fy: number } | null>(null);
 	// w × h the picture as shown, turned; iw × ih the picture itself.
 	let zoomed = $state<{ src: string; fx: number; fy: number; w: number; h: number; iw: number; ih: number } | null>(null);
-	const zoomSrc = $derived(p ? image && !p.edit ? originalOf(p) : previewSrc : '');
+	const zoomSrc = $derived(p ? image && !p.edit ? originalOf(p) : pictureOf(p, 'preview') : '');
 	$effect(() => {
 		// Another photo, or edit of it: fitted again.
 		if (zoomSrc !== zoomed?.src) zoomed = null;
@@ -193,7 +201,8 @@
 	// "Taken 14 July 2019, 18:32", as the design writes it, or
 	// "26 August 2026, 15:21 · estimated"; then whether it is edited.
 	const dated = $derived(!p?.taken ? date : p.guessed ? text.estimated(date) : text.taken(date));
-	const taken = $derived(p?.newer ? text.editedNewer(dated) : p?.edit ? text.edited(dated) : dated);
+	const edited = $derived(p?.newer ? text.editedNewer(dated) : p?.edit ? text.edited(dated) : dated);
+	const taken = $derived(developing ? text.inDevelopment(edited) : edited);
 
 	// "IMG_4471.HEIC · Greece 2019 · James Dean": the file, its albums, whose.
 	let about = $state<PhotoAbout | null>(null);
@@ -266,7 +275,7 @@
 		<header>
 			<button class="pill icon" aria-label={text.backToLibrary} title={text.backToLibrary} onclick={() => (index = null)}><Icon name="arrow-left" size={16} /></button>
 			<div class="meta">
-				<b>{taken}</b>
+				<b>{taken}{#if developing}<span class="spin"><Icon name="arrow-repeat" size={16} /></span>{/if}</b>
 				<span>{p.name}{beside}</span>
 			</div>
 			{#if tile?.copies}
@@ -346,7 +355,7 @@
 							/>
 							{#if asked}
 								<img class="probe" src={zoomSrc} alt="" onload={loaded} />
-								<span class="waiting"><Icon name="arrow-repeat" size={20} /></span>
+								<span class="waiting spin"><Icon name="arrow-repeat" size={20} /></span>
 							{/if}
 						{/if}
 					{/key}
@@ -516,6 +525,7 @@
 	}
 	.full.ready {
 		opacity: 1;
+		transition: opacity var(--motion-base) var(--ease-out);
 	}
 	/* Zoomed in: the photo at its own size, moved by dragging it. */
 	/* It scrolls: a trackpad's two fingers or a mouse wheel move it as a drag
@@ -559,7 +569,16 @@
 		translate: -50% -50%;
 		display: grid;
 		color: #ffffffcc;
+	}
+	.spin {
 		animation: spin var(--motion-spin) linear infinite;
+	}
+	.meta .spin {
+		display: inline-grid;
+		vertical-align: middle;
+		margin-left: var(--space-6);
+		font: inherit;
+		color: inherit;
 	}
 	@keyframes spin {
 		to {

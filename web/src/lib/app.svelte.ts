@@ -20,6 +20,7 @@ import {
 	type JobState,
 	type Overview,
 	type Settings,
+	type Developing,
 	type Thumbs,
 	type Emptying,
 	type Backing
@@ -50,8 +51,10 @@ export const app = $state<{
 	emptying: Emptying | null;
 	/** The phones backing up now, each with how far it has come. */
 	backups: Backing[];
-	/** Grows each time a raw file has been developed: its picture is asked again. */
-	developed: number;
+	/** The raw files being developed, and the last developed: a photo open is shown again. */
+	developing: Developing;
+	/** The same, when it takes a while: the sidebar says so. */
+	developingLine: Thumbs | null;
 }>({
 	settings: {},
 	overview: null,
@@ -65,7 +68,8 @@ export const app = $state<{
 	thumbs: null,
 	emptying: null,
 	backups: [],
-	developed: 0
+	developing: { done: 0, of: 0, now: [], recent: [] },
+	developingLine: null
 });
 
 function measure(account: string, j: JobState) {
@@ -102,6 +106,7 @@ export function watchJobs(): () => void {
 	let wasRunning = false;
 	let changes: string | undefined;
 	let wasMaking = false;
+	let wasDeveloping = false;
 	const tick = async () => {
 		const accounts = app.overview?.accounts ?? [];
 		// An account signed out has no download left to ask about or show.
@@ -133,7 +138,10 @@ export function watchJobs(): () => void {
 		wasMaking = making;
 		app.emptying = got && got.emptying.of > 0 ? got.emptying : null;
 		app.backups = got?.backups ?? [];
-		if (got) app.developed = got.developed;
+		if (got) app.developing = got.developing;
+		const developing = !!got && got.developing.done < got.developing.of;
+		app.developingLine = developing && wasDeveloping ? got.developing : null;
+		wasDeveloping = developing;
 		const moved = changes !== undefined && now !== changes;
 		changes = now;
 		if (moved) app.libraryMoved++;

@@ -2,7 +2,7 @@
 # homewend — Copyright (C) 2026 ruvido
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-# Builds homewend-raw, linked statically with LibRaw, into electron/engine
+# Builds homewend-raw, linked with LibRaw, into electron/engine
 # beside the engine, where electron-builder takes it into the app. LibRaw's
 # own licence goes with it (LGPL-2.1, NOTICE).
 #
@@ -27,11 +27,14 @@ rm -rf "$work/LibRaw-$version"
 tar -xzf "$tarball" -C "$work"
 src="$work/LibRaw-$version"
 
-# OpenMP spreads the demosaic over the cores, when the compiler has it to
-# link statically.
+# OpenMP spreads the demosaic over the cores, when the compiler has its
+# static library (Void: libgomp-devel).
 omp=
-if [ -f "$(g++ -print-file-name=libgomp.a)" ] && echo '#include <omp.h>' | g++ -fopenmp -E -x c++ - >/dev/null 2>&1; then
+gomp="$(g++ -print-file-name=libgomp.a)"
+if [ -f "$gomp" ] && echo '#include <omp.h>' | g++ -fopenmp -E -x c++ - >/dev/null 2>&1; then
 	omp=-fopenmp
+else
+	gomp=
 fi
 echo "OpenMP: ${omp:-no}"
 
@@ -39,7 +42,11 @@ echo "OpenMP: ${omp:-no}"
 # DNG and RED files are not read; add them when someone has such files.
 flags="-O3 -I. -w $omp"
 make -C "$src" -f Makefile.dist -j"$(nproc)" lib/libraw.a CFLAGS="$flags" LDADD=
-g++ -DLIBRAW_NOTHREADS $flags -I"$src" -static -s -o "$out/homewend-raw" \
-	"$here/homewend-raw.cpp" "$src/lib/libraw.a" -lm
+# LibRaw, libgomp and the C++ runtime inside, the C library the system's:
+# linked dynamically, as the LGPL asks of a library the user may replace.
+g++ -DLIBRAW_NOTHREADS -O3 -w -I"$src" -static-libstdc++ -static-libgcc -s -o "$out/homewend-raw" \
+	"$here/homewend-raw.cpp" "$src/lib/libraw.a" $gomp ${gomp:+-lpthread} -lm
 cp "$src/LICENSE.LGPL" "$out/LibRaw.LICENSE.LGPL"
 cp "$src/COPYRIGHT" "$out/LibRaw.COPYRIGHT"
+# LibRaw's source, as built, goes with the release (NOTICE).
+cp "$tarball" "$out/"

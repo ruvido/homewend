@@ -70,11 +70,11 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		reply(w, o, err)
 	})
 	// Cheap to ask every second: the page reads the overview again when it
-	// moves. The thumbnails being made, the phones backing up, and how many
-	// raw files were developed go with it.
+	// moves. The thumbnails being made, the phones backing up, and the raw
+	// files being developed go with it.
 	mux.HandleFunc("GET /api/changes", func(w http.ResponseWriter, r *http.Request) {
 		n, err := engine.LibraryChanges()
-		reply(w, map[string]any{"changes": n, "thumbs": engine.ThumbsMade(), "emptying": engine.EmptyingNow(), "backups": engine.BackingNow(), "developed": engine.Developed()}, err)
+		reply(w, map[string]any{"changes": n, "thumbs": engine.ThumbsMade(), "emptying": engine.EmptyingNow(), "backups": engine.BackingNow(), "developing": engine.DevelopingNow()}, err)
 	})
 	// Sign-in happens in the system browser; the request waits for it. With
 	// no account named it signs in a new one.
@@ -236,7 +236,12 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 	})
 	for path, picture := range map[string]func(context.Context, library.Key, string) (string, bool, error){"thumb": engine.Thumbnail, "preview": engine.Preview} {
 		mux.HandleFunc("GET /api/"+path+"/{hash}", func(w http.ResponseWriter, r *http.Request) {
-			file, kept, err := picture(r.Context(), photoOf(r), r.URL.Query().Get("edit"))
+			ctx := r.Context()
+			// The viewer's ask for the photos either side.
+			if r.Header.Get("X-Ahead") != "" {
+				ctx = engine.Ahead(ctx)
+			}
+			file, kept, err := picture(ctx, photoOf(r), r.URL.Query().Get("edit"))
 			if err != nil {
 				reply(w, nil, err)
 				return

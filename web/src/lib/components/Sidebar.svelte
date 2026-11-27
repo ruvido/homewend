@@ -262,6 +262,12 @@
 				<div class="track"><b style:width="{(app.thumbs.done / app.thumbs.of) * 100}%"></b></div>
 			</div>
 		{/if}
+		{#if app.developingLine}
+			<div class="work" in:reveal out:reveal={{ leaving: true }} role="progressbar" aria-label={text.developing} aria-valuemin={0} aria-valuenow={app.developingLine.done} aria-valuemax={app.developingLine.of} title={rail ? text.developing : undefined}>
+				<span class="label">{text.developing}<i>{text.ofTotal(app.developingLine.done, app.developingLine.of)}</i></span>
+				<div class="track"><b style:width="{(app.developingLine.done / app.developingLine.of) * 100}%"></b></div>
+			</div>
+		{/if}
 		<button
 			class="row"
 			class:selected={is({ kind: 'phones' })}

@@ -24,7 +24,8 @@ import (
 // ErrNoHelper is homewend-raw found neither beside the engine nor on the PATH.
 var ErrNoHelper = errors.New("raw photos need homewend-raw, which is not installed")
 
-// timeout is how long one file may take: a 40 MP file takes a few seconds.
+// timeout is how long one file may take: a 26 MP file takes 15 s on four
+// cores, at the lowest priority longer.
 const timeout = 2 * time.Minute
 
 // Image is the developed photo: linear ProPhoto RGB, 16 bits a sample, rows
@@ -37,26 +38,13 @@ type Image struct {
 
 // Meta is what the helper read from the file besides the pixels.
 type Meta struct {
-	Make, Model, Lens string
-	ISO               float64
-	// WB is the camera's white balance as shot, R G B G2 multipliers.
-	WB [4]float64
+	Model string
 	// ExposureShift is how many stops the camera exposed under what it
 	// metered (Fuji's RawExposureBias, Canon's highlight tone priority).
 	ExposureShift float64 `json:"exposure_shift"`
-	// BaselineExposure is a DNG's, in stops.
-	BaselineExposure float64 `json:"baseline_exposure"`
-	// Preview is the largest JPEG the camera embedded, nil if none.
-	Preview *Preview
 	// Frame is the size of the camera's own picture, in the middle of the
 	// sensor's, as the raw file says; zero if it does not.
 	Frame struct{ Width, Height int }
-}
-
-// Preview is where an embedded JPEG lies in the raw file.
-type Preview struct {
-	Offset, Length int64
-	Width, Height  int
 }
 
 // header is the helper's first line.
@@ -65,8 +53,15 @@ type header struct {
 	Meta
 }
 
-// Develop develops the raw file at path.
-func Develop(ctx context.Context, path string) (*Image, *Meta, error) {
+// Installed says whether raw files can be developed here.
+func Installed() bool {
+	_, err := find()
+	return err == nil
+}
+
+// Develop develops the raw file at path; in the background, at the lowest
+// priority the system has.
+func Develop(ctx context.Context, path string, background bool) (*Image, *Meta, error) {
 	helper, err := find()
 	if err != nil {
 		return nil, nil, err
@@ -80,9 +75,15 @@ func Develop(ctx context.Context, path string) (*Image, *Meta, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	tied(cmd)
+	started := func() {}
+	if background {
+		started = idle(cmd)
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("homewend-raw: %w", err)
 	}
+	started()
 	img, meta, readErr := read(bufio.NewReader(stdout))
 	// Drained, so an error in the middle still lets the helper exit.
 	io.Copy(io.Discard, stdout)
@@ -108,7 +109,8 @@ func read(r *bufio.Reader) (*Image, *Meta, error) {
 	if err := json.Unmarshal(line, &h); err != nil {
 		return nil, nil, err
 	}
-	if h.Width <= 0 || h.Height <= 0 {
+	// As the helper refuses: a header that lies is not given the memory.
+	if h.Width <= 0 || h.Height <= 0 || h.Width > 65535 || h.Height > 65535 || float64(h.Width)*float64(h.Height) > 200e6 {
 		return nil, nil, fmt.Errorf("size %dx%d", h.Width, h.Height)
 	}
 	pix := make([]uint16, h.Width*h.Height*3)

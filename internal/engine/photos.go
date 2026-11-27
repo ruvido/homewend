@@ -740,10 +740,13 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 		return "", false, err
 	}
 	if developsFrom(src, size, !with.edit.None()) {
-		if master := developed(src, cmp.Or(version, hash)); master != "" {
-			src = master
-		} else {
-			version = cmp.Or(version, hash) + cameraMark
+		base := cmp.Or(version, hash)
+		from, whole := developedFor(ctx, src, base, size, with)
+		if from != "" {
+			src = from
+		}
+		if !whole {
+			version = base + cameraMark
 		}
 	}
 	name := thumb.Edited(cmp.Or(version, hash), with.name)

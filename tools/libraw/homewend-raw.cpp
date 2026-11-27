@@ -13,6 +13,7 @@
 // width*height RGB triples of 16-bit samples in the machine's byte order,
 // rows top to bottom, as the sensor has them. An error is a line on stderr
 // and a non-zero exit.
+#include <cmath>
 #include <cstdio>
 #include <string>
 
@@ -61,10 +62,19 @@ int main(int argc, char **argv)
   out.user_qual = 2; // -q 2
   out.highlight = 2; // -H 2
   out.user_flip = 0;  // -t 0
+  // A file whose header lies about its size is refused, not given all the memory.
+  raw.imgdata.rawparams.max_raw_memory_mb = 1024;
 
   int err;
   if ((err = raw.open_file(argv[1])) != LIBRAW_SUCCESS)
     return fail("open", err);
+  // As the engine reads it: no side past 65535, no more than 200 MP.
+  const libraw_image_sizes_t &size = raw.imgdata.sizes;
+  if (size.width > 65535 || size.height > 65535 || (double)size.width * size.height > 200e6)
+  {
+    fprintf(stderr, "open: %dx%d is too large\n", size.width, size.height);
+    return 1;
+  }
   if ((err = raw.unpack()) != LIBRAW_SUCCESS)
     return fail("unpack", err);
   if ((err = raw.dcraw_process()) != LIBRAW_SUCCESS)
@@ -78,35 +88,16 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  // The largest embedded JPEG, read straight from the file by whoever wants it.
-  const libraw_thumbnail_item_t *preview = nullptr;
-  const libraw_thumbnail_list_t &thumbs = raw.imgdata.thumbs_list;
-  for (int i = 0; i < thumbs.thumbcount; i++)
-  {
-    const libraw_thumbnail_item_t &t = thumbs.thumblist[i];
-    if (t.tformat == LIBRAW_INTERNAL_THUMBNAIL_JPEG &&
-        (!preview || t.twidth * t.theight > preview->twidth * preview->theight))
-      preview = &t;
-  }
-
   const libraw_data_t &d = raw.imgdata;
   printf("{\"width\":%d,\"height\":%d", img->width, img->height);
-  printf(",\"make\":%s,\"model\":%s,\"lens\":%s", quote(d.idata.make).c_str(),
-         quote(d.idata.model).c_str(), quote(d.lens.Lens).c_str());
-  printf(",\"iso\":%g", d.other.iso_speed);
-  printf(",\"wb\":[%g,%g,%g,%g]", d.color.cam_mul[0], d.color.cam_mul[1],
-         d.color.cam_mul[2], d.color.cam_mul[3]);
+  printf(",\"model\":%s", quote(d.idata.model).c_str());
   // Fuji's RawExposureBias and Canon's highlight tone priority, in stops.
-  printf(",\"exposure_shift\":%g", d.makernotes.common.ExposureCalibrationShift);
-  printf(",\"baseline_exposure\":%g", d.color.dng_levels.baseline_exposure);
+  float shift = d.makernotes.common.ExposureCalibrationShift;
+  printf(",\"exposure_shift\":%g", std::isfinite(shift) ? shift : 0.0f);
   // The size of the camera's own picture, smaller than the sensor's (Fuji).
   const libraw_raw_inset_crop_t &crop = d.sizes.raw_inset_crops[0];
   if (crop.cwidth && crop.cheight)
     printf(",\"frame\":{\"width\":%d,\"height\":%d}", crop.cwidth, crop.cheight);
-  if (preview)
-    printf(",\"preview\":{\"offset\":%lld,\"length\":%u,\"width\":%d,\"height\":%d}",
-           (long long)preview->toffset, preview->tlength, preview->twidth,
-           preview->theight);
   printf("}\n");
   bool written = fwrite(img->data, 1, img->data_size, stdout) == img->data_size;
   LibRaw::dcraw_clear_mem(img);

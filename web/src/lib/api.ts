@@ -72,14 +72,16 @@ export const putProfile = (account: string, profile: string) =>
 /** Renames a profile: its folder in the library, and all that names it. */
 export const renameProfile = (from: string, to: string) => call<unknown>('POST', '/api/profile/rename', { from, to });
 export const getOverview = () => call<Overview>('GET', '/api/overview');
-/** Moves each time the library's catalog changes, whoever changed it; with it, the thumbnails being made, the phones backing up and how many raw files were developed. */
-export const getChanges = () => call<{ changes: string; thumbs: Thumbs; emptying: Emptying; backups: Backing[]; developed: number }>('GET', '/api/changes');
+/** Moves each time the library's catalog changes, whoever changed it; with it, the thumbnails being made, the phones backing up and the raw files being developed. */
+export const getChanges = () => call<{ changes: string; thumbs: Thumbs; emptying: Emptying; backups: Backing[]; developing: Developing }>('GET', '/api/changes');
 /** A phone backing up: done of the photos it said it would send; gone when they are in, or it went quiet. */
 export type Backing = { id: string; name: string; done: number; of: number };
 /** How many of the photos an Empty Trash was asked for it has done; of is 0 while none runs. */
 export type Emptying = { done: number; of: number };
 /** How many photos of the library have their thumbnail: made in the background. */
 export type Thumbs = { done: number; of: number };
+/** The library's raw files being developed: done of of; now, those being developed or next for the window or a phone; recent, the last developed. */
+export type Developing = Thumbs & { now: string[]; recent: string[] };
 /** Opens the system browser on Google's sign-in and waits for it. */
 export const login = (account?: string) =>
 	call<AccountInfo>('POST', '/api/login' + (account ? `?account=${encodeURIComponent(account)}` : ''));

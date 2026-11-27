@@ -9,42 +9,114 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
+	"time"
 
+	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/raw"
 	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // A RAF's pictures larger than a thumbnail, and any with an edit, are made
-// from its developed picture, kept in the cache's "developed" by the name its
-// pictures have. It is made the first time one is asked for, in the
-// background: a minute of the helper's at most. Until then they are made
-// from the JPEG the camera embedded, under another name and not kept, so the
-// developed one replaces them when it is there. The grid's own thumbnails
-// stay the camera's: a thousand raw files are not developed to be scrolled.
+// from its developed picture, 2560 pixels long, kept in the cache's
+// "developed" by the name its pictures have; an edit that keeps less of it
+// than it draws is made from the whole, in "developed-full". The library's
+// RAFs are developed in the background, one at a time, at the lowest
+// priority, after the window's own pictures; one the window or a phone asks
+// for goes first. Until it is there, a picture is made from the JPEG the
+// camera embedded, under another name and not kept, so the developed one
+// replaces it. The grid's own thumbnails stay the camera's.
 
-// cameraMark is after the name of a picture made from the camera's JPEG
-// while the raw file is developed, or where it cannot be.
+// cameraMark is after the name of a picture made while the one it should be
+// made from is developed, or where it cannot be.
 const cameraMark = "-camera"
 
-// developing are the names being developed, or that failed this run: not
-// tried again until the app starts again.
-var developing sync.Map
+// rawJob is a raw file to develop: the name its picture is kept by, its file,
+// and whether it is the whole of it.
+type rawJob struct {
+	name, src string
+	full      bool
+	// library is a job of the library's: counted in its progress.
+	library bool
+}
 
-// developSlot lets one raw file be developed at a time: one takes every
-// core, and a 40 MP one about a gigabyte between the helper and the engine.
-var developSlot = make(chan struct{}, 1)
+func (j rawJob) dst() (string, error) {
+	folder, err := picturesDir(developedDir(j.full))
+	return thumb.Path(folder, j.name), err
+}
+
+// madeDirs are the cache's folders of pictures made to be shown, and
+// developedDirs those of raw files developed, at 2560 pixels and whole.
+var madeDirs, developedDirs = []string{"thumbs", "previews", "screens"}, []string{"developed", "developed-full"}
+
+func developedDir(full bool) string {
+	if full {
+		return developedDirs[1]
+	}
+	return developedDirs[0]
+}
+
+// developer develops one raw file at a time: one takes every core, and a
+// 40 MP one about a gigabyte between the helper and the engine.
+var developer queue
+
+type queue struct {
+	sync.Mutex
+	asked, library []rawJob
+	now            *rawJob
+	// failed are the jobs that did not develop this run: not tried again
+	// until the app starts again.
+	failed map[rawJob]bool
+	// recent are the names last developed, newest last.
+	recent []string
+	// checked are the library's RAFs whose old pictures were looked for this run.
+	checked map[string]bool
+	of      int
+	started bool
+	wake    chan struct{}
+}
+
+// recentKept is how many of the names last developed are said: more than
+// a window misses between two asks, a second apart.
+const recentKept = 16
 
 var noHelper sync.Once
 
-// developedCount grows each time a raw file has been developed: a window
-// showing one asks for its picture again.
-var developedCount atomic.Int64
+// Developing is where the library's development is: Done of Of of its RAFs
+// have their picture; Now are the names being developed for the window or
+// a phone, or next; Recent the last developed, newest last.
+type Developing struct {
+	Done   int      `json:"done"`
+	Of     int      `json:"of"`
+	Now    []string `json:"now"`
+	Recent []string `json:"recent"`
+}
 
-// Developed is how many raw files have been developed since the app started.
-func Developed() int64 { return developedCount.Load() }
+// DevelopingNow is where development is.
+func DevelopingNow() Developing {
+	d := &developer
+	d.Lock()
+	defer d.Unlock()
+	left := len(d.library)
+	now := []string{}
+	for _, j := range append(slices.Clone(d.asked), d.nowOr()...) {
+		if j.library {
+			left++
+		}
+		now = append(now, j.name)
+	}
+	return Developing{Done: max(0, d.of-left), Of: d.of, Now: now, Recent: append([]string{}, d.recent...)}
+}
+
+// nowOr is the job being developed, as a list.
+func (d *queue) nowOr() []rawJob {
+	if d.now == nil {
+		return nil
+	}
+	return []rawJob{*d.now}
+}
 
 // developsFrom is whether a picture of src at size, with an edit or not, is
 // made from its developed picture.
@@ -52,42 +124,215 @@ func developsFrom(src string, size int, edited bool) bool {
 	return strings.EqualFold(filepath.Ext(src), ".raf") && (size > thumb.Size || edited)
 }
 
-// developed is the developed picture of the raw file src, kept as name, or ""
-// while it is made, or when it cannot be.
-func developed(src, name string) string {
-	folder, err := picturesDir("developed")
+type aheadKey struct{}
+
+// Ahead is ctx of a picture asked before it is wanted, as the viewer asks the
+// photos either side: a RAF's is not developed sooner for it.
+func Ahead(ctx context.Context) context.Context { return context.WithValue(ctx, aheadKey{}, true) }
+
+// developedFor is the file a picture of the RAF src, kept as name, at size
+// with the edit e, is made from, and whether it is what it should be made
+// from; "" while that is developed, or where it cannot be. Unless asked
+// ahead, it is developed next.
+func developedFor(ctx context.Context, src, name string, size int, e drawing) (from string, whole bool) {
+	raise := ctx.Value(aheadKey{}) == nil
+	from = developed(rawJob{name: name, src: src}, raise)
+	if from == "" || e.edit.None() || !thumb.Short(from, size, e.edit) {
+		return from, from != ""
+	}
+	if full := developed(rawJob{name: name, src: src, full: true}, raise); full != "" {
+		return full, true
+	}
+	return from, false
+}
+
+// developed is the developed picture of j, or "" while it is made or when
+// it cannot be; raised, it is made next.
+func developed(j rawJob, raise bool) string {
+	dst, err := j.dst()
 	if err != nil {
 		return ""
 	}
-	dst := thumb.Path(folder, name)
 	if _, err := os.Stat(dst); err == nil {
 		return dst
 	}
-	if _, busy := developing.LoadOrStore(name, true); busy {
+	if !raise {
 		return ""
 	}
-	go func() {
-		developSlot <- struct{}{}
-		defer func() { <-developSlot }()
-		err := thumb.Develop(context.Background(), src, dst)
-		switch {
-		case err == nil:
-			developing.Delete(name)
-			forgetCamera(name)
-			developedCount.Add(1)
-		case errors.Is(err, raw.ErrNoHelper):
-			noHelper.Do(func() { log.Printf("raw files are shown as their cameras' JPEGs: %v", err) })
-		default:
-			log.Printf("developing %s: %v", filepath.Base(src), err)
-		}
-	}()
+	d := &developer
+	d.Lock()
+	defer d.Unlock()
+	if d.failed[j] || slices.ContainsFunc(d.asked, j.same) || d.now != nil && j.same(*d.now) {
+		return ""
+	}
+	if i := slices.IndexFunc(d.library, j.same); i >= 0 {
+		j.library = true
+		d.library = slices.Delete(d.library, i, i+1)
+	}
+	d.asked = append(d.asked, j)
+	d.start()
 	return ""
 }
 
-// forgetCamera deletes the pictures of name made from the camera's JPEG
-// while it was developed.
+func (j rawJob) same(k rawJob) bool { return j.name == k.name && j.full == k.full }
+
+// developLibrary has the library's RAFs, of photos in the library at root,
+// developed in the background: those not yet, and not failed this run.
+func developLibrary(root string, photos []library.Photo) {
+	if !raw.Installed() {
+		return
+	}
+	d := &developer
+	d.Lock()
+	checked := d.checked
+	if checked == nil {
+		checked = map[string]bool{}
+		d.checked = checked
+	}
+	d.Unlock()
+	var lack []rawJob
+	of := 0
+	for _, p := range photos {
+		if !developsFrom(p.Name, thumb.PreviewSize, false) {
+			continue
+		}
+		of++
+		j := rawJob{name: p.Hash, src: filepath.Join(root, filepath.FromSlash(library.At(root, p.Path))), library: true}
+		dst, err := j.dst()
+		if err != nil {
+			continue
+		}
+		_, err = os.Stat(dst)
+		// Once a run: what an older version, or one cut short, left.
+		if !checked[p.Hash] {
+			if err == nil {
+				forgetCamera(p.Hash)
+			} else {
+				forgetUndeveloped(p.Hash, p.Edit)
+			}
+			checked[p.Hash] = true
+		}
+		if err != nil {
+			lack = append(lack, j)
+		}
+	}
+	d.Lock()
+	defer d.Unlock()
+	d.of = of
+	d.library = d.library[:0]
+	for _, j := range lack {
+		if !d.failed[j] && !slices.ContainsFunc(d.asked, j.same) && (d.now == nil || !j.same(*d.now)) {
+			d.library = append(d.library, j)
+		}
+	}
+	if len(d.library) > 0 {
+		d.start()
+	}
+}
+
+// start starts the one that develops, if it is not, or wakes it; under the lock.
+func (d *queue) start() {
+	if d.started {
+		select {
+		case d.wake <- struct{}{}:
+		default:
+		}
+		return
+	}
+	d.started, d.wake = true, make(chan struct{}, 1)
+	if d.failed == nil {
+		d.failed = map[rawJob]bool{}
+	}
+	go developAll()
+}
+
+// forgetUnfinished deletes what a development cut short, by the app's end,
+// left half written.
+func forgetUnfinished() {
+	for _, dir := range developedDirs {
+		if folder, err := picturesDir(dir); err == nil {
+			files, _ := filepath.Glob(filepath.Join(folder, "*", "*.tmp"))
+			for _, file := range files {
+				os.Remove(file)
+			}
+		}
+	}
+}
+
+// developAll develops what is asked, then the library's, for as long as the
+// app runs.
+func developAll() {
+	forgetUnfinished()
+	d := &developer
+	for {
+		d.Lock()
+		var j *rawJob
+		background := false
+		switch {
+		case len(d.asked) > 0:
+			j = &d.asked[0]
+		case len(d.library) > 0:
+			j, background = &d.library[0], true
+		}
+		if j != nil {
+			next := *j
+			d.now = &next
+			if background {
+				d.library = d.library[1:]
+			} else {
+				d.asked = d.asked[1:]
+			}
+		}
+		wake := d.wake
+		d.Unlock()
+		if j == nil {
+			<-wake
+			continue
+		}
+		develop(*d.now, background)
+	}
+}
+
+// develop develops j; in the background, after the pictures the window waits for.
+func develop(j rawJob, background bool) {
+	for background && len(thumbSlots) > 0 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	long := thumb.PreviewSize
+	if j.full {
+		long = 0
+	}
+	dst, err := j.dst()
+	if err == nil {
+		err = thumb.Develop(context.Background(), j.src, dst, long, background)
+	}
+	d := &developer
+	d.Lock()
+	d.now = nil
+	if err == nil {
+		d.recent = append(d.recent, j.name)
+		d.recent = d.recent[max(0, len(d.recent)-recentKept):]
+	}
+	if err != nil {
+		d.failed[j] = true
+		if errors.Is(err, raw.ErrNoHelper) {
+			d.library = nil
+		}
+	}
+	d.Unlock()
+	switch {
+	case err == nil:
+		forgetCamera(j.name)
+	case errors.Is(err, raw.ErrNoHelper):
+		noHelper.Do(func() { log.Printf("raw files are shown as their cameras' JPEGs: %v", err) })
+	default:
+		log.Printf("developing %s: %v", filepath.Base(j.src), err)
+	}
+}
+
+// forgetCamera deletes the pictures of name made while it was developed.
 func forgetCamera(name string) {
-	for _, dir := range []string{"thumbs", "previews", "screens"} {
+	for _, dir := range madeDirs {
 		if folder, err := picturesDir(dir); err == nil {
 			files, _ := filepath.Glob(thumb.Path(folder, name+cameraMark+"*"))
 			for _, file := range files {
@@ -101,12 +346,7 @@ func forgetCamera(name string) {
 // that an older version made from the camera's JPEG under the name the
 // developed ones take: found there, they would be shown for ever.
 func forgetUndeveloped(name, edit string) {
-	if folder, err := picturesDir("developed"); err != nil {
-		return
-	} else if _, err := os.Stat(thumb.Path(folder, name)); err == nil {
-		return
-	}
-	for _, dir := range []string{"thumbs", "previews", "screens"} {
+	for _, dir := range madeDirs {
 		folder, err := picturesDir(dir)
 		if err != nil {
 			return

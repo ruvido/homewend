@@ -81,7 +81,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            files: dist/*.AppImage dist/latest-linux.yml
+            files: dist/*.AppImage dist/latest-linux.yml engine/LibRaw-*.tar.gz
             installer: electron/dist/*.AppImage
           - os: macos-15
             files: dist/*.dmg

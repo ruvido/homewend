@@ -201,3 +201,20 @@ func TestInverse(t *testing.T) {
 		}
 	}
 }
+
+// Scaled, a picture keeps its shape and its light.
+func TestScaled(t *testing.T) {
+	img := &Image{Width: 601, Height: 400, Pix: make([]uint16, 601*400*3)}
+	for i := range img.Pix {
+		img.Pix[i] = []uint16{20000, 1000, 50}[i%3]
+	}
+	out, frame := scaled(img, image.Rect(0, 0, 601, 400), 256)
+	if frame.Dx() != 256 || frame.Dy() != 170 || out.Width != 256 || len(out.Pix) != 256*170*3 {
+		t.Fatalf("%v %dx%d", frame, out.Width, out.Height)
+	}
+	for i, v := range out.Pix {
+		if want := []uint16{20000, 1000, 50}[i%3]; v < want-1 || v > want+1 {
+			t.Fatalf("sample %d is %d, want %d", i, v, want)
+		}
+	}
+}
