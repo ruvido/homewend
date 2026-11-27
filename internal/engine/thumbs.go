@@ -100,7 +100,7 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 	var todo []library.Photo
 	// As it came, for a phone; with its edit, for the window.
 	lacks := func(p library.Photo, edit string) bool {
-		name := thumb.Edited(p.Hash, edit)
+		name := thumb.Edited(printed(p.Hash, library.PositiveName(p.Negative)), edit)
 		return !kept[name] && !failed[name]
 	}
 	developLibrary(root, photos)
@@ -132,12 +132,12 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 				continue
 			}
 			// With an edit, what is not kept was drawn as it came.
-			if _, made, err := Thumbnail(ctx, p.Key(), edit); err != nil || edit != "" && !made {
+			if _, made, err := Thumbnail(ctx, p.Key(), edit, library.PositiveName(p.Negative)); err != nil || (edit != "" || p.Negative != "") && !made {
 				// The disk taken out: none of the rest is there to be tried.
 				if libraryAway(root, s.Filled) {
 					return listing, false
 				}
-				failed[thumb.Edited(p.Hash, edit)] = true
+				failed[thumb.Edited(printed(p.Hash, library.PositiveName(p.Negative)), edit)] = true
 			}
 		}
 	}

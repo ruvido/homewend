@@ -47,6 +47,9 @@ type GridPhoto struct {
 	Edit string `json:"edit,omitempty"`
 	// Newer: its edit was made by a newer Homewend, and it is shown without it.
 	Newer bool `json:"newer,omitempty"`
+	// Positive: the name of the print of a film negative its pictures are
+	// asked with; none for one shown as it came.
+	Positive string `json:"positive,omitempty"`
 	// Archived: in the Archive, shown in an album.
 	Archived bool `json:"archived,omitempty"`
 	// Favorite: given a heart.
@@ -280,7 +283,7 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 	}
 	out := make([]GridPhoto, len(page))
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Archived: p.Archived, Favorite: p.Favorite}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Positive: library.PositiveName(p.Negative), Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
@@ -558,10 +561,10 @@ func GiveDates(photos []library.Key, when time.Time) (int, error) {
 var thumbSlots = make(chan struct{}, max(1, runtime.NumCPU()-1))
 
 // Thumbnail returns the file of a photo's thumbnail with the edit asked, ""
-// being none, making it the first time; kept says it is what was asked, which
-// never changes.
-func Thumbnail(ctx context.Context, k library.Key, asked string) (file string, kept bool, err error) {
-	return picture(ctx, "thumbs", thumb.Size, k, asked)
+// being none, of the print named positive if a negative, making it the first
+// time; kept says it is what was asked, which never changes.
+func Thumbnail(ctx context.Context, k library.Key, asked, positive string) (file string, kept bool, err error) {
+	return picture(ctx, "thumbs", thumb.Size, k, asked, positive)
 }
 
 // Preview is the picture the viewer shows a photo of the library with, at
@@ -570,19 +573,20 @@ func Thumbnail(ctx context.Context, k library.Key, asked string) (file string, k
 //
 // shortcut: no limit on the cache's size (about 0.5–1 MB a photo looked at),
 // prune by age when a library's previews grow past a few GB.
-func Preview(ctx context.Context, k library.Key, asked string) (file string, kept bool, err error) {
-	return picture(ctx, "previews", thumb.PreviewSize, k, asked)
+func Preview(ctx context.Context, k library.Key, asked, positive string) (file string, kept bool, err error) {
+	return picture(ctx, "previews", thumb.PreviewSize, k, asked, positive)
 }
 
 // picture is the picture of k kept in the cache's folder dir, with the edit
-// named asked: with the one it has now when that is another, and as it came
-// when that is none, or cannot be drawn; then it is not kept.
-func picture(ctx context.Context, dir string, size int, k library.Key, asked string) (file string, kept bool, err error) {
+// named asked, of the print named positive: with those it has now when they
+// are others, and as it came when they are none, or it cannot be drawn; then
+// it is not kept.
+func picture(ctx context.Context, dir string, size int, k library.Key, asked, positive string) (file string, kept bool, err error) {
 	source := func() (string, string, error) { return pictureOf(k, os.Stat) }
 	plain := func() (string, bool, error) {
 		return cached(ctx, dir, size, k.Hash, drawing{}, source)
 	}
-	if asked == "" {
+	if asked == "" && positive == "" {
 		return plain()
 	}
 	folder, err := picturesDir(dir)
@@ -590,8 +594,8 @@ func picture(ctx context.Context, dir string, size int, k library.Key, asked str
 		return "", false, err
 	}
 	// Its name says what it is: the catalog is not asked.
-	if _, err := hex.DecodeString(asked); err == nil {
-		file := thumb.Path(folder, thumb.Edited(k.Hash, asked))
+	if isHex(asked) && isHex(positive) {
+		file := thumb.Path(folder, thumb.Edited(printed(k.Hash, positive), asked))
 		if _, err := os.Stat(file); err == nil {
 			return file, true, nil
 		}
@@ -600,10 +604,10 @@ func picture(ctx context.Context, dir string, size int, k library.Key, asked str
 	if err != nil {
 		return "", false, err
 	}
-	if its.name != "" {
+	if its.name != "" || its.negative != "" {
 		if file, kept, err = cached(ctx, dir, size, k.Hash, its, source); err == nil {
 			thumb.ForgetEdits(folder, k.Hash, all)
-			return file, kept && its.name == asked, nil
+			return file, kept && its.name == asked && library.PositiveName(its.negative) == positive, nil
 		}
 		if ctx.Err() != nil {
 			return "", false, err
@@ -613,14 +617,21 @@ func picture(ctx context.Context, dir string, size int, k library.Key, asked str
 	return file, false, err
 }
 
-// drawing is an edit to draw a picture with, and its name; the zero one is none.
-type drawing struct {
-	name string
-	edit edit.Edit
+func isHex(s string) bool {
+	_, err := hex.DecodeString(s)
+	return err == nil
 }
 
-// editsOf is the edit k is shown with, and the names of those its content is
-// in any library.
+// drawing is an edit to draw a picture with, and its name, on the print of
+// the negative with the bounds negative; the zero one is none.
+type drawing struct {
+	name     string
+	edit     edit.Edit
+	negative string
+}
+
+// editsOf is the edit k is shown with, on the print it is shown as if a
+// negative, and the names of those its content is in any library.
 func editsOf(k library.Key) (its drawing, all []string, err error) {
 	c, _, err := openLibrary()
 	if err != nil {
@@ -630,6 +641,9 @@ func editsOf(k library.Key) (its drawing, all []string, err error) {
 		return its, nil, fs.ErrNotExist
 	}
 	defer c.Close()
+	if its.negative, err = c.Negative(k); err != nil {
+		return its, nil, err
+	}
 	copies, err := c.Copies(k.Hash)
 	if err != nil {
 		return its, nil, err
@@ -732,15 +746,19 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 		_, err := os.Stat(dst)
 		return err == nil
 	}
-	if there(thumb.Edited(hash, with.name)) {
+	shown := printed(hash, library.PositiveName(with.negative))
+	if there(thumb.Edited(shown, with.name)) {
 		return dst, true, nil
 	}
 	src, version, err := source()
 	if err != nil {
 		return "", false, err
 	}
-	if developsFrom(src, size, !with.edit.None()) {
-		base := cmp.Or(version, hash)
+	if version != "" {
+		version = printed(version, library.PositiveName(with.negative))
+	}
+	if developsFrom(src, size, !with.edit.None() || with.negative != "") {
+		base := cmp.Or(version, shown)
 		from, whole := developedFor(ctx, src, base, size, with)
 		if from != "" {
 			src = from
@@ -749,7 +767,7 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 			version = base + cameraMark
 		}
 	}
-	name := thumb.Edited(cmp.Or(version, hash), with.name)
+	name := thumb.Edited(cmp.Or(version, shown), with.name)
 	if kept = version == ""; there(name) {
 		return dst, kept, nil
 	}
@@ -859,7 +877,7 @@ func Latest(n int) (PhotoList, error) {
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
 	for i, p := range list {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit, Newer: p.Newer}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Positive: library.PositiveName(p.Negative)}
 	}
 	return listOf(out, profiles), err
 }

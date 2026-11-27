@@ -67,7 +67,7 @@ type phoneList struct {
 	began  time.Time // when it began to be worked out
 	tag    string
 	answer []byte
-	hashes map[library.Hash]struct{}
+	hashes map[library.Hash]string // each with its negative's bounds
 }
 
 func listOfProfile(profile string) *atomic.Pointer[phoneList] {
@@ -169,24 +169,24 @@ func PhoneList(ctx context.Context, phone Phone) (tag string, answer []byte, err
 }
 
 // listedHere is whether the photo is in the last listing of phone's library,
-// which is as it was then, and the library: a small copy of one listed is
-// given without the catalog.
+// which is as it was then, the library, and the bounds it is printed with,
+// if a negative: a small copy of one listed is given without the catalog.
 // shortcut: by the files' times alone; a photo deleted within a tick of the
 // disk's clock after another write is given until the library is listed.
-func listedHere(phone Phone, hash string) (root string, here bool, err error) {
+func listedHere(phone Phone, hash string) (root, negative string, here bool, err error) {
 	root, err = LibraryHere()
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	l := listOfProfile(phone.Profile).Load()
 	var h library.Hash
 	if l == nil || l.state.Path != catalogPath(root) || l.state.Changes != library.Changes(l.state.Path) {
-		return root, false, nil
+		return root, "", false, nil
 	}
 	if _, err := hex.Decode(h[:], []byte(hash)); err == nil {
-		_, here = l.hashes[h]
+		negative, here = l.hashes[h]
 	}
-	return root, here, nil
+	return root, negative, here, nil
 }
 
 // PhoneMonth is a month of phone's library, its photos as JSON. Done, when
@@ -227,6 +227,9 @@ func phonePhoto(phone Phone, hash string) (root string, p library.Photo, err err
 	}
 	defer c.Close()
 	p, here, err := c.Here(library.Key{Hash: hash, Profile: phone.Profile})
+	if err == nil && here {
+		p.Negative, err = c.Negative(p.Key())
+	}
 	if err != nil {
 		return "", p, orAway(err)
 	}
@@ -288,16 +291,18 @@ func PhoneScreen(ctx context.Context, phone Phone, hash string) (file string, ke
 }
 
 func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) (file string, kept bool, err error) {
-	root, here, err := listedHere(phone, hash)
+	root, negative, here, err := listedHere(phone, hash)
 	if err == nil && !here {
-		root, _, err = phonePhoto(phone, hash)
+		var p library.Photo
+		root, p, err = phonePhoto(phone, hash)
+		negative = p.Negative
 	}
 	if err != nil {
 		return "", false, err
 	}
 	end := func() {}
 	defer func() { end() }()
-	file, kept, err = cached(ctx, dir, size, hash, drawing{}, func() (string, string, error) {
+	file, kept, err = cached(ctx, dir, size, hash, drawing{negative: negative}, func() (string, string, error) {
 		done, err := phoneTurn(ctx, phone)
 		if err != nil {
 			return "", "", err

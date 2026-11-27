@@ -423,7 +423,7 @@ func TestAnEditedFileIsNotTheOthersPicture(t *testing.T) {
 	}
 	tall := func(k library.Key) (bool, bool) {
 		t.Helper()
-		file, kept, err := Thumbnail(context.Background(), k, "")
+		file, kept, err := Thumbnail(context.Background(), k, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}

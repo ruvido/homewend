@@ -100,7 +100,7 @@ func TestAnEditIsShown(t *testing.T) {
 	red, blue, grey := color.RGBA{200, 0, 0, 255}, color.RGBA{0, 0, 200, 255}, color.RGBA{97, 97, 97, 255}
 	thumbnail := func(what string, k library.Key, edit string, kept bool, w, h int, left color.RGBA) {
 		t.Helper()
-		file, got, err := Thumbnail(ctx, k, edit)
+		file, got, err := Thumbnail(ctx, k, edit, "")
 		is(what, file, err, w, h, left)
 		if got != kept {
 			t.Errorf("%s: kept %v", what, got)
@@ -138,7 +138,7 @@ func TestAnEditIsShown(t *testing.T) {
 	is("a phone's", file, err, 256, 170, red)
 	file, _, err = PhonePreview(ctx, ron, hash)
 	is("a phone's preview", file, err, 900, 600, red)
-	file, _, err = Preview(ctx, k, p.Edit)
+	file, _, err = Preview(ctx, k, p.Edit, "")
 	is("the preview", file, err, 450, 600, blue)
 	if list, err := Latest(6); err != nil || !slices.ContainsFunc(copiesIn(list), func(c GridPhoto) bool { return c.Key() == k && c.Edit == p.Edit }) {
 		t.Errorf("%+v %v", list, err)
@@ -231,11 +231,11 @@ func TestASmallFrameIsDrawnFromEnough(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := library.Key{Hash: hash, Profile: "ron"}
-	small, _, err := Thumbnail(context.Background(), k, list.Photos[0].Edit)
+	small, _, err := Thumbnail(context.Background(), k, list.Photos[0].Edit, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	large, _, err := Preview(context.Background(), k, list.Photos[0].Edit)
+	large, _, err := Preview(context.Background(), k, list.Photos[0].Edit, "")
 	if err != nil {
 		t.Fatal(err)
 	}

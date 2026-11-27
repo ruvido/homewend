@@ -144,6 +144,19 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		done, err := engine.Mark(body.State, body.Photos, body.On)
 		reply(w, map[string]int{"marked": len(done)}, err)
 	})
+	// RAWs of film negatives shown printed, or as they came: printing is
+	// in the background, and said as developing.
+	mux.HandleFunc("POST /api/negative", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			On     bool          `json:"on"`
+			Photos []library.Key `json:"photos"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Photos) == 0 {
+			http.Error(w, "photos are needed", http.StatusBadRequest)
+			return
+		}
+		reply(w, map[string]bool{"ok": true}, engine.Convert(body.Photos, body.On))
+	})
 	// The photos the Trash showed, deleted for good; the reply is those left.
 	mux.HandleFunc("POST /api/trash/empty", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -234,14 +247,14 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 		f, err := engine.FileOf(photoOf(r))
 		reply(w, f, err)
 	})
-	for path, picture := range map[string]func(context.Context, library.Key, string) (string, bool, error){"thumb": engine.Thumbnail, "preview": engine.Preview} {
+	for path, picture := range map[string]func(context.Context, library.Key, string, string) (string, bool, error){"thumb": engine.Thumbnail, "preview": engine.Preview} {
 		mux.HandleFunc("GET /api/"+path+"/{hash}", func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			// The viewer's ask for the photos either side.
 			if r.Header.Get("X-Ahead") != "" {
 				ctx = engine.Ahead(ctx)
 			}
-			file, kept, err := picture(ctx, photoOf(r), r.URL.Query().Get("edit"))
+			file, kept, err := picture(ctx, photoOf(r), r.URL.Query().Get("edit"), r.URL.Query().Get("positive"))
 			if err != nil {
 				reply(w, nil, err)
 				return

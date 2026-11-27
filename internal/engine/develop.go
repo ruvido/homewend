@@ -6,6 +6,7 @@ package engine
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -27,11 +28,25 @@ import (
 // priority, after the window's own pictures; one the window or a phone asks
 // for goes first. Until it is there, a picture is made from the JPEG the
 // camera embedded, under another name and not kept, so the developed one
-// replaces it. The grid's own thumbnails stay the camera's.
+// replaces it. The grid's own thumbnails stay the camera's, but a film
+// negative's: its pictures, all of them, are of its print, named after the
+// bounds it is printed with (printed), and its developed picture is that print.
 
 // cameraMark is after the name of a picture made while the one it should be
 // made from is developed, or where it cannot be.
 const cameraMark = "-camera"
+
+// positiveMark is between a name and its print's, all hexadecimal.
+const positiveMark = "-positive-"
+
+// printed is the name the pictures of name are kept by, of the print named
+// positive; name itself when that is none.
+func printed(name, positive string) string {
+	if positive == "" {
+		return name
+	}
+	return name + positiveMark + positive
+}
 
 // rawJob is a raw file to develop: the name its picture is kept by, its file
 // (or the photo it is found by, when developed), and whether it is the whole
@@ -42,6 +57,8 @@ type rawJob struct {
 	full      bool
 	// library is a job of the library's: counted in its progress.
 	library bool
+	// negative are the bounds of the print it is developed as; "" for none.
+	negative string
 }
 
 func (j rawJob) dst() (string, error) {
@@ -78,6 +95,10 @@ type queue struct {
 	of      int
 	started bool
 	wake    chan struct{}
+	// converts are the groups of negatives to print, in turn; converting the
+	// one being printed.
+	converts   [][]library.Key
+	converting []library.Key
 }
 
 // recentKept is how many of the names last developed are said: more than
@@ -109,6 +130,9 @@ func DevelopingNow() Developing {
 		}
 		now = append(now, j.name)
 	}
+	for _, k := range slices.Concat(append(d.converts, d.converting)...) {
+		now = append(now, k.Hash)
+	}
 	return Developing{Done: max(0, d.of-left), Of: d.of, Now: now, Recent: append([]string{}, d.recent...)}
 }
 
@@ -120,11 +144,13 @@ func (d *queue) nowOr() []rawJob {
 	return []rawJob{*d.now}
 }
 
-// developsFrom is whether a picture of src at size, with an edit or not, is
-// made from its developed picture.
-func developsFrom(src string, size int, edited bool) bool {
-	return strings.EqualFold(filepath.Ext(src), ".raf") && (size > thumb.Size || edited)
+// developsFrom is whether a picture of src at size, drawn (with an edit, or
+// printed from a negative) or not, is made from its developed picture.
+func developsFrom(src string, size int, drawn bool) bool {
+	return isRAF(src) && (size > thumb.Size || drawn)
 }
+
+func isRAF(name string) bool { return strings.EqualFold(filepath.Ext(name), ".raf") }
 
 type aheadKey struct{}
 
@@ -138,11 +164,11 @@ func Ahead(ctx context.Context) context.Context { return context.WithValue(ctx, 
 // ahead, it is developed next.
 func developedFor(ctx context.Context, src, name string, size int, e drawing) (from string, whole bool) {
 	raise := ctx.Value(aheadKey{}) == nil
-	from = developed(rawJob{name: name, src: src}, raise)
+	from = developed(rawJob{name: name, src: src, negative: e.negative}, raise)
 	if from == "" || e.edit.None() || !thumb.Short(from, size, e.edit) {
 		return from, from != ""
 	}
-	if full := developed(rawJob{name: name, src: src, full: true}, raise); full != "" {
+	if full := developed(rawJob{name: name, src: src, full: true, negative: e.negative}, raise); full != "" {
 		return full, true
 	}
 	return from, false
@@ -200,20 +226,20 @@ func developLibrary(root string, photos []library.Photo) {
 		}
 		of++
 		// A page of the library has no paths: the file is found when its turn comes.
-		j := rawJob{name: p.Hash, key: p.Key(), library: true}
+		j := rawJob{name: printed(p.Hash, library.PositiveName(p.Negative)), key: p.Key(), library: true, negative: p.Negative}
 		dst, err := j.dst()
 		if err != nil {
 			continue
 		}
 		_, err = os.Stat(dst)
 		// Once a run: what an older version, or one cut short, left.
-		if !checked[p.Hash] {
+		if !checked[j.name] {
 			if err == nil {
-				forgetCamera(p.Hash)
-			} else {
+				forgetCamera(j.name)
+			} else if p.Negative == "" {
 				forgetUndeveloped(p.Hash, p.Edit)
 			}
-			checked[p.Hash] = true
+			checked[j.name] = true
 		}
 		if err != nil {
 			lack = append(lack, j)
@@ -262,6 +288,85 @@ func forgetUnfinished() {
 	}
 }
 
+// Convert has the photos, RAWs of one film's negatives, shown printed with
+// the bounds of them all, in the background, first; or with on false shown
+// as they came, at once. A photo that is no RAF is left as it is.
+func Convert(photos []library.Key, on bool) error {
+	if !on {
+		return setNegatives(photos, "")
+	}
+	d := &developer
+	d.Lock()
+	defer d.Unlock()
+	d.converts = append(d.converts, photos)
+	d.start()
+	return nil
+}
+
+// convert prints the negatives photos: each one's bounds read on a decode at
+// half the size, then the median of them all is theirs; each is shown
+// printed once its print is made, one after another, as a turn shows.
+func convert(photos []library.Key) {
+	var keys []library.Key
+	var srcs []string
+	var all []raw.Bounds
+	for _, k := range photos {
+		src, _, err := pictureOf(k, os.Stat)
+		if err == nil && !isRAF(src) {
+			continue
+		}
+		var img *raw.Image
+		if err == nil {
+			img, _, err = raw.Develop(context.Background(), src, raw.NegativeHalf, false)
+		}
+		var b raw.Bounds
+		if err == nil {
+			b, err = raw.Analyse(img)
+		}
+		if err != nil {
+			log.Printf("reading the negative %s: %v", k.Hash, err)
+			continue
+		}
+		keys, srcs, all = append(keys, k), append(srcs, src), append(all, b)
+	}
+	if len(all) == 0 {
+		return
+	}
+	bounds := raw.MedianBounds(all).String()
+	for i, k := range keys {
+		j := rawJob{name: printed(k.Hash, library.PositiveName(bounds)), src: srcs[i], negative: bounds}
+		dst, err := j.dst()
+		if err != nil {
+			continue
+		}
+		if _, err := os.Stat(dst); err != nil {
+			develop(j, false)
+		}
+		// Not printed, it stays as it came, not the camera's negative under the print's name.
+		if _, err := os.Stat(dst); err != nil {
+			continue
+		}
+		if err := setNegatives([]library.Key{k}, bounds); err != nil {
+			log.Printf("printing the negative %s: %v", k.Hash, err)
+		}
+	}
+}
+
+// setNegatives has photos shown printed with bounds, or as they came.
+func setNegatives(photos []library.Key, bounds string) error {
+	c, _, err := openLibrary()
+	if err != nil {
+		return err
+	}
+	if c == nil {
+		return fs.ErrNotExist
+	}
+	defer c.Close()
+	err = c.SetNegatives(photos, bounds)
+	lookNow()
+	return err
+}
+
 // developAll develops what is asked, then the library's, for as long as the
 // app runs.
 func developAll() {
@@ -269,6 +374,15 @@ func developAll() {
 	d := &developer
 	for {
 		d.Lock()
+		if len(d.converts) > 0 {
+			d.converting, d.converts = d.converts[0], d.converts[1:]
+			d.Unlock()
+			convert(d.converting)
+			d.Lock()
+			d.converting = nil
+			d.Unlock()
+			continue
+		}
 		var j *rawJob
 		background := false
 		switch {
@@ -309,8 +423,14 @@ func develop(j rawJob, background bool) {
 	if err == nil && j.src == "" {
 		j.src, _, err = pictureOf(j.key, os.Stat)
 	}
+	var negative *raw.Bounds
+	if err == nil && j.negative != "" {
+		var b raw.Bounds
+		b, err = raw.ParseBounds(j.negative)
+		negative = &b
+	}
 	if err == nil {
-		err = thumb.Develop(context.Background(), j.src, dst, long, background)
+		err = thumb.Develop(context.Background(), j.src, dst, long, negative, background)
 	}
 	d := &developer
 	d.Lock()

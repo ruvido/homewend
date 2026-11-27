@@ -176,3 +176,89 @@ func TestALibraryRAFIsFoundByItsPhoto(t *testing.T) {
 		t.Errorf("found %q, %v; want %q", file, err, src)
 	}
 }
+
+// A RAF printed from a negative has every picture, its grid thumbnail too,
+// made from its print and named after it; shown as it came again, the
+// camera's.
+func TestANegativesPicturesAreItsPrint(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no helper
+	root := t.TempDir()
+	if _, err := UpdateSettings(func(s *Settings) { s.Library = root }); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(root, library.WorkDir, "x"), 0o755)
+	os.MkdirAll(filepath.Join(root, "ron", "2026"), 0o755)
+	picture := func(w, h int) []byte {
+		var b bytes.Buffer
+		jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, w, h)), nil)
+		return b.Bytes()
+	}
+	camera := picture(600, 400)
+	src := thumbtest.RAF(t, filepath.Join(root, "ron", "2026"), camera, 148, uint32(len(camera)))
+	info, _ := os.Stat(src)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, _ := filepath.Rel(root, src)
+	k := library.Key{Hash: "aaaa", Profile: "ron"}
+	c.Put(library.Photo{Hash: k.Hash, Profile: k.Profile, Path: filepath.ToSlash(rel), Name: filepath.Base(src), Bytes: info.Size()})
+	c.Close()
+	const bounds = "1.2744 1.2720 1.6659 2.0183 2.1397 2.5716"
+	positive := library.PositiveName(bounds)
+	// Its print, as convert leaves it before the catalog says so.
+	folder, _ := picturesDir("developed")
+	print := thumb.Path(folder, printed(k.Hash, positive))
+	os.MkdirAll(filepath.Dir(print), 0o755)
+	if err := os.WriteFile(print, picture(300, 300), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := setNegatives([]library.Key{k}, bounds); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := LoadSettings()
+	list, err := Photos(s, "", "", "", false, "", 0)
+	if err != nil || len(list.Photos) != 1 || list.Photos[0].Positive != positive {
+		t.Fatalf("listed %+v %v", list, err)
+	}
+	for _, ask := range []func(context.Context, library.Key, string, string) (string, bool, error){Thumbnail, Preview} {
+		file, kept, err := ask(context.Background(), k, "", positive)
+		if w, h := thumb.Dimensions(file); err != nil || !kept || w != h || filepath.Base(file) != printed(k.Hash, positive)+".jpg" {
+			t.Errorf("printed: %s %dx%d kept %v %v", file, w, h, kept, err)
+		}
+	}
+	// Asked as it was before, it is not kept: the window's list is old.
+	if _, kept, _ := Thumbnail(context.Background(), k, "", "0123"); kept {
+		t.Error("another print kept")
+	}
+	if err := Convert([]library.Key{k}, false); err != nil {
+		t.Fatal(err)
+	}
+	file, kept, err := Thumbnail(context.Background(), k, "", "")
+	if w, h := thumb.Dimensions(file); err != nil || !kept || w == h || filepath.Base(file) != k.Hash+".jpg" {
+		t.Errorf("as it came: %s %dx%d kept %v %v", file, w, h, kept, err)
+	}
+}
+
+// Negatives to print are said as developing until they are.
+func TestConvertingIsDeveloping(t *testing.T) {
+	developer.Lock()
+	developer.started, developer.wake = true, make(chan struct{}, 1) // no one prints in this one
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.started, developer.wake, developer.converts = false, nil, nil
+		developer.Unlock()
+	}()
+	if err := Convert([]library.Key{{Hash: "n1"}, {Hash: "n2"}}, true); err != nil {
+		t.Fatal(err)
+	}
+	if d := DevelopingNow(); len(d.Now) != 2 || d.Now[0] != "n1" {
+		t.Errorf("%+v", d)
+	}
+}
