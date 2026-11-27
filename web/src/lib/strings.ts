@@ -468,6 +468,8 @@ export const text = {
 	noDateSub: (n: string) => `${n} photos and videos · no date in the file or its name`,
 	rotateLeft: 'Rotate left',
 	rotateRight: 'Rotate right',
+	convertNegative: 'Convert negative',
+	showAsNegative: 'Show as negative',
 	archive: 'Archive',
 	unarchive: 'Unarchive',
 	trash: 'Trash',

@@ -21,6 +21,7 @@ import chevronLeft from 'bootstrap-icons/icons/chevron-left.svg?raw';
 import chevronRight from 'bootstrap-icons/icons/chevron-right.svg?raw';
 import chevronUp from 'bootstrap-icons/icons/chevron-up.svg?raw';
 import circle from 'bootstrap-icons/icons/circle.svg?raw';
+import circleHalf from 'bootstrap-icons/icons/circle-half.svg?raw';
 import cloudArrowDown from 'bootstrap-icons/icons/cloud-arrow-down.svg?raw';
 import codeSlash from 'bootstrap-icons/icons/code-slash.svg?raw';
 import copy from 'bootstrap-icons/icons/copy.svg?raw';
@@ -88,6 +89,7 @@ const raw = {
 	'chevron-right': chevronRight,
 	'chevron-up': chevronUp,
 	'circle': circle,
+	'circle-half': circleHalf,
 	'cloud-arrow-down': cloudArrowDown,
 	'code-slash': codeSlash,
 	'copy': copy,

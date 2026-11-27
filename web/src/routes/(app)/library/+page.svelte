@@ -6,7 +6,7 @@
 	import { page } from '$app/state';
 	import { untrack } from 'svelte';
 	import { app, refresh } from '#lib/app.svelte.js';
-	import { copiesOf, getPhotos, holds, mark, patched, photosIn, turn, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
+	import { convertNegatives, copiesOf, getPhotos, holds, isNegativeRaw, mark, patched, photosIn, turn, type GridPhoto, type MarkAct, type PhotoKey, type Shown } from '#lib/api.js';
 	import { isView } from '#lib/library.js';
 	import Dialog from '#lib/components/Dialog.svelte';
 	import { placeOf, urlOf } from '#lib/places.js';
@@ -123,6 +123,20 @@
 			}
 		} finally {
 			turned(turns);
+		}
+	}
+	// Convert negative: offered when every photo picked is a RAW; Show as
+	// negative when every one is printed already. Each tile turns as its
+	// print is made, the library moved under the page.
+	const negatives = $derived(pickedCopies.length > 0 && pickedCopies.every(isNegativeRaw));
+	const printedAll = $derived(pickedCopies.every((p) => p.positive));
+	const converting = $derived(pickedCopies.some((p) => app.developing.now.includes(p.hash)));
+	async function convertPicked() {
+		markFailed = '';
+		try {
+			await convertNegatives(pickedCopies, !printedAll);
+		} catch {
+			markFailed = text.markFailed;
 		}
 	}
 	const turned = (turns: Map<string, Shown>) => (list = patched(list, (p) => (turns.has(p.id) ? { ...p, edit: undefined, ...turns.get(p.id) } : p)));
@@ -352,6 +366,9 @@
 				<SecondaryButton small onclick={() => turnPicked(false)}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</SecondaryButton>
 				<SecondaryButton small onclick={() => turnPicked(true)}><Icon name="arrow-clockwise" size={14} />{text.rotateRight}</SecondaryButton>
 				<SecondaryButton small onclick={() => (dating = true)}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</SecondaryButton>
+				{#if negatives}
+					<SecondaryButton small disabled={converting} onclick={convertPicked}><Icon name="circle-half" size={14} />{printedAll ? text.showAsNegative : text.convertNegative}</SecondaryButton>
+				{/if}
 			{/if}
 			{#each actsOf(pickedCopies) as a (a.label)}
 				<SecondaryButton small onclick={() => act(a, pickedCopies)}><Icon name={a.icon} size={14} />{a.label}</SecondaryButton>

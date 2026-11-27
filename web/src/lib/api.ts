@@ -103,7 +103,8 @@ function of(p: PhotoKey) {
 }
 
 /** Its picture as it is shown, small or at the size of a screen; and its own file. */
-export const pictureOf = (p: PhotoKey & Shown, what: 'thumb' | 'preview' = 'thumb') => `/api/${what}/${of(p)}` + (p.edit ? `&edit=${p.edit}` : '');
+export const pictureOf = (p: PhotoKey & Shown, what: 'thumb' | 'preview' = 'thumb') =>
+	`/api/${what}/${of(p)}` + (p.edit ? `&edit=${p.edit}` : '') + (p.positive ? `&positive=${p.positive}` : '');
 export const originalOf = (p: PhotoKey) => `/api/original/${of(p)}`;
 
 /** How a photo is shown. */
@@ -114,6 +115,8 @@ export interface Shown {
 	edit?: string;
 	/** Its edit was made by a newer Homewend: shown as it came, and not turned. */
 	newer?: boolean;
+	/** Names the print of a film negative it is shown as: another, and its pictures are others. */
+	positive?: string;
 }
 
 export interface GridPhoto extends PhotoKey, Shown {
@@ -295,6 +298,10 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 export const getLatest = () => call<Parameters<typeof asPhotos>[0]>('GET', '/api/latest').then(asPhotos);
 export const giveDates = (photos: PhotoKey[], when: string) => call<{ moved: number }>('POST', '/api/dates', { photos: photos.map(keyOf), when });
 /** A quarter turn anticlockwise, or with right clockwise. */
+/** A film negative's RAW: what Convert negative is offered on. */
+export const isNegativeRaw = (p: { name: string }) => /\.raf$/i.test(p.name);
+/** RAWs of film negatives shown printed, with the bounds of them all, or as they came. */
+export const convertNegatives = (photos: PhotoKey[], on: boolean) => call<unknown>('POST', '/api/negative', { photos: photos.map(keyOf), on });
 export const turn = (p: PhotoKey, right: boolean) => call<Shown>('POST', `/api/turn/${of(p)}${right ? '?right' : ''}`);
 /** A square picture turned as the person turned the photo. */
 export const turned = (p: { turn?: number }) => (p.turn ? `rotate(${-90 * p.turn}deg)` : undefined);

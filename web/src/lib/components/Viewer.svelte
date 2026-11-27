@@ -8,7 +8,7 @@
 	import TakeOut from './TakeOut.svelte';
 	import GiveDate from './GiveDate.svelte';
 	import { pane, swap } from '#lib/motion.js';
-	import { getAbout, getFile, originalOf, pathOf, pictureOf, turn as turnPhoto, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile, type Shown } from '#lib/api.js';
+	import { convertNegatives, getAbout, getFile, isNegativeRaw, originalOf, pathOf, pictureOf, turn as turnPhoto, type GridPhoto, type MarkAct, type PhotoAbout, type PhotoFile, type Shown } from '#lib/api.js';
 	import { text } from '#lib/strings.js';
 	import { badgeOf } from '#lib/filter.js';
 	import { bytes, takenAt, takenDay } from '#lib/format.js';
@@ -97,6 +97,20 @@
 				again++;
 				ready = undefined;
 			}
+		});
+	});
+	// Printed from its negative, or shown as it came again: the picture
+	// before stays under, the other fades in over it once whole.
+	let shownSrc = '';
+	let printedAs = { id: '', positive: '' };
+	$effect(() => {
+		const now = { id: id ?? '', positive: p?.positive ?? '' };
+		untrack(() => {
+			if (now.id === printedAs.id && now.positive !== printedAs.positive && shownSrc) {
+				under = shownSrc;
+				ready = undefined;
+			}
+			printedAs = now;
 		});
 	});
 	// The previews of the photos either side, asked before they are wanted:
@@ -298,6 +312,9 @@
 						<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt(false))}><Icon name="arrow-counterclockwise" size={14} />{text.rotateLeft}</button>
 						<button class="pill" onclick={(e) => (e.currentTarget.blur(), turnIt(true))}><Icon name="arrow-clockwise" size={14} />{text.rotateRight}</button>
 					{/if}
+					{#if isNegativeRaw(p) && !p.newer}
+						<button class="pill" disabled={developing} onclick={(e) => (e.currentTarget.blur(), convertNegatives([p], !p.positive).catch(() => {}))}><Icon name="circle-half" size={14} />{p.positive ? text.showAsNegative : text.convertNegative}</button>
+					{/if}
 					<button class="pill" onclick={(e) => (e.currentTarget.blur(), (dating = true))}><Icon name="calendar" size={14} />{text.changeDateEllipsis}</button>
 				{/if}
 				{#each actsOf([p]) as a (a.label)}
@@ -350,7 +367,7 @@
 								src={previewSrc}
 								alt=""
 								bind:this={fitted}
-								onload={() => p && (ready = p)}
+								onload={() => p && ((ready = p), (shownSrc = previewSrc))}
 								onclick={zoomIn}
 							/>
 							{#if asked}
