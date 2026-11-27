@@ -211,29 +211,33 @@ func TestANegativesPicturesAreItsPrint(t *testing.T) {
 	c.Close()
 	const bounds = "1.2744 1.2720 1.6659 2.0183 2.1397 2.5716"
 	positive := library.PositiveName(bounds)
-	// Its print, as convert leaves it before the catalog says so.
-	folder, _ := picturesDir("developed")
-	print := thumb.Path(folder, printed(k.Hash, positive))
-	os.MkdirAll(filepath.Dir(print), 0o755)
-	if err := os.WriteFile(print, picture(300, 300), 0o644); err != nil {
-		t.Fatal(err)
+	// Its print, at 2560 and whole, as convert and an edit leave them.
+	for _, dir := range developedDirs {
+		folder, _ := picturesDir(dir)
+		print := thumb.Path(folder, printed(k.Hash, positive))
+		os.MkdirAll(filepath.Dir(print), 0o755)
+		if err := os.WriteFile(print, picture(300, 300), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := setNegatives([]library.Key{k}, bounds); err != nil {
+	if err := printing(func(c *library.Catalog) error { return c.Print(k, bounds, [4]float64{0.25, 0, 0.75, 1}) }); err != nil {
 		t.Fatal(err)
 	}
 	s, _ := LoadSettings()
 	list, err := Photos(s, "", "", "", false, "", 0)
-	if err != nil || len(list.Photos) != 1 || list.Photos[0].Positive != positive {
+	if err != nil || len(list.Photos) != 1 || list.Photos[0].Positive != positive || list.Photos[0].Edit == "" {
 		t.Fatalf("listed %+v %v", list, err)
 	}
+	// Cropped to the film's frame: half as wide as high.
+	cropped := list.Photos[0].Edit
 	for _, ask := range []func(context.Context, library.Key, string, string) (string, bool, error){Thumbnail, Preview} {
-		file, kept, err := ask(context.Background(), k, "", positive)
-		if w, h := thumb.Dimensions(file); err != nil || !kept || w != h || filepath.Base(file) != printed(k.Hash, positive)+".jpg" {
+		file, kept, err := ask(context.Background(), k, cropped, positive)
+		if w, h := thumb.Dimensions(file); err != nil || !kept || 2*w != h || filepath.Base(file) != thumb.Edited(printed(k.Hash, positive), cropped)+".jpg" {
 			t.Errorf("printed: %s %dx%d kept %v %v", file, w, h, kept, err)
 		}
 	}
 	// Asked as it was before, it is not kept: the window's list is old.
-	if _, kept, _ := Thumbnail(context.Background(), k, "", "0123"); kept {
+	if _, kept, _ := Thumbnail(context.Background(), k, cropped, "0123"); kept {
 		t.Error("another print kept")
 	}
 	if err := Convert([]library.Key{k}, false); err != nil {

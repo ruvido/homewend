@@ -293,7 +293,7 @@ func forgetUnfinished() {
 // as they came, at once. A photo that is no RAF is left as it is.
 func Convert(photos []library.Key, on bool) error {
 	if !on {
-		return setNegatives(photos, "")
+		return printing(func(c *library.Catalog) error { return c.Unprint(photos) })
 	}
 	d := &developer
 	d.Lock()
@@ -303,31 +303,36 @@ func Convert(photos []library.Key, on bool) error {
 	return nil
 }
 
-// convert prints the negatives photos: each one's bounds read on a decode at
-// half the size, then the median of them all is theirs; each is shown
-// printed once its print is made, one after another, as a turn shows.
+// convert prints the negatives photos: each one's bounds and frame read on
+// a decode at half the size, then the median of the bounds is theirs; each
+// is shown printed, cropped to its frame, once its print is made, one after
+// another, as a turn shows.
 func convert(photos []library.Key) {
 	var keys []library.Key
 	var srcs []string
 	var all []raw.Bounds
+	var frames [][4]float64
 	for _, k := range photos {
 		src, _, err := pictureOf(k, os.Stat)
 		if err == nil && !isRAF(src) {
 			continue
 		}
 		var img *raw.Image
+		var meta *raw.Meta
 		if err == nil {
-			img, _, err = raw.Develop(context.Background(), src, raw.NegativeHalf, false)
+			img, meta, err = raw.Develop(context.Background(), src, raw.NegativeHalf, false)
 		}
 		var b raw.Bounds
+		var frame [4]float64
 		if err == nil {
-			b, err = raw.Analyse(img)
+			b, frame, err = raw.Analyse(img, meta)
 		}
 		if err != nil {
 			log.Printf("reading the negative %s: %v", k.Hash, err)
 			continue
 		}
 		keys, srcs, all = append(keys, k), append(srcs, src), append(all, b)
+		frames = append(frames, thumb.UprightShares(frame, library.Orientation(src)))
 	}
 	if len(all) == 0 {
 		return
@@ -346,14 +351,14 @@ func convert(photos []library.Key) {
 		if _, err := os.Stat(dst); err != nil {
 			continue
 		}
-		if err := setNegatives([]library.Key{k}, bounds); err != nil {
+		if err := printing(func(c *library.Catalog) error { return c.Print(k, bounds, frames[i]) }); err != nil {
 			log.Printf("printing the negative %s: %v", k.Hash, err)
 		}
 	}
 }
 
-// setNegatives has photos shown printed with bounds, or as they came.
-func setNegatives(photos []library.Key, bounds string) error {
+// printing is set, a write of prints to the library's catalog.
+func printing(set func(*library.Catalog) error) error {
 	c, _, err := openLibrary()
 	if err != nil {
 		return err
@@ -362,7 +367,7 @@ func setNegatives(photos []library.Key, bounds string) error {
 		return fs.ErrNotExist
 	}
 	defer c.Close()
-	err = c.SetNegatives(photos, bounds)
+	err = set(c)
 	lookNow()
 	return err
 }

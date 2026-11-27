@@ -588,3 +588,31 @@ func rgba(img image.Image) *image.RGBA {
 	draw.Draw(out, b, img, b.Min, draw.Src)
 	return out
 }
+
+// UprightShares is the rectangle r (x0, y0, x1, y1 in shares) of a picture as
+// its file has it, in the picture turned as orientation says, as upright
+// turns it.
+func UprightShares(r [4]float64, orientation int) [4]float64 {
+	at := func(x, y float64) (float64, float64) {
+		switch orientation {
+		case 2:
+			return 1 - x, y
+		case 3:
+			return 1 - x, 1 - y
+		case 4:
+			return x, 1 - y
+		case 5:
+			return y, x
+		case 6:
+			return 1 - y, x
+		case 7:
+			return 1 - y, 1 - x
+		case 8:
+			return y, 1 - x
+		}
+		return x, y
+	}
+	ax, ay := at(r[0], r[1])
+	bx, by := at(r[2], r[3])
+	return [4]float64{min(ax, bx), min(ay, by), max(ax, bx), max(ay, by)}
+}

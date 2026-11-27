@@ -25,7 +25,9 @@ const (
 	// blockSide is the side of the blocks a frame is sampled in: no single
 	// noisy pixel or speck of dust sets a bound.
 	blockSide = 4
-	// inset is how much of the frame found is left out at each side.
+	// inset is how much of the frame found is left out at each side, for
+	// the analysis and the print's crop: the lit run reaches 1 to 1.8 % past
+	// the picture into the holder's edge (three frames, 27/11).
 	inset = 0.02
 	// printK is the density range of the paper: a density step of the film
 	// is an exposure step of the print.
@@ -87,18 +89,24 @@ var densityOf = func() (t [65536]float32) {
 // of the thinnest blocks by mean density, the white that of the densest:
 // a percentile of each channel alone would be set by whatever is extreme in
 // that one (a streak in the red layer) and cast the whole frame.
-func Analyse(img *Image) (Bounds, error) {
-	s := blocks(img, frameOf(img, image.Rect(0, 0, img.Width, img.Height)))
+//
+// crop is the frame, inset, in shares of the print Positive
+// makes of the same file (x0, y0, x1, y1), not turned: the holder and the
+// film's edge are left out of the picture.
+func Analyse(img *Image, meta *Meta) (b Bounds, crop [4]float64, err error) {
+	whole := image.Rect(0, 0, img.Width, img.Height)
+	frame := inside(frameOf(img, whole), inset)
+	s := blocks(img, frame)
 	if len(s) == 0 {
-		return Bounds{}, errors.New("negative: no frame found")
+		return b, crop, errors.New("negative: no frame found")
 	}
+	crop = printShares(frame, img, meta)
 	m := make([]float64, len(s))
 	for i, b := range s {
 		m[i] = (b[0] + b[1] + b[2]) / 3
 	}
 	sorted := slices.Sorted(slices.Values(m))
 	lo, hi := sorted[int(thinnest*float64(len(m)-1))], sorted[int(math.Ceil(densest*float64(len(m)-1)))]
-	var b Bounds
 	for c := range 3 {
 		var base, white []float64
 		for i, v := range m {
@@ -111,17 +119,45 @@ func Analyse(img *Image) (Bounds, error) {
 		}
 		b.Base[c], b.White[c] = exactMedian(base), exactMedian(white)
 		if !(b.White[c] > b.Base[c]) {
-			return b, errors.New("negative: a frame of one density")
+			return b, crop, errors.New("negative: a frame of one density")
 		}
 	}
-	return b, nil
+	return b, crop, nil
+}
+
+// printShares is r, of img, in shares of the print Positive makes of the
+// same file: cut to the camera's frame, in the middle of the sensor.
+// shortcut: a decode at half the size is taken as exactly half the sensor's
+// sides; LibRaw rounds them, a pixel off at most.
+func printShares(r image.Rectangle, img *Image, meta *Meta) [4]float64 {
+	x0, y0 := float64(r.Min.X)/float64(img.Width), float64(r.Min.Y)/float64(img.Height)
+	x1, y1 := float64(r.Max.X)/float64(img.Width), float64(r.Max.Y)/float64(img.Height)
+	if f := meta.Frame; f.Width > 0 && f.Height > 0 {
+		// The sensor's sides: twice a half decode's.
+		scale := 1.0
+		if img.Width < f.Width {
+			scale = 2
+		}
+		sw, sh := scale*float64(img.Width), scale*float64(img.Height)
+		ox, oy := (sw-float64(f.Width))/2, (sh-float64(f.Height))/2
+		at := func(v, side, off, frame float64) float64 { return min(max((v*side-off)/frame, 0), 1) }
+		x0, x1 = at(x0, sw, ox, float64(f.Width)), at(x1, sw, ox, float64(f.Width))
+		y0, y1 = at(y0, sh, oy, float64(f.Height)), at(y1, sh, oy, float64(f.Height))
+	}
+	return [4]float64{x0, y0, x1, y1}
+}
+
+// inside is r with share of its sides left out at each one.
+func inside(r image.Rectangle, share float64) image.Rectangle {
+	dx, dy := int(float64(r.Dx())*share), int(float64(r.Dy())*share)
+	return image.Rect(r.Min.X+dx, r.Min.Y+dy, r.Max.X-dx, r.Max.Y-dy)
 }
 
 // frameOf is the lit film inside the dark holder, within r: a row or a
 // column is lit when its median log brightness is past the midpoint between
 // the holder's (the 5th percentile) and the median; the longest lit run is
 // the frame, not the neighbours' slivers at the sides. A picture with no
-// holder is all one run, and only the inset keeps its edges out.
+// holder is all one run, and only an inset keeps its edges out.
 func frameOf(img *Image, r image.Rectangle) image.Rectangle {
 	w, h := r.Dx(), r.Dy()
 	light := make([]float32, w*h)
@@ -151,7 +187,7 @@ func frameOf(img *Image, r image.Rectangle) image.Rectangle {
 	return image.Rect(r.Min.X+x0, r.Min.Y+y0, r.Min.X+x1, r.Min.Y+y1)
 }
 
-// litRun is the longest run of profile past its midpoint, inset.
+// litRun is the longest run of profile past its midpoint.
 func litRun(profile []float64) (from, to int) {
 	sorted := slices.Sorted(slices.Values(profile))
 	cut := (sorted[int(0.05*float64(len(sorted)-1))] + exactMedian(profile)) / 2
@@ -168,8 +204,7 @@ func litRun(profile []float64) (from, to int) {
 			start = -1
 		}
 	}
-	pad := int(float64(to-from) * inset)
-	return from + pad, to - pad
+	return from, to
 }
 
 // blocks are the mean densities of r's blocks of blockSide pixels a side.
@@ -232,7 +267,7 @@ func Positive(img *Image, meta *Meta, b Bounds, long int) *image.RGBA {
 	if w, h := frame.Dx(), frame.Dy(); long > 0 && max(w, h) > long {
 		img, frame = scaled(img, frame, long)
 	}
-	shift := greyShift(blocks(img, frameOf(img, frame)), b)
+	shift := greyShift(blocks(img, inside(frameOf(img, frame), inset)), b)
 	// The print of each sample, per channel: a pixel is then three looks
 	// and a matrix.
 	var printed [3][]float32

@@ -4,6 +4,7 @@
 package raw
 
 import (
+	"image"
 	"math"
 	"testing"
 )
@@ -55,9 +56,15 @@ func TestNegativeRoundTrip(t *testing.T) {
 	const w, h = 400, 300
 	print := scene(w, h)
 	neg := negativeOf(w, h, want, print)
-	got, err := Analyse(neg)
+	got, crop, err := Analyse(neg, &Meta{})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The film inside the holder, a tenth of each side, inset.
+	for i, want := range [4]float64{0.115, 0.115, 0.885, 0.885} {
+		if math.Abs(crop[i]-want) > 0.01 {
+			t.Errorf("crop %v", crop)
+		}
 	}
 	for c := range 3 {
 		if math.Abs(got.Base[c]-want.Base[c]) > 0.002 || math.Abs(got.White[c]-want.White[c]) > 0.002 {
@@ -123,5 +130,20 @@ func TestGreyShift(t *testing.T) {
 	}
 	if s := greyShift(cast, b); s != [3]float64{} {
 		t.Errorf("shift of no greys = %v", s)
+	}
+}
+
+// A frame found on a half decode is a share of the print cut to the
+// camera's frame, in the middle of a sensor twice as large.
+func TestPrintShares(t *testing.T) {
+	img := &Image{Width: 100, Height: 50}
+	meta := &Meta{}
+	meta.Frame.Width, meta.Frame.Height = 180, 100
+	got := printShares(image.Rect(10, 0, 90, 50), img, meta)
+	// 20..180 of the sensor's 200, the frame 10..190; rows held to it.
+	want := [4]float64{10.0 / 180, 0, 170.0 / 180, 1}
+	got2 := printShares(image.Rect(50, 25, 98, 50), img, meta)
+	if math.Abs(got[0]-want[0]) > 1e-9 || math.Abs(got[2]-want[2]) > 1e-9 || got[1] != 0 || got[3] != 1 || got2[2] != 1 || math.Abs(got2[1]-0.5) > 1e-9 {
+		t.Errorf("%v %v", got, got2)
 	}
 }

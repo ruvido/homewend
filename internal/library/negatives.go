@@ -4,20 +4,27 @@
 package library
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"time"
+
+	"github.com/ruvido/homewend/internal/edit"
 )
 
 // negativesSchema keeps the RAWs of film negatives shown printed, with the
 // bounds they are printed with (raw.Bounds as text): computed once, over the
 // photos converted together, so a photo looks the same tomorrow. Part of
 // the development, like turn, and the computer's alone: the phone sees the
-// print through its pictures.
+// print through its pictures. crop is the crop its edit was given, to the
+// film's frame, and was the one it replaced: "" none.
 const negativesSchema = `
 CREATE TABLE negatives (
   photo  INTEGER PRIMARY KEY REFERENCES library_photos(id),
-  bounds TEXT NOT NULL
+  bounds TEXT NOT NULL,
+  crop   TEXT NOT NULL DEFAULT '',
+  was    TEXT NOT NULL DEFAULT ''
 );
 CREATE TRIGGER negative_forgotten AFTER DELETE ON library_photos BEGIN
   DELETE FROM negatives WHERE photo = OLD.id;
@@ -34,29 +41,88 @@ func PositiveName(bounds string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// SetNegatives has the photos shown printed with bounds, or, with "", as
-// they came.
-func (c *Catalog) SetNegatives(photos []Key, bounds string) error {
+// Print has the photo shown printed with bounds, and its edit cropped to
+// frame (x0, y0, x1, y1, in shares of the picture upright) unless the person
+// framed it already: an edit, so the phone crops it too. A photo printed
+// before loses the crop given then first.
+func (c *Catalog) Print(k Key, bounds string, frame [4]float64) error {
 	return c.inTx(func(tx *sql.Tx) error {
-		for _, k := range photos {
-			var id int64
-			if err := tx.QueryRow(`SELECT id FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&id); err == sql.ErrNoRows {
-				continue
-			} else if err != nil {
+		var turn int
+		if err := tx.QueryRow(`SELECT turn FROM library_photos WHERE hash = ? AND profile = ?`, k.Hash, k.Profile).Scan(&turn); err == sql.ErrNoRows {
+			return nil
+		} else if err != nil {
+			return err
+		}
+		data, was, err := unprinted(tx, k)
+		if err != nil {
+			return err
+		}
+		out, crop, before, framed := edit.Framed(data, frame, turn)
+		if framed {
+			if _, err := setEdit(tx, k, was, out); err != nil {
 				return err
 			}
-			var err error
-			if bounds == "" {
-				_, err = tx.Exec(`DELETE FROM negatives WHERE photo = ?`, id)
-			} else {
-				_, err = tx.Exec(`INSERT INTO negatives VALUES (?, ?) ON CONFLICT DO UPDATE SET bounds = excluded.bounds`, id, bounds)
-			}
+		}
+		_, err = tx.Exec(`INSERT INTO negatives VALUES (?, ?, ?, ?)
+			ON CONFLICT DO UPDATE SET bounds = excluded.bounds, crop = excluded.crop, was = excluded.was`, was.id, bounds, crop, before)
+		return err
+	})
+}
+
+// Unprint has the photos shown as they came: the crop Print gave each is
+// taken back, if it is still the one given.
+func (c *Catalog) Unprint(photos []Key) error {
+	return c.inTx(func(tx *sql.Tx) error {
+		for _, k := range photos {
+			data, was, err := unprinted(tx, k)
 			if err != nil {
+				return err
+			}
+			if was.id == 0 {
+				continue
+			}
+			if data != cmp.Or(was.value, "null") {
+				if _, err := setEdit(tx, k, was, data); err != nil {
+					return err
+				}
+			}
+			if _, err := tx.Exec(`DELETE FROM negatives WHERE photo = ?`, was.id); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// unprinted is k's edit without the crop a print gave it, if it is still
+// that one, and the edit as it is.
+func unprinted(tx *sql.Tx, k Key) (data string, was mark, err error) {
+	edits, err := markIn(tx, Edit, false)
+	if err != nil {
+		return "", was, err
+	}
+	if was, err = edits.of(k, ""); err != nil {
+		return "", was, err
+	}
+	data = cmp.Or(was.value, "null")
+	var crop, before string
+	err = tx.QueryRow(`SELECT crop, was FROM negatives WHERE photo = ?`, was.id).Scan(&crop, &before)
+	if err == sql.ErrNoRows || err == nil && crop == "" {
+		return data, was, nil
+	}
+	if err != nil {
+		return "", was, err
+	}
+	return edit.Unframed(data, crop, before), was, nil
+}
+
+// setEdit gives k the edit data, now, as the window's Rotate does.
+func setEdit(tx *sql.Tx, k Key, was mark, data string) (bool, error) {
+	edits, err := markIn(tx, Edit, false)
+	if err != nil {
+		return false, err
+	}
+	return edits.give(k, "", was, mark{value: data, at: time.Now().UnixMilli()})
 }
 
 // negatives are the bounds of the photos shown printed, by their ids: a few,

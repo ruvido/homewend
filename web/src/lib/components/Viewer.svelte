@@ -521,6 +521,10 @@
 		font-size: var(--text-callout);
 		font-weight: 600;
 	}
+	/* Greyed when it cannot be done now, as the app's buttons are. */
+	.pill:disabled {
+		opacity: 0.4;
+	}
 	/* The photo fits the space left, whole: never taller than the window. */
 	.stage {
 		flex: 1;

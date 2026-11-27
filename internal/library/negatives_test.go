@@ -4,9 +4,12 @@
 package library
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ruvido/homewend/internal/edit"
 )
 
 const someBounds = "1.2744 1.2720 1.6659 2.0183 2.1397 2.5716"
@@ -67,8 +70,16 @@ func TestACatalogFromBeforeNegatives(t *testing.T) {
 func TestNegatives(t *testing.T) {
 	c, _ := marking(t, 3)
 	ks := []Key{{hashed(0), "ron"}, {hashed(1), "ron"}}
-	if err := c.SetNegatives(append(ks, Key{"nowhere", "ron"}), someBounds); err != nil {
-		t.Fatal(err)
+	frame := [4]float64{0.1, 0.1, 0.9, 0.9}
+	for _, k := range append(ks, Key{"nowhere", "ron"}) {
+		if err := c.Print(k, someBounds, frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Cropped to the film's frame, as an edit: the phone crops it too.
+	edits, _ := c.Edits([]Key{ks[0]})
+	if e, err := edit.Parse([]byte(edits[ks[0]])); err != nil || e.None() {
+		t.Errorf("edit %q %v", edits[ks[0]], err)
 	}
 	if b, err := c.Negative(ks[1]); err != nil || b != someBounds {
 		t.Errorf("negative = %q %v", b, err)
@@ -100,9 +111,10 @@ func TestNegatives(t *testing.T) {
 	if err != nil || n != 2 || strings.Count(string(month), `"positive":"`+PositiveName(someBounds)+`"`) != 2 {
 		t.Errorf("listed %d, month %s %v", n, month, err)
 	}
-	if err := c.SetNegatives(ks[:1], ""); err != nil {
+	if err := c.Unprint(ks[:1]); err != nil {
 		t.Fatal(err)
 	}
+	editIs(t, c, "ron", "")
 	if b, _ := c.Negative(ks[0]); b != "" {
 		t.Errorf("turned back, still %q", b)
 	}
@@ -116,4 +128,47 @@ func TestNegatives(t *testing.T) {
 	if c.db.QueryRow(`SELECT count(*) FROM negatives`).Scan(&left); left != 0 {
 		t.Errorf("%d bounds left", left)
 	}
+}
+
+// Shown as it came again, a photo keeps the person's own crop, and gets
+// back the one it had; printed again, it is cropped once.
+func TestUnprintKeepsThePersonsCrop(t *testing.T) {
+	c, _ := marking(t, 2)
+	frame := [4]float64{0.1, 0.1, 0.9, 0.9}
+	k := Key{hashed(0), "ron"}
+	if _, _, err := c.Turn(k, 1); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := c.Print(k, someBounds, frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	edits, _ := c.Edits([]Key{k})
+	e, _ := edit.Parse([]byte(edits[k]))
+	if w, h := e.Size(1000, 500); w != 400 || h != 800 {
+		t.Errorf("printed twice, turned: %dx%d", w, h)
+	}
+	if err := c.Unprint([]Key{k}); err != nil {
+		t.Fatal(err)
+	}
+	editIs(t, c, "ron", "")
+	// The person crops it after the print: theirs stays.
+	if err := c.Print(k, someBounds, frame); err != nil {
+		t.Fatal(err)
+	}
+	theirs := `{"adjust":{},"tools":2,"crop":{"turns":0,"flip":false,"angle":6,"x":0,"y":0,"w":0.5,"h":0.5,"shape":"Free"}}`
+	if err := c.inTx(func(tx *sql.Tx) error {
+		_, was, err := unprinted(tx, k)
+		if err == nil {
+			_, err = setEdit(tx, k, was, theirs)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Unprint([]Key{k}); err != nil {
+		t.Fatal(err)
+	}
+	editIs(t, c, "ron", theirs)
 }
