@@ -94,6 +94,9 @@ type Photo struct {
 	Newer    bool
 	Archived bool
 	Favorite bool
+	// Negative: in a list, the bounds a film negative is printed with; ""
+	// for a photo shown as it came.
+	Negative string
 }
 
 // Key is the photo's.
@@ -599,6 +602,9 @@ func (c *Catalog) Page(f Filter) ([]Photo, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := c.giveNegatives(photos); err != nil {
+		return nil, err
+	}
 	return photos, c.giveEdits(photos)
 }
 
@@ -813,6 +819,9 @@ func (c *Catalog) Latest(n int) ([]Photo, error) {
 		out = append(out, p)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := c.giveNegatives(out); err != nil {
 		return nil, err
 	}
 	return out, c.giveEdits(out)

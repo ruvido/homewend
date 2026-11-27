@@ -58,11 +58,14 @@ type listed struct {
 	Turn     int      `json:"turn"`
 	Archived bool     `json:"archived"`
 	Albums   []string `json:"albums"`
+	// Positive names the print of a film negative its pictures are of.
+	Positive string `json:"positive,omitempty"`
 	// As the catalog has them.
 	id, taken    int64
 	dated        bool
 	turnArchived int // turn × 2, and 1 archived
 	albums       []album
+	negative     string
 }
 
 // undatedMonth is the month of the photos whose date nobody knows, and
@@ -73,9 +76,9 @@ const (
 )
 
 // Listing is the listing of profile's library, and the hashes of the photos
-// in it. Each photo is read once and kept by none: a month's tag is the sum
+// in it, each with the bounds it is printed with, if a negative. Each photo is read once and kept by none: a month's tag is the sum
 // of its photos' digests, in any order.
-func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
+func (c *Catalog) Listing(profile string) (Listing, map[Hash]string, error) {
 	l := Listing{Months: []ListedMonth{}, Albums: []ListedAlbum{}}
 	s, err := c.Shelf(profile)
 	if err != nil {
@@ -86,7 +89,7 @@ func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 	if err != nil {
 		return l, nil, err
 	}
-	months, albums, hashes := map[int]*monthSum{}, map[album]*albumSum{}, map[Hash]struct{}{}
+	months, albums, hashes := map[int]*monthSum{}, map[album]*albumSum{}, map[Hash]string{}
 	// Its month, 0 with no date, and its sum: the photo before is often of it.
 	month, sum := -1, (*monthSum)(nil)
 	err = c.eachListed(profile, "", nil, func(p listed) {
@@ -109,7 +112,7 @@ func (c *Catalog) Listing(profile string) (Listing, map[Hash]struct{}, error) {
 		}
 		var h Hash
 		if n, err := hex.Decode(h[:], []byte(p.Hash)); n == len(h) && err == nil {
-			hashes[h] = struct{}{}
+			hashes[h] = p.negative
 		}
 		for _, its := range p.albums {
 			a := albums[its]
@@ -162,6 +165,10 @@ func (m *monthSum) add(p listed) {
 	b := append(m.line[:0], p.Hash...)
 	b = append(append(b, 0), p.Copy...)
 	b = append(b, p.Type...)
+	// Only when there is one: every month's tag stays as it was.
+	if p.Positive != "" {
+		b = append(append(b, 1), p.Positive...)
+	}
 	for _, n := range []int64{p.taken, int64(p.turnArchived), p.Bytes, int64(len(p.albums)), int64(len(p.Type))} {
 		b = binary.BigEndian.AppendUint64(b, uint64(n))
 	}
@@ -290,6 +297,10 @@ func (c *Catalog) eachListed(profile, where string, args []any, each func(listed
 	if err != nil {
 		return err
 	}
+	negatives, err := c.negatives()
+	if err != nil {
+		return err
+	}
 	ctx := context.Background()
 	conn, err := c.db.Conn(ctx)
 	if err != nil {
@@ -322,6 +333,8 @@ func (c *Catalog) eachListed(profile, where string, args []any, each func(listed
 			p.Bytes, _ = row[4].(int64)
 			both, _ := row[5].(int64)
 			p.turnArchived, p.Type = int(both), TypeOf(p.Name)
+			p.negative = negatives[p.id]
+			p.Positive = PositiveName(p.negative)
 			each(p)
 			for _, copy := range copies[p.Hash] {
 				p.Copy = copy

@@ -367,7 +367,7 @@ func TestAProgramFromBeforeEdits(t *testing.T) {
 	defer again.Close()
 	editIs(t, again, "ron", bright)
 	var version int
-	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != copiesSince {
+	if err := again.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != negativesSince {
 		t.Errorf("version %d %v", version, err)
 	}
 	var numbers bool
@@ -381,7 +381,7 @@ func TestAProgramFromBeforeEdits(t *testing.T) {
 // An older catalog is given its edits' table once, its hearts and shelf as
 // they were, and still looks for the links it had to.
 func TestACatalogFromBeforeEdits(t *testing.T) {
-	for version, want := range map[int]int{marksSince: editsSince, linksBeforeEdits: copiesSince} {
+	for version, want := range map[int]int{marksSince: editsSince, linksBeforeEdits: negativesSince} {
 		c, path := marking(t, 1)
 		say(t, c, "A", act(1, true, 0))
 		was, _ := c.Shelf("ron")
@@ -480,8 +480,8 @@ func TestLinksFoundWithNoTable(t *testing.T) {
 		tell(t, c, "A", 0, act(1, true, 0), edited(2, bright, 0))
 		editIs(t, c, "ron", bright)
 		var now int
-		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != copiesSince {
-			t.Errorf("from %d: version %d %v, want %d", version, now, err, copiesSince)
+		if err := c.db.QueryRow(`PRAGMA user_version`).Scan(&now); err != nil || now != negativesSince {
+			t.Errorf("from %d: version %d %v, want %d", version, now, err, negativesSince)
 		}
 		c.Close()
 	}

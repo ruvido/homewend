@@ -91,7 +91,7 @@ func TestACatalogFromBeforeCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if c.db.QueryRow(`PRAGMA user_version`).Scan(&version); version != copiesSince {
+	if c.db.QueryRow(`PRAGMA user_version`).Scan(&version); version != negativesSince {
 		t.Errorf("version %d", version)
 	}
 	if now := dumped(t, c); now != was {

@@ -35,6 +35,8 @@ const (
 	// A copy's marks, the dates given and when a photo left the Trash are
 	// kept, where an older program does not read them.
 	copiesSince = 8
+	// The bounds of the negatives printed are kept.
+	negativesSince = 9
 )
 
 // What linksSince was to a program from before marks, and from before edits.
@@ -122,12 +124,12 @@ var upgrading sync.Mutex
 // macOS, waits for the first even to read (catalogDSN), and it for the second.
 func upgrade(db *sql.DB, path string) error {
 	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= copiesSince {
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= negativesSince {
 		return err
 	}
 	// One whose links are still to be found keeps its version until they are.
 	if version == editsSince {
-		if done, err := hasTable(db, "extra_marks"); err != nil || done {
+		if done, err := hasTable(db, "negatives"); err != nil || done {
 			return err
 		}
 	}
@@ -177,7 +179,7 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 		return false, err
 	}
 	defer tx.Rollback()
-	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= copiesSince {
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version >= negativesSince {
 		return false, err
 	}
 	if err := tx.QueryRow(changed).Scan(&now); err != nil || now != before && !anyway {
@@ -202,19 +204,19 @@ func upgradeOnce(db *sql.DB, path string, anyway bool) (again bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	steps, since := schema+marksSchema+editsSchema+extraSchema, copiesSince
+	steps, since := schema+marksSchema+editsSchema+extraSchema+negativesSchema, negativesSince
 	switch {
 	case older:
 		if err := complete(tx, version); err != nil {
 			return false, err
 		}
-		steps, since = setAside+schema+intoLibraries+marksSchema+editsSchema+extraSchema, editsSince
+		steps, since = setAside+schema+intoLibraries+marksSchema+editsSchema+extraSchema+negativesSchema, editsSince
 	case version >= librariesSince:
 		if steps = ""; !linksFound(version) {
 			since = editsSince
 		}
 		// A program from before them, finding links, has the version go back.
-		for _, s := range []struct{ table, schema string }{{"marks", marksSchema}, {"edits", editsSchema}, {"extra_marks", extraSchema}} {
+		for _, s := range []struct{ table, schema string }{{"marks", marksSchema}, {"edits", editsSchema}, {"extra_marks", extraSchema}, {"negatives", negativesSchema}} {
 			there, err := hasTable(tx, s.table)
 			if err != nil {
 				return false, err

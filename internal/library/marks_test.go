@@ -462,7 +462,7 @@ func before(t *testing.T, version int) string {
 // kept; one that looks for links still does, and no opening after the first
 // writes.
 func TestHeartsBecomeMarks(t *testing.T) {
-	for version, want := range map[int]int{librariesSince: editsSince, linksBeforeMarks: copiesSince} {
+	for version, want := range map[int]int{librariesSince: editsSince, linksBeforeMarks: negativesSince} {
 		path := before(t, version)
 		for name, open := range map[string]func(string) (*Catalog, error){"to look": OpenCatalogReadOnly, "to write": OpenCatalog} {
 			c, err := open(path)
