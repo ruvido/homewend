@@ -33,10 +33,12 @@ import (
 // made from is developed, or where it cannot be.
 const cameraMark = "-camera"
 
-// rawJob is a raw file to develop: the name its picture is kept by, its file,
-// and whether it is the whole of it.
+// rawJob is a raw file to develop: the name its picture is kept by, its file
+// (or the photo it is found by, when developed), and whether it is the whole
+// of it.
 type rawJob struct {
 	name, src string
+	key       library.Key
 	full      bool
 	// library is a job of the library's: counted in its progress.
 	library bool
@@ -197,7 +199,8 @@ func developLibrary(root string, photos []library.Photo) {
 			continue
 		}
 		of++
-		j := rawJob{name: p.Hash, src: filepath.Join(root, filepath.FromSlash(library.At(root, p.Path))), library: true}
+		// A page of the library has no paths: the file is found when its turn comes.
+		j := rawJob{name: p.Hash, key: p.Key(), library: true}
 		dst, err := j.dst()
 		if err != nil {
 			continue
@@ -303,6 +306,9 @@ func develop(j rawJob, background bool) {
 		long = 0
 	}
 	dst, err := j.dst()
+	if err == nil && j.src == "" {
+		j.src, _, err = pictureOf(j.key, os.Stat)
+	}
 	if err == nil {
 		err = thumb.Develop(context.Background(), j.src, dst, long, background)
 	}

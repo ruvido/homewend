@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/thumb"
 	"github.com/ruvido/homewend/internal/thumb/thumbtest"
 )
@@ -137,5 +138,41 @@ func TestAskedGoesFirst(t *testing.T) {
 	developed(rawJob{name: "c", src: "c.RAF"}, true)
 	if d := DevelopingNow(); len(d.Now) != 2 {
 		t.Errorf("%+v", d)
+	}
+}
+
+// The library's RAFs are listed without their paths: each is found by its
+// photo when its turn comes, not taken for the library's folder.
+func TestALibraryRAFIsFoundByItsPhoto(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	root := t.TempDir()
+	if _, err := UpdateSettings(func(s *Settings) { s.Library = root }); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(root, library.WorkDir, "x"), 0o755)
+	os.MkdirAll(filepath.Join(root, "ron", "2026"), 0o755)
+	var b bytes.Buffer
+	jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 60, 40)), nil)
+	src := thumbtest.RAF(t, filepath.Join(root, "ron", "2026"), b.Bytes(), 148, uint32(b.Len()))
+	info, _ := os.Stat(src)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, _ := filepath.Rel(root, src)
+	c.Put(library.Photo{Hash: "rafhash", Profile: "ron", Path: filepath.ToSlash(rel), Name: filepath.Base(src), Bytes: info.Size()})
+	photos, err := c.Page(library.Filter{})
+	c.Close()
+	if err != nil || len(photos) != 1 {
+		t.Fatal(photos, err)
+	}
+	k := rawJob{name: "rafhash", key: photos[0].Key(), library: true}
+	file, _, err := pictureOf(k.key, os.Stat)
+	if err != nil || file != src {
+		t.Errorf("found %q, %v; want %q", file, err, src)
 	}
 }
