@@ -802,6 +802,21 @@ func (c *Catalog) CountsByYear(hidden []string) (map[string]int, error) {
 	return counts, rows.Err()
 }
 
+// CountedAgain is how many more photos the years count than there are: a
+// photo two libraries have, its copies dated in two years, is in both.
+// Only the photos of more than one library are read, found in the index.
+func (c *Catalog) CountedAgain(hidden []string) (int, error) {
+	query := `SELECT COALESCE(SUM(n - 1), 0) FROM (SELECT COUNT(DISTINCT COALESCE(strftime('%Y', taken, 'unixepoch'), '')) AS n
+		FROM library_photos WHERE hash IN (SELECT hash FROM library_photos GROUP BY hash HAVING COUNT(*) > 1) AND NOT ` + away + ` AND archived = 0`
+	clause, args := shownOnly("profile", hidden)
+	if clause != "" {
+		query += " AND " + clause
+	}
+	var n int
+	err := c.db.QueryRow(query+" GROUP BY hash)", args...).Scan(&n)
+	return n, err
+}
+
 // Latest are the photos recorded last, newest first: the first to arrive in
 // a download are the last of these once it is over, the latest while it runs.
 func (c *Catalog) Latest(n int) ([]Photo, error) {

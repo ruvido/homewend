@@ -95,10 +95,12 @@ type queue struct {
 	of      int
 	started bool
 	wake    chan struct{}
-	// converts are the groups of negatives to print, in turn; converting the
-	// one being printed.
-	converts   [][]library.Key
-	converting []library.Key
+	// converts are the groups of negatives to print, in turn; converting
+	// those of the group being printed not printed yet. convertOf are the
+	// negatives asked since none was left, convertDone those of them done.
+	converts               [][]library.Key
+	converting             []library.Key
+	convertOf, convertDone int
 }
 
 // recentKept is how many of the names last developed are said: more than
@@ -133,7 +135,13 @@ func DevelopingNow() Developing {
 	for _, k := range slices.Concat(append(d.converts, d.converting)...) {
 		now = append(now, k.Hash)
 	}
-	return Developing{Done: max(0, d.of-left), Of: d.of, Now: now, Recent: append([]string{}, d.recent...)}
+	// The library's count is said while some of it is left: negatives
+	// converted in a library all developed are 0 of 3, not 3 of 6.
+	done, of := max(0, d.of-left), d.of
+	if left == 0 {
+		done, of = 0, 0
+	}
+	return Developing{Done: done + d.convertDone, Of: of + d.convertOf, Now: now, Recent: append([]string{}, d.recent...)}
 }
 
 // nowOr is the job being developed, as a list.
@@ -299,8 +307,20 @@ func Convert(photos []library.Key, on bool) error {
 	d.Lock()
 	defer d.Unlock()
 	d.converts = append(d.converts, photos)
+	d.convertOf += len(photos)
 	d.start()
 	return nil
+}
+
+// converted is k done with, printed or not.
+func (d *queue) converted(k library.Key) {
+	d.Lock()
+	defer d.Unlock()
+	d.convertDone++
+	d.converting = slices.DeleteFunc(d.converting, func(c library.Key) bool { return c == k })
+	if len(d.converting) == 0 && len(d.converts) == 0 {
+		d.convertOf, d.convertDone = 0, 0
+	}
 }
 
 // convert prints the negatives photos: each one's bounds and frame read on
@@ -315,6 +335,7 @@ func convert(photos []library.Key) {
 	for _, k := range photos {
 		src, _, err := pictureOf(k, os.Stat)
 		if err == nil && !isRAF(src) {
+			developer.converted(k)
 			continue
 		}
 		var img *raw.Image
@@ -329,6 +350,7 @@ func convert(photos []library.Key) {
 		}
 		if err != nil {
 			log.Printf("reading the negative %s: %v", k.Hash, err)
+			developer.converted(k)
 			continue
 		}
 		keys, srcs, all = append(keys, k), append(srcs, src), append(all, b)
@@ -339,21 +361,26 @@ func convert(photos []library.Key) {
 	}
 	bounds := raw.MedianBounds(all).String()
 	for i, k := range keys {
-		j := rawJob{name: printed(k.Hash, library.PositiveName(bounds)), src: srcs[i], negative: bounds}
-		dst, err := j.dst()
-		if err != nil {
-			continue
-		}
-		if _, err := os.Stat(dst); err != nil {
-			develop(j, false)
-		}
-		// Not printed, it stays as it came, not the camera's negative under the print's name.
-		if _, err := os.Stat(dst); err != nil {
-			continue
-		}
-		if err := printing(func(c *library.Catalog) error { return c.Print(k, bounds, frames[i]) }); err != nil {
-			log.Printf("printing the negative %s: %v", k.Hash, err)
-		}
+		printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), src: srcs[i], negative: bounds}, frames[i])
+		developer.converted(k)
+	}
+}
+
+// printNegative develops j, the print of k, and shows k printed, cropped to frame.
+func printNegative(k library.Key, j rawJob, frame [4]float64) {
+	dst, err := j.dst()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(dst); err != nil {
+		develop(j, false)
+	}
+	// Not printed, it stays as it came, not the camera's negative under the print's name.
+	if _, err := os.Stat(dst); err != nil {
+		return
+	}
+	if err := printing(func(c *library.Catalog) error { return c.Print(k, j.negative, frame) }); err != nil {
+		log.Printf("printing the negative %s: %v", k.Hash, err)
 	}
 }
 
@@ -380,12 +407,10 @@ func developAll() {
 	for {
 		d.Lock()
 		if len(d.converts) > 0 {
-			d.converting, d.converts = d.converts[0], d.converts[1:]
+			group := d.converts[0]
+			d.converting, d.converts = slices.Clone(group), d.converts[1:]
 			d.Unlock()
-			convert(d.converting)
-			d.Lock()
-			d.converting = nil
-			d.Unlock()
+			convert(group)
 			continue
 		}
 		var j *rawJob

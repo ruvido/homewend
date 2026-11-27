@@ -50,6 +50,42 @@ func TestOverviewOfTheLibrary(t *testing.T) {
 	}
 }
 
+// A photo two people have, whose copies are dated in two years, is in each
+// year's count but one tile of All photos: the total is the tiles.
+func TestTheTotalIsTheTiles(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, library.WorkDir), 0o755)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	y := func(year int) time.Time { return time.Date(year, 6, 1, 0, 0, 0, 0, time.UTC) }
+	for _, p := range []library.Photo{
+		{Hash: "a", Profile: "ron", Path: "ron/a", Name: "a", Taken: y(2018)},
+		{Hash: "a", Profile: "sam", Path: "sam/a", Name: "a", Taken: y(2026)},
+		{Hash: "b", Profile: "ron", Path: "ron/b", Name: "b", Taken: y(2026)},
+	} {
+		c.Put(p)
+	}
+	page, err := c.Page(library.Filter{Grid: true})
+	c.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []GridPhoto
+	for _, p := range page {
+		rows = append(rows, GridPhoto{Hash: p.Hash, Profile: p.Profile})
+	}
+	tiles := listOf(rows, []string{"ron", "sam"}).Photos
+	o, err := overview(root, nil, nil, "")
+	if err != nil || o.Total != len(tiles) || o.Total != 2 {
+		t.Errorf("total %d, %d tiles, %v", o.Total, len(tiles), err)
+	}
+	if want := []YearCount{{"2026", 2}, {"2018", 1}}; len(o.Years) != 2 || o.Years[0] != want[0] || o.Years[1] != want[1] {
+		t.Errorf("years %+v, want %+v", o.Years, want)
+	}
+}
+
 func TestOverviewWithoutALibrary(t *testing.T) {
 	o, err := overview("", nil, nil, "")
 	if err != nil || o.Total != 0 {

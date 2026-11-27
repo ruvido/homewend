@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ruvido/homewend/internal/library"
@@ -249,20 +250,37 @@ func TestANegativesPicturesAreItsPrint(t *testing.T) {
 	}
 }
 
-// Negatives to print are said as developing until they are.
+// Negatives to print are said as developing, and counted, until they are.
 func TestConvertingIsDeveloping(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
 	developer.Lock()
 	developer.started, developer.wake = true, make(chan struct{}, 1) // no one prints in this one
+	developer.of = 3                                                 // all developed
 	developer.Unlock()
 	defer func() {
 		developer.Lock()
-		developer.started, developer.wake, developer.converts = false, nil, nil
+		developer.started, developer.wake, developer.converts, developer.of = false, nil, nil, 0
 		developer.Unlock()
 	}()
-	if err := Convert([]library.Key{{Hash: "n1"}, {Hash: "n2"}}, true); err != nil {
+	keys := []library.Key{{Hash: "n1"}, {Hash: "n2"}}
+	if err := Convert(keys, true); err != nil {
 		t.Fatal(err)
 	}
-	if d := DevelopingNow(); len(d.Now) != 2 || d.Now[0] != "n1" {
-		t.Errorf("%+v", d)
+	if d := DevelopingNow(); len(d.Now) != 2 || d.Now[0] != "n1" || d.Done != 0 || d.Of != 2 {
+		t.Errorf("asked: %+v", d)
+	}
+	developer.Lock()
+	developer.converting, developer.converts = slices.Clone(keys), nil
+	developer.Unlock()
+	developer.converted(keys[0])
+	if d := DevelopingNow(); len(d.Now) != 1 || d.Now[0] != "n2" || d.Done != 1 || d.Of != 2 {
+		t.Errorf("one printed: %+v", d)
+	}
+	// No library to find it in: done with, not printed.
+	convert(keys[1:])
+	if d := DevelopingNow(); len(d.Now) != 0 || d.Done != 0 || d.Of != 0 {
+		t.Errorf("all printed: %+v", d)
 	}
 }

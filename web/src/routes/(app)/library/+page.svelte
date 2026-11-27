@@ -314,7 +314,8 @@
 					const start = await getPhotos({ ...q, limit: FIRST });
 					if (stopped) return;
 					list = start;
-					if (start.length < FIRST) got = start;
+					// The limit is of copies: two people's photo is one tile of two.
+					if (copiesOf(start).length < FIRST) got = start;
 				}
 				got ??= await getPhotos(q);
 				if (stopped) return;
