@@ -189,12 +189,21 @@ func Develop(ctx context.Context, src, dst string, long int, negative *raw.Bound
 	if err != nil {
 		return err
 	}
-	preview, err := jpeg.Decode(jpg)
-	if err != nil {
-		return err
-	}
+	// Decoded while the helper decodes the raw data.
+	var preview image.Image
+	decoded := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				decoded <- fmt.Errorf("decoding the JPEG of %s: %v", src, r)
+			}
+		}()
+		var err error
+		preview, err = jpeg.Decode(jpg)
+		decoded <- err
+	}()
 	img, meta, err := raw.Develop(ctx, src, raw.Developed.For(long), background)
-	if err != nil {
+	if err = errors.Join(err, <-decoded); err != nil {
 		return err
 	}
 	return save(dst, upright(raw.Picture(img, meta, preview, long), library.Orientation(src)), developedQuality, true)
