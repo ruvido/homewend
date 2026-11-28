@@ -54,10 +54,10 @@ func printed(name, positive string) string {
 	return name + positiveMark + positive
 }
 
-// keptAs is the name the pictures of the photo hash are kept by, of its file
+// shownName is the name the pictures of the photo hash are kept by, of its file
 // at version ("" while it is the hash's content), printed with bounds ("" for
 // none).
-func keptAs(hash, version, bounds string) string {
+func shownName(hash, version, bounds string) string {
 	return printed(cmp.Or(version, hash), library.PositiveName(bounds))
 }
 
@@ -269,7 +269,7 @@ func developLibrary(root string, photos []library.Photo) {
 		}
 		of++
 		// A page of the library has no paths: the file is found when its turn comes.
-		j := rawJob{name: printed(p.Hash, library.PositiveName(p.Negative)), hash: p.Hash, key: p.Key(), library: true, negative: p.Negative}
+		j := rawJob{name: shownName(p.Hash, "", p.Negative), hash: p.Hash, key: p.Key(), library: true, negative: p.Negative}
 		dst, err := j.dst()
 		if err != nil {
 			continue
@@ -337,7 +337,12 @@ func forgetUnfinished() {
 func Convert(photos []library.Key, on bool) error {
 	if !on {
 		developer.unasked(photos)
-		return printing(func(c *library.Catalog) error { return c.Unprint(photos) })
+		return printing(func(c *library.Catalog) error {
+			if err := c.Unprint(photos); err != nil {
+				return err
+			}
+			return forgetPrints(c, photos)
+		})
 	}
 	d := &developer
 	d.Lock()
@@ -442,7 +447,7 @@ func convert(photos []library.Key) {
 	for i, n := range negatives {
 		bounds := shared[i].String()
 		for _, k := range n.copies {
-			j := rawJob{name: keptAs(k.Hash, n.version, bounds), hash: k.Hash, src: n.src, negative: bounds}
+			j := rawJob{name: shownName(k.Hash, n.version, bounds), hash: k.Hash, src: n.src, negative: bounds}
 			// Printed from the decode read: not decoded again.
 			if dst, err := j.dst(); err == nil && n.img != nil {
 				if _, there := os.Stat(dst); there != nil {
@@ -501,7 +506,12 @@ func printNegative(k library.Key, j rawJob, frame [4]float64) {
 	if !slices.Contains(d.converting, k) {
 		return
 	}
-	if err := printing(func(c *library.Catalog) error { return c.Print(k, j.negative, frame) }); err != nil {
+	if err := printing(func(c *library.Catalog) error {
+		if err := c.Print(k, j.negative, frame); err != nil {
+			return err
+		}
+		return forgetPrints(c, []library.Key{k})
+	}); err != nil {
 		log.Printf("printing the negative %s: %v", k.Hash, err)
 	}
 }
@@ -584,7 +594,7 @@ func develop(ctx context.Context, j rawJob, background bool) {
 		var version string
 		j.src, version, err = pictureOf(j.key, os.Stat)
 		// A file changed since is kept by its version's name, as the window asks for it.
-		j.name = keptAs(j.hash, version, j.negative)
+		j.name = shownName(j.hash, version, j.negative)
 	}
 	dst := ""
 	if err == nil {
@@ -632,6 +642,40 @@ func develop(ctx context.Context, j rawJob, background bool) {
 	default:
 		log.Printf("developing %s: %v", filepath.Base(j.src), err)
 	}
+}
+
+// forgetPrints deletes the pictures of prints of photos' contents, in every
+// folder of the cache, that none of their copies is shown as any more.
+func forgetPrints(c *library.Catalog, photos []library.Key) error {
+	for _, k := range photos {
+		copies, err := c.Copies(k.Hash)
+		if err != nil {
+			return err
+		}
+		var shown []string
+		for _, p := range copies {
+			bounds, err := c.Negative(p.Key())
+			if err != nil {
+				return err
+			}
+			if bounds != "" {
+				shown = append(shown, positiveMark+library.PositiveName(bounds))
+			}
+		}
+		for _, dir := range append(slices.Clone(madeDirs), developedDirs...) {
+			folder, err := picturesDir(dir)
+			if err != nil {
+				return err
+			}
+			files, _ := filepath.Glob(thumb.Path(folder, k.Hash+"*"+positiveMark+"*"))
+			for _, file := range files {
+				if !slices.ContainsFunc(shown, func(s string) bool { return strings.Contains(filepath.Base(file), s) }) {
+					os.Remove(file)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // forgetCamera deletes the pictures of name made while it was developed.

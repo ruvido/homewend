@@ -750,14 +750,14 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 		_, err := os.Stat(dst)
 		return err == nil
 	}
-	if there(thumb.Edited(keptAs(hash, "", with.negative), with.name)) {
+	if there(thumb.Edited(shownName(hash, "", with.negative), with.name)) {
 		return dst, true, nil
 	}
 	src, version, err := source()
 	if err != nil {
 		return "", false, err
 	}
-	base := keptAs(hash, version, with.negative)
+	base := shownName(hash, version, with.negative)
 	if version != "" {
 		version = base
 	}

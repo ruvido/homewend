@@ -255,6 +255,13 @@ func TestANegativesPicturesAreItsPrint(t *testing.T) {
 	if err := Convert([]library.Key{k}, false); err != nil {
 		t.Fatal(err)
 	}
+	// Its print's pictures, of no copy any more, are gone from every folder.
+	for _, dir := range append(slices.Clone(madeDirs), developedDirs...) {
+		folder, _ := picturesDir(dir)
+		if left, _ := filepath.Glob(thumb.Path(folder, k.Hash+positiveMark+"*")); len(left) > 0 {
+			t.Errorf("left %v", left)
+		}
+	}
 	file, kept, err := Thumbnail(context.Background(), k, "", "")
 	if w, h := thumb.Dimensions(file); err != nil || !kept || w == h || filepath.Base(file) != k.Hash+".jpg" {
 		t.Errorf("as it came: %s %dx%d kept %v %v", file, w, h, kept, err)
@@ -447,7 +454,7 @@ func TestAChangedRAFIsDevelopedUnderOneName(t *testing.T) {
 	c.Close()
 	// As the window had it developed.
 	folder, _ := picturesDir("developed")
-	at := thumb.Path(folder, keptAs(k.Hash, versionOf(k.Hash, info), ""))
+	at := thumb.Path(folder, shownName(k.Hash, versionOf(k.Hash, info), ""))
 	os.MkdirAll(filepath.Dir(at), 0o755)
 	os.WriteFile(at, b.Bytes(), 0o644)
 	develop(context.Background(), rawJob{name: k.Hash, hash: k.Hash, key: k, library: true}, false)
