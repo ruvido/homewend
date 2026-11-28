@@ -36,6 +36,13 @@ func TestMain(m *testing.M) {
 		binary.Write(os.Stdout, binary.LittleEndian, []uint16{1, 2})
 	case "hang":
 		time.Sleep(time.Minute)
+	case "slow":
+		time.Sleep(time.Second)
+		fmt.Println(`{"width":1,"height":1}`)
+		binary.Write(os.Stdout, binary.LittleEndian, []uint16{1, 2, 3})
+	case "spin":
+		for {
+		}
 	}
 	os.Exit(0)
 }
@@ -97,6 +104,30 @@ func TestDevelopTimeout(t *testing.T) {
 	_, _, err := Develop(ctx, "photo.RAF", Developed, true)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("err = %v, want the deadline", err)
+	}
+}
+
+// A file in the background is not stopped for the time it waits for the
+// CPU, as one asked for is; only for the CPU it uses.
+func TestDevelopInTheBackgroundWaits(t *testing.T) {
+	fake(t, "slow")
+	defer func(t time.Duration) { timeout = t }(timeout)
+	timeout = 200 * time.Millisecond
+	if _, _, err := Develop(context.Background(), "photo.RAF", Developed, true); err != nil {
+		t.Errorf("in the background: %v", err)
+	}
+	if _, _, err := Develop(context.Background(), "photo.RAF", Developed, false); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("asked: %v, want the deadline", err)
+	}
+	if runtime.GOOS != "linux" {
+		return
+	}
+	fake(t, "spin")
+	defer func(l time.Duration) { cpuLimit = l }(cpuLimit)
+	cpuLimit = time.Second
+	began := time.Now()
+	if _, _, err := Develop(context.Background(), "photo.RAF", Developed, true); err == nil || time.Since(began) > 30*time.Second {
+		t.Errorf("spinning: %v after %v", err, time.Since(began))
 	}
 }
 

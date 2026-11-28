@@ -24,9 +24,11 @@ import (
 // ErrNoHelper is homewend-raw found neither beside the engine nor on the PATH.
 var ErrNoHelper = errors.New("raw photos need homewend-raw, which is not installed")
 
-// timeout is how long one file may take: a 26 MP file takes 15 s on four
-// cores, at the lowest priority longer.
-const timeout = 2 * time.Minute
+// timeout is how long one file asked for may take: a 26 MP file takes 15 s
+// on four cores. One in the background, at the lowest priority, waits for the
+// CPU as long as others need it (26 MP took 12 min under load): it is limited
+// in CPU time instead, cpuLimit, about ten times what 26 MP uses.
+var timeout, cpuLimit = 2 * time.Minute, 3 * time.Minute
 
 // Image is the developed photo: linear ProPhoto RGB, 16 bits a sample, rows
 // top to bottom as the sensor has them, not turned. Three samples a pixel and
@@ -72,14 +74,17 @@ func Installed() bool {
 }
 
 // Develop decodes the raw file at path as mode says; in the background, at
-// the lowest priority the system has.
+// the lowest priority the system has, with no time limit but its CPU's.
 func Develop(ctx context.Context, path string, mode Mode, background bool) (*Image, *Meta, error) {
 	helper, err := find()
 	if err != nil {
 		return nil, nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	if !background {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, helper, path)
 	if mode != Developed {
 		cmd = exec.CommandContext(ctx, helper, string(mode), path)
@@ -99,6 +104,9 @@ func Develop(ctx context.Context, path string, mode Mode, background bool) (*Ima
 		return nil, nil, fmt.Errorf("homewend-raw: %w", err)
 	}
 	started()
+	if background {
+		cpuLimited(cmd, cpuLimit)
+	}
 	img, meta, readErr := read(bufio.NewReader(stdout))
 	// Drained, so an error in the middle still lets the helper exit.
 	io.Copy(io.Discard, stdout)
