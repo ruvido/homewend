@@ -351,3 +351,50 @@ func TestCopiesAreReadOnce(t *testing.T) {
 		t.Errorf("%v", got)
 	}
 }
+
+// A negative whose print is still to be made has the camera's thumbnail
+// meanwhile, and is not taken for one that cannot have its own.
+func TestAThumbnailStillDevelopedIsNoFailure(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no helper
+	developer.Lock()
+	developer.started, developer.wake = true, make(chan struct{}, 1) // no one develops in this one
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.started, developer.wake, developer.asked = false, nil, nil
+		developer.Unlock()
+	}()
+	root := t.TempDir()
+	if _, err := UpdateSettings(func(s *Settings) { s.Library = root }); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(root, library.WorkDir, "x"), 0o755)
+	os.MkdirAll(filepath.Join(root, "ron", "2026"), 0o755)
+	var b bytes.Buffer
+	jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 600, 400)), nil)
+	src := thumbtest.RAF(t, filepath.Join(root, "ron", "2026"), b.Bytes(), 148, uint32(b.Len()))
+	info, _ := os.Stat(src)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, _ := filepath.Rel(root, src)
+	k := library.Key{Hash: "aaaa", Profile: "ron"}
+	c.Put(library.Photo{Hash: k.Hash, Profile: k.Profile, Path: filepath.ToSlash(rel), Name: filepath.Base(src), Bytes: info.Size()})
+	c.Close()
+	if err := printing(func(c *library.Catalog) error {
+		return c.Print(k, "1.2744 1.2720 1.6659 2.0183 2.1397 2.5716", [4]float64{0, 0, 1, 1})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	changes, _ := LibraryChanges()
+	failed := map[string]bool{}
+	if _, ok := makeThumbnails(context.Background(), changes, failed); !ok || len(failed) != 0 {
+		t.Errorf("ok %v, failed %v", ok, failed)
+	}
+}

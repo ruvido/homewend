@@ -131,8 +131,9 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 			if !lacks(p, edit) {
 				continue
 			}
-			// With an edit, what is not kept was drawn as it came.
-			if _, made, err := Thumbnail(ctx, p.Key(), edit, library.PositiveName(p.Negative)); err != nil || (edit != "" || p.Negative != "") && !made {
+			// With an edit, what is not kept was drawn as it came; the
+			// camera's picture of a RAF still developed is no failure.
+			if file, made, err := Thumbnail(ctx, p.Key(), edit, library.PositiveName(p.Negative)); err != nil || (edit != "" || p.Negative != "") && !made && !standsIn(file) {
 				// The disk taken out: none of the rest is there to be tried.
 				if libraryAway(root, s.Filled) {
 					return listing, false

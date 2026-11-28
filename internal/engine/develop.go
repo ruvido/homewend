@@ -36,6 +36,10 @@ import (
 // made from is developed, or where it cannot be.
 const cameraMark = "-camera"
 
+// standsIn says whether file is a picture made while the one it should be
+// made from is developed.
+func standsIn(file string) bool { return strings.Contains(filepath.Base(file), cameraMark) }
+
 // positiveMark is between a name and its print's, all hexadecimal.
 const positiveMark = "-positive-"
 
