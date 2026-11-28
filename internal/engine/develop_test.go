@@ -11,9 +11,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 	"testing"
 
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/raw"
 	"github.com/ruvido/homewend/internal/thumb"
 	"github.com/ruvido/homewend/internal/thumb/thumbtest"
 )
@@ -444,5 +446,30 @@ func TestAChangedRAFIsDevelopedUnderOneName(t *testing.T) {
 	defer developer.Unlock()
 	if len(developer.failed) != 0 || !slices.Equal(developer.recent, []string{k.Hash}) {
 		t.Errorf("failed %v, developed %v", developer.failed, developer.recent)
+	}
+}
+
+// A disk full stops the library's development, for the next look at the
+// library, and fails no file.
+func TestADiskFullStopsDeveloping(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	defer func(f func(context.Context, string, string, int, *raw.Bounds, bool) error) { developFile = f }(developFile)
+	developFile = func(context.Context, string, string, int, *raw.Bounds, bool) error {
+		return &os.PathError{Op: "write", Path: "x.tmp", Err: syscall.ENOSPC}
+	}
+	developer.Lock()
+	developer.failed, developer.library = map[jobID]bool{}, []rawJob{{name: "b", hash: "b", library: true}}
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.failed, developer.library = nil, nil
+		developer.Unlock()
+	}()
+	develop(rawJob{name: "a", hash: "a", src: "a.RAF", library: true}, false)
+	developer.Lock()
+	defer developer.Unlock()
+	if len(developer.failed) != 0 || len(developer.library) != 0 {
+		t.Errorf("failed %v, left %v", developer.failed, developer.library)
 	}
 }

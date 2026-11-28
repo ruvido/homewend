@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ruvido/homewend/internal/library"
@@ -522,6 +523,9 @@ func developAll() {
 	}
 }
 
+// developFile writes a raw file's developed picture: thumb.Develop, but in tests.
+var developFile = thumb.Develop
+
 // develop develops j; in the background, after the pictures the window waits for.
 func develop(j rawJob, background bool) {
 	for background && len(thumbSlots) > 0 {
@@ -550,8 +554,11 @@ func develop(j rawJob, background bool) {
 		negative = &b
 	}
 	if _, there := os.Stat(dst); err == nil && there != nil {
-		err = thumb.Develop(context.Background(), j.src, dst, long, negative, background)
+		err = developFile(context.Background(), j.src, dst, long, negative, background)
 	}
+	// A full disk is no fault of the file's: the rest wait for the next look
+	// at the library, when there may be room.
+	full := errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EFBIG)
 	d := &developer
 	d.Lock()
 	d.now = nil
@@ -559,11 +566,11 @@ func develop(j rawJob, background bool) {
 		d.recent = append(d.recent, j.hash)
 		d.recent = d.recent[max(0, len(d.recent)-recentKept):]
 	}
-	if err != nil {
+	if err != nil && !full {
 		d.failed[queued] = true
-		if errors.Is(err, raw.ErrNoHelper) {
-			d.library = nil
-		}
+	}
+	if errors.Is(err, raw.ErrNoHelper) || full {
+		d.library = nil
 	}
 	d.Unlock()
 	switch {
