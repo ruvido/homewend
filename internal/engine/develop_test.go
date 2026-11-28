@@ -398,3 +398,51 @@ func TestAThumbnailStillDevelopedIsNoFailure(t *testing.T) {
 		t.Errorf("ok %v, failed %v", ok, failed)
 	}
 }
+
+// A RAF changed since it came in is developed under the name the window
+// asks for it by, once: found there, it is not developed again.
+func TestAChangedRAFIsDevelopedUnderOneName(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	t.Setenv("PATH", t.TempDir()) // no helper: developing again would fail
+	developer.Lock()
+	developer.failed = map[jobID]bool{}
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.failed, developer.recent = nil, nil
+		developer.Unlock()
+	}()
+	root := t.TempDir()
+	if _, err := UpdateSettings(func(s *Settings) { s.Library = root }); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(filepath.Join(root, library.WorkDir, "x"), 0o755)
+	os.MkdirAll(filepath.Join(root, "ron", "2026"), 0o755)
+	var b bytes.Buffer
+	jpeg.Encode(&b, image.NewRGBA(image.Rect(0, 0, 60, 40)), nil)
+	src := thumbtest.RAF(t, filepath.Join(root, "ron", "2026"), b.Bytes(), 148, uint32(b.Len()))
+	info, _ := os.Stat(src)
+	c, err := library.OpenCatalog(catalogPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, _ := filepath.Rel(root, src)
+	k := library.Key{Hash: "rafhash", Profile: "ron"}
+	c.Put(library.Photo{Hash: k.Hash, Profile: k.Profile, Path: filepath.ToSlash(rel), Name: filepath.Base(src), Bytes: info.Size() + 1})
+	c.Close()
+	// As the window had it developed.
+	folder, _ := picturesDir("developed")
+	at := thumb.Path(folder, keptAs(k.Hash, versionOf(k.Hash, info), ""))
+	os.MkdirAll(filepath.Dir(at), 0o755)
+	os.WriteFile(at, b.Bytes(), 0o644)
+	develop(rawJob{name: k.Hash, hash: k.Hash, key: k, library: true}, false)
+	developer.Lock()
+	defer developer.Unlock()
+	if len(developer.failed) != 0 || !slices.Equal(developer.recent, []string{k.Hash}) {
+		t.Errorf("failed %v, developed %v", developer.failed, developer.recent)
+	}
+}

@@ -4,6 +4,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"io/fs"
@@ -50,6 +51,13 @@ func printed(name, positive string) string {
 		return name
 	}
 	return name + positiveMark + positive
+}
+
+// keptAs is the name the pictures of the photo hash are kept by, of its file
+// at version ("" while it is the hash's content), printed with bounds ("" for
+// none).
+func keptAs(hash, version, bounds string) string {
+	return printed(cmp.Or(version, hash), library.PositiveName(bounds))
 }
 
 // rawJob is a raw file to develop: the name its picture is kept by, the hash
@@ -368,15 +376,15 @@ func (d *queue) convertsLeft() {
 // its frame, once its print is made, one after another, as a turn shows.
 func convert(photos []library.Key) {
 	type negative struct {
-		copies []library.Key
-		src    string
-		frame  [4]float64
+		copies       []library.Key
+		src, version string
+		frame        [4]float64
 	}
 	var negatives []negative
 	var all []raw.Bounds
 	for _, copies := range byHash(photos) {
 		k := copies[0]
-		src, _, err := pictureOf(k, os.Stat)
+		src, version, err := pictureOf(k, os.Stat)
 		if err == nil && !isRAF(src) {
 			err = errNotRaw
 		}
@@ -399,7 +407,7 @@ func convert(photos []library.Key) {
 			}
 			continue
 		}
-		negatives = append(negatives, negative{copies, src, thumb.UprightShares(frame, library.Orientation(src))})
+		negatives = append(negatives, negative{copies, src, version, thumb.UprightShares(frame, library.Orientation(src))})
 		all = append(all, b)
 	}
 	if len(all) == 0 {
@@ -409,7 +417,7 @@ func convert(photos []library.Key) {
 	for i, n := range negatives {
 		bounds := shared[i].String()
 		for _, k := range n.copies {
-			printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), hash: k.Hash, src: n.src, negative: bounds}, n.frame)
+			printNegative(k, rawJob{name: keptAs(k.Hash, n.version, bounds), hash: k.Hash, src: n.src, negative: bounds}, n.frame)
 			developer.converted(k)
 		}
 	}
@@ -523,9 +531,17 @@ func develop(j rawJob, background bool) {
 	if j.full {
 		long = 0
 	}
-	dst, err := j.dst()
-	if err == nil && j.src == "" {
-		j.src, _, err = pictureOf(j.key, os.Stat)
+	queued := j.id()
+	var err error
+	if j.src == "" {
+		var version string
+		j.src, version, err = pictureOf(j.key, os.Stat)
+		// A file changed since is kept by its version's name, as the window asks for it.
+		j.name = keptAs(j.hash, version, j.negative)
+	}
+	dst := ""
+	if err == nil {
+		dst, err = j.dst()
 	}
 	var negative *raw.Bounds
 	if err == nil && j.negative != "" {
@@ -533,7 +549,7 @@ func develop(j rawJob, background bool) {
 		b, err = raw.ParseBounds(j.negative)
 		negative = &b
 	}
-	if err == nil {
+	if _, there := os.Stat(dst); err == nil && there != nil {
 		err = thumb.Develop(context.Background(), j.src, dst, long, negative, background)
 	}
 	d := &developer
@@ -544,7 +560,7 @@ func develop(j rawJob, background bool) {
 		d.recent = d.recent[max(0, len(d.recent)-recentKept):]
 	}
 	if err != nil {
-		d.failed[j.id()] = true
+		d.failed[queued] = true
 		if errors.Is(err, raw.ErrNoHelper) {
 			d.library = nil
 		}

@@ -746,19 +746,18 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 		_, err := os.Stat(dst)
 		return err == nil
 	}
-	shown := printed(hash, library.PositiveName(with.negative))
-	if there(thumb.Edited(shown, with.name)) {
+	if there(thumb.Edited(keptAs(hash, "", with.negative), with.name)) {
 		return dst, true, nil
 	}
 	src, version, err := source()
 	if err != nil {
 		return "", false, err
 	}
+	base := keptAs(hash, version, with.negative)
 	if version != "" {
-		version = printed(version, library.PositiveName(with.negative))
+		version = base
 	}
 	if developsFrom(src, size, !with.edit.None() || with.negative != "") {
-		base := cmp.Or(version, shown)
 		from, whole := developedFor(ctx, src, hash, base, size, with)
 		if from != "" {
 			src = from
@@ -767,7 +766,7 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 			version = base + cameraMark
 		}
 	}
-	name := thumb.Edited(cmp.Or(version, shown), with.name)
+	name := thumb.Edited(cmp.Or(version, base), with.name)
 	if kept = version == ""; there(name) {
 		return dst, kept, nil
 	}
