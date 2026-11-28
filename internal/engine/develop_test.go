@@ -60,7 +60,7 @@ func TestARAFIsShownDevelopedOnceItIs(t *testing.T) {
 	}
 
 	// Developed since.
-	folder, _ := picturesDir("developed")
+	folder, _ := picturesDir(developedDirs[0])
 	master := thumb.Path(folder, hash)
 	os.MkdirAll(filepath.Dir(master), 0o755)
 	if err := os.WriteFile(master, picture(300, 200), 0o644); err != nil {
@@ -453,7 +453,7 @@ func TestAChangedRAFIsDevelopedUnderOneName(t *testing.T) {
 	c.Put(library.Photo{Hash: k.Hash, Profile: k.Profile, Path: filepath.ToSlash(rel), Name: filepath.Base(src), Bytes: info.Size() + 1})
 	c.Close()
 	// As the window had it developed.
-	folder, _ := picturesDir("developed")
+	folder, _ := picturesDir(developedDirs[0])
 	at := thumb.Path(folder, shownName(k.Hash, versionOf(k.Hash, info), ""))
 	os.MkdirAll(filepath.Dir(at), 0o755)
 	os.WriteFile(at, b.Bytes(), 0o644)
@@ -518,5 +518,25 @@ func TestAskedStopsTheBackground(t *testing.T) {
 	defer developer.Unlock()
 	if len(developer.failed) != 0 || len(developer.library) != 1 || developer.library[0].name != "a" || developer.asked[0].name != "b" {
 		t.Errorf("failed %v, library %v, asked %v", developer.failed, developer.library, developer.asked)
+	}
+}
+
+// What an older version developed is deleted once the app starts.
+func TestAnOlderVersionsDevelopedAreDeleted(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	var kept []string
+	for _, dir := range append([]string{"developed", "developed-full"}, developedDirs...) {
+		folder, _ := picturesDir(dir)
+		file := thumb.Path(folder, "abcd")
+		os.MkdirAll(filepath.Dir(file), 0o755)
+		os.WriteFile(file, nil, 0o644)
+		kept = append(kept, file)
+	}
+	forgetUnfinished()
+	for i, file := range kept {
+		if _, err := os.Stat(file); (err == nil) != (i >= 2) {
+			t.Errorf("%s: %v", file, err)
+		}
 	}
 }

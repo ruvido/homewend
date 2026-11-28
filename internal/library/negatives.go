@@ -8,9 +8,11 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"time"
 
 	"github.com/ruvido/homewend/internal/edit"
+	"github.com/ruvido/homewend/internal/raw"
 )
 
 // negativesSchema keeps the RAWs of film negatives shown printed, with the
@@ -31,13 +33,13 @@ CREATE TRIGGER negative_forgotten AFTER DELETE ON library_photos BEGIN
 END;
 `
 
-// PositiveName names the print of a negative with bounds: another print,
-// and its pictures are others. "" for none.
+// PositiveName names the print of a negative with bounds, as raw.Version
+// prints it: another print, and its pictures are others. "" for none.
 func PositiveName(bounds string) string {
 	if bounds == "" {
 		return ""
 	}
-	sum := sha256.Sum256([]byte(bounds))
+	sum := sha256.Sum256(fmt.Appendf(nil, "%d %s", raw.Version, bounds))
 	return hex.EncodeToString(sum[:8])
 }
 

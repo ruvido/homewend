@@ -22,6 +22,11 @@ import (
 	"time"
 )
 
+// Version is how raw files are developed and printed here: raised by a
+// change that shows, it has what an older one made made again, under other
+// names (docs/architecture.md).
+const Version = 2
+
 // ErrNoHelper is homewend-raw found neither beside the engine nor on the PATH.
 var ErrNoHelper = errors.New("raw photos need homewend-raw, which is not installed")
 

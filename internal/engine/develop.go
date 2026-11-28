@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -93,7 +94,7 @@ var (
 	previewsDir   = madeDir{"previews", thumb.PreviewSize}
 	screensDir    = madeDir{"screens", thumb.ScreenSize}
 	madeDirs      = []madeDir{thumbsDir, previewsDir, screensDir}
-	developedDirs = []string{"developed", "developed-full"}
+	developedDirs = []string{fmt.Sprintf("developed-%d", raw.Version), fmt.Sprintf("developed-full-%d", raw.Version)}
 )
 
 // cacheDirs are the names of all the cache's folders of pictures.
@@ -285,6 +286,13 @@ func developLibrary(root string, photos []library.Photo) {
 	d.Unlock()
 	var lack []rawJob
 	of := 0
+	// The prints each content is shown as, by its copies.
+	shown := map[string][]string{}
+	for _, p := range photos {
+		if p.Negative != "" {
+			shown[p.Hash] = append(shown[p.Hash], positiveMark+library.PositiveName(p.Negative))
+		}
+	}
 	for _, p := range photos {
 		if !developsFrom(p.Name, thumb.PreviewSize, false) {
 			continue
@@ -303,6 +311,8 @@ func developLibrary(root string, photos []library.Photo) {
 				forgetCamera(j.name)
 			} else if p.Negative == "" {
 				forgetUndeveloped(p.Hash, p.Edit)
+			} else {
+				forgetPrintsBut(p.Hash, shown[p.Hash])
 			}
 			checked[j.name] = true
 		}
@@ -341,8 +351,16 @@ func (d *queue) start() {
 }
 
 // forgetUnfinished deletes what a development cut short, by the app's end,
-// left half written.
+// left half written, and what an older raw.Version developed.
 func forgetUnfinished() {
+	if cache, err := picturesDir(""); err == nil {
+		old, _ := filepath.Glob(filepath.Join(cache, "developed*"))
+		for _, dir := range old {
+			if !slices.Contains(developedDirs, filepath.Base(dir)) {
+				os.RemoveAll(dir)
+			}
+		}
+	}
 	for _, dir := range developedDirs {
 		if folder, err := picturesDir(dir); err == nil {
 			files, _ := filepath.Glob(filepath.Join(folder, "*", "*.tmp"))
@@ -684,20 +702,26 @@ func forgetPrints(c *library.Catalog, photos []library.Key) error {
 				shown = append(shown, positiveMark+library.PositiveName(bounds))
 			}
 		}
-		for _, dir := range cacheDirs() {
-			folder, err := picturesDir(dir)
-			if err != nil {
-				return err
-			}
-			files, _ := filepath.Glob(thumb.Path(folder, k.Hash+"*"+positiveMark+"*"))
-			for _, file := range files {
-				if !slices.ContainsFunc(shown, func(s string) bool { return strings.Contains(filepath.Base(file), s) }) {
-					os.Remove(file)
-				}
+		forgetPrintsBut(k.Hash, shown)
+	}
+	return nil
+}
+
+// forgetPrintsBut deletes the pictures of prints of hash, in every folder of
+// the cache, whose names have none of shown.
+func forgetPrintsBut(hash string, shown []string) {
+	for _, dir := range cacheDirs() {
+		folder, err := picturesDir(dir)
+		if err != nil {
+			return
+		}
+		files, _ := filepath.Glob(thumb.Path(folder, hash+"*"+positiveMark+"*"))
+		for _, file := range files {
+			if !slices.ContainsFunc(shown, func(s string) bool { return strings.Contains(filepath.Base(file), s) }) {
+				os.Remove(file)
 			}
 		}
 	}
-	return nil
 }
 
 // forgetCamera deletes the pictures of name made while it was developed.
