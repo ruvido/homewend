@@ -117,6 +117,8 @@ export interface Shown {
 	newer?: boolean;
 	/** Names the print of a film negative it is shown as: another, and its pictures are others. */
 	positive?: string;
+	/** A raw file this computer develops: none where its helper is missing. */
+	raw?: boolean;
 }
 
 export interface GridPhoto extends PhotoKey, Shown {
@@ -298,8 +300,8 @@ export const folderOf = (o: { account?: string; profile?: string; year?: string;
 export const getLatest = () => call<Parameters<typeof asPhotos>[0]>('GET', '/api/latest').then(asPhotos);
 export const giveDates = (photos: PhotoKey[], when: string) => call<{ moved: number }>('POST', '/api/dates', { photos: photos.map(keyOf), when });
 /** A quarter turn anticlockwise, or with right clockwise. */
-/** A film negative's RAW: what Convert negative is offered on. */
-export const isNegativeRaw = (p: { name: string }) => /\.raf$/i.test(p.name);
+/** What Convert negative is offered on: a raw file developed here, or one printed already, to show as it came. */
+export const isNegativeRaw = (p: { raw?: boolean; positive?: string }) => !!p.raw || !!p.positive;
 /** RAWs of film negatives shown printed, with the bounds of them all, or as they came. */
 export const convertNegatives = (photos: PhotoKey[], on: boolean) => call<unknown>('POST', '/api/negative', { photos: photos.map(keyOf), on });
 export const turn = (p: PhotoKey, right: boolean) => call<Shown>('POST', `/api/turn/${of(p)}${right ? '?right' : ''}`);

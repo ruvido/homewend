@@ -10,6 +10,7 @@ import (
 	"image/jpeg"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"syscall"
 	"testing"
@@ -228,9 +229,17 @@ func TestANegativesPicturesAreItsPrint(t *testing.T) {
 	}
 	s, _ := LoadSettings()
 	list, err := Photos(s, "", "", "", false, "", 0)
-	if err != nil || len(list.Photos) != 1 || list.Photos[0].Positive != positive || list.Photos[0].Edit == "" {
+	if err != nil || len(list.Photos) != 1 || list.Photos[0].Positive != positive || list.Photos[0].Edit == "" || list.Photos[0].Raw {
 		t.Fatalf("listed %+v %v", list, err)
 	}
+	// A raw file developed here only where the helper is.
+	bin := t.TempDir()
+	os.WriteFile(filepath.Join(bin, "homewend-raw"), []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", bin)
+	if list, err := Photos(s, "", "", "", false, "", 0); err != nil || runtime.GOOS != "windows" && !list.Photos[0].Raw {
+		t.Errorf("with the helper: %+v %v", list, err)
+	}
+	t.Setenv("PATH", t.TempDir())
 	// Cropped to the film's frame: half as wide as high.
 	cropped := list.Photos[0].Edit
 	for _, ask := range []func(context.Context, library.Key, string, string) (string, bool, error){Thumbnail, Preview} {

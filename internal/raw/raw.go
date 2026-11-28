@@ -96,6 +96,11 @@ type header struct {
 	Meta
 }
 
+// Is says whether the file name is a raw file this app develops, where the
+// helper is installed: a Fujifilm RAF, whose embedded JPEG its look is
+// fitted to (look.go).
+func Is(name string) bool { return strings.EqualFold(filepath.Ext(name), ".raf") }
+
 // Installed says whether raw files can be developed here.
 func Installed() bool {
 	_, err := find()

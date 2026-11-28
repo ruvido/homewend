@@ -170,10 +170,8 @@ func (d *queue) nowOr() []rawJob {
 // developsFrom is whether a picture of src at size, drawn (with an edit, or
 // printed from a negative) or not, is made from its developed picture.
 func developsFrom(src string, size int, drawn bool) bool {
-	return isRAF(src) && (size > thumb.Size || drawn)
+	return raw.Is(src) && (size > thumb.Size || drawn)
 }
-
-func isRAF(name string) bool { return strings.EqualFold(filepath.Ext(name), ".raf") }
 
 type aheadKey struct{}
 
@@ -407,7 +405,7 @@ func convert(photos []library.Key) {
 	for _, copies := range byHash(photos) {
 		k := copies[0]
 		src, version, err := pictureOf(k, os.Stat)
-		if err == nil && !isRAF(src) {
+		if err == nil && !raw.Is(src) {
 			err = errNotRaw
 		}
 		var img *raw.Image

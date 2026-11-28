@@ -20,6 +20,7 @@ import (
 
 	"github.com/ruvido/homewend/internal/edit"
 	"github.com/ruvido/homewend/internal/library"
+	"github.com/ruvido/homewend/internal/raw"
 	"github.com/ruvido/homewend/internal/thumb"
 )
 
@@ -50,6 +51,8 @@ type GridPhoto struct {
 	// Positive: the name of the print of a film negative its pictures are
 	// asked with; none for one shown as it came.
 	Positive string `json:"positive,omitempty"`
+	// Raw: a raw file developed here (raw.Is), the helper installed.
+	Raw bool `json:"raw,omitempty"`
 	// Archived: in the Archive, shown in an album.
 	Archived bool `json:"archived,omitempty"`
 	// Favorite: given a heart.
@@ -282,8 +285,9 @@ func Photos(s Settings, year, album, albumOf string, noDate bool, view string, l
 		return PhotoList{}, err
 	}
 	out := make([]GridPhoto, len(page))
+	developed := raw.Installed()
 	for i, p := range page {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Positive: library.PositiveName(p.Negative), Archived: p.Archived, Favorite: p.Favorite}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Taken: p.Taken, Guessed: p.Source.Guessed(), Video: library.IsVideo(p.Name), Missing: isGone[p.Key()], Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Positive: library.PositiveName(p.Negative), Raw: developed && raw.Is(p.Name), Archived: p.Archived, Favorite: p.Favorite}
 		if p.Origin != library.OriginCamera && p.Origin != library.OriginOther {
 			out[i].Origin = p.Origin
 		}
@@ -875,8 +879,9 @@ func Latest(n int) (PhotoList, error) {
 	}
 	list, err := c.Latest(n)
 	out := make([]GridPhoto, len(list))
+	developed := raw.Installed()
 	for i, p := range list {
-		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Positive: library.PositiveName(p.Negative)}
+		out[i] = GridPhoto{Hash: p.Hash, Profile: p.Profile, Name: p.Name, Video: library.IsVideo(p.Name), Turn: p.Turn, Edit: p.Edit, Newer: p.Newer, Positive: library.PositiveName(p.Negative), Raw: developed && raw.Is(p.Name)}
 	}
 	return listOf(out, profiles), err
 }
