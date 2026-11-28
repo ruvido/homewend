@@ -193,7 +193,7 @@ func Develop(ctx context.Context, src, dst string, long int, negative *raw.Bound
 	if err != nil {
 		return err
 	}
-	img, meta, err := raw.Develop(ctx, src, raw.Developed, background)
+	img, meta, err := raw.Develop(ctx, src, raw.DevelopedFor(long), background)
 	if err != nil {
 		return err
 	}

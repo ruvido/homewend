@@ -112,14 +112,14 @@ type look struct {
 	slope float32   // below the first knot
 }
 
-// Picture is img developed as its camera would, 8-bit sRGB, cut to the
-// camera's frame, or else to the shape of preview, the JPEG the camera
+// Picture is img, whole or at half the size, developed as its camera would,
+// 8-bit sRGB, cut to the camera's frame, or else to the shape of preview, the JPEG the camera
 // embedded, which it is fitted to; long pixels on its long side at most, 0
 // for all. It is not turned: the preview is not either.
 func Picture(img *Image, meta *Meta, preview image.Image, long int) *image.RGBA {
-	frame := cut(img.Width, img.Height, preview.Bounds().Dx(), preview.Bounds().Dy())
-	if f := meta.Frame; f.Width > 0 && f.Height > 0 && f.Width <= img.Width && f.Height <= img.Height {
-		frame = image.Rect(0, 0, f.Width, f.Height).Add(image.Pt((img.Width-f.Width)/2, (img.Height-f.Height)/2))
+	frame, ok := cameraFrame(img, meta)
+	if !ok {
+		frame = cut(img.Width, img.Height, preview.Bounds().Dx(), preview.Bounds().Dy())
 	}
 	if w, h := frame.Dx(), frame.Dy(); long > 0 && max(w, h) > long {
 		// Developed at the size asked: a fifth of the work at 2560 of 24 MP.

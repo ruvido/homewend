@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"os"
 	"os/exec"
@@ -63,6 +64,31 @@ const (
 	Negative     Mode = "-negative"
 	NegativeHalf Mode = "-negative-half"
 )
+
+// DevelopedFor is how a file is decoded for a picture long pixels on its
+// long side, 0 for all: at half the size when that is as long, which the
+// helper knows once it has read the file. A 26 MP file decodes in a sixth of
+// the time, as close to the camera's JPEG (docs/architecture.md).
+func DevelopedFor(long int) Mode {
+	if long <= 0 {
+		return Developed
+	}
+	return Mode(fmt.Sprintf("-fit=%d", long))
+}
+
+// cameraFrame is the camera's own picture in img, in the middle of the
+// sensor's, as meta says, halved in a decode at half the size; ok is false
+// when it does not say.
+func cameraFrame(img *Image, meta *Meta) (frame image.Rectangle, ok bool) {
+	w, h := meta.Frame.Width, meta.Frame.Height
+	if img.Width < w {
+		w, h = w/2, h/2
+	}
+	if w <= 0 || h <= 0 || w > img.Width || h > img.Height {
+		return image.Rect(0, 0, img.Width, img.Height), false
+	}
+	return image.Rect(0, 0, w, h).Add(image.Pt((img.Width-w)/2, (img.Height-h)/2)), true
+}
 
 // header is the helper's first line.
 type header struct {

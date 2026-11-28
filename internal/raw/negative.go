@@ -166,21 +166,9 @@ func neighbours(m []float64, w int) (densest, thinnest []float64) {
 // shortcut: a decode at half the size is taken as exactly half the sensor's
 // sides; LibRaw rounds them, a pixel off at most.
 func printShares(r image.Rectangle, img *Image, meta *Meta) [4]float64 {
-	x0, y0 := float64(r.Min.X)/float64(img.Width), float64(r.Min.Y)/float64(img.Height)
-	x1, y1 := float64(r.Max.X)/float64(img.Width), float64(r.Max.Y)/float64(img.Height)
-	if f := meta.Frame; f.Width > 0 && f.Height > 0 {
-		// The sensor's sides: twice a half decode's.
-		scale := 1.0
-		if img.Width < f.Width {
-			scale = 2
-		}
-		sw, sh := scale*float64(img.Width), scale*float64(img.Height)
-		ox, oy := (sw-float64(f.Width))/2, (sh-float64(f.Height))/2
-		at := func(v, side, off, frame float64) float64 { return min(max((v*side-off)/frame, 0), 1) }
-		x0, x1 = at(x0, sw, ox, float64(f.Width)), at(x1, sw, ox, float64(f.Width))
-		y0, y1 = at(y0, sh, oy, float64(f.Height)), at(y1, sh, oy, float64(f.Height))
-	}
-	return [4]float64{x0, y0, x1, y1}
+	f, _ := cameraFrame(img, meta)
+	at := func(v, from, side int) float64 { return min(max(float64(v-from)/float64(side), 0), 1) }
+	return [4]float64{at(r.Min.X, f.Min.X, f.Dx()), at(r.Min.Y, f.Min.Y, f.Dy()), at(r.Max.X, f.Min.X, f.Dx()), at(r.Max.Y, f.Min.Y, f.Dy())}
 }
 
 // inside is r with share of its sides left out at each one.
@@ -292,14 +280,12 @@ func greyShift(s [][3]float64, b Bounds) (shift [3]float64) {
 	return shift
 }
 
-// Positive is the print of the negative img, decoded as one, with the
+// Positive is the print of the negative img, decoded as one, whole or at
+// half the size, with the
 // bounds b and its own auto balance: 8-bit sRGB, cut to the camera's frame,
 // long pixels on its long side at most, 0 for all. It is not turned.
 func Positive(img *Image, meta *Meta, b Bounds, long int) *image.RGBA {
-	frame := image.Rect(0, 0, img.Width, img.Height)
-	if f := meta.Frame; f.Width > 0 && f.Height > 0 && f.Width <= img.Width && f.Height <= img.Height {
-		frame = image.Rect(0, 0, f.Width, f.Height).Add(image.Pt((img.Width-f.Width)/2, (img.Height-f.Height)/2))
-	}
+	frame, _ := cameraFrame(img, meta)
 	if w, h := frame.Dx(), frame.Dy(); long > 0 && max(w, h) > long {
 		img, frame = scaled(img, frame, long)
 	}

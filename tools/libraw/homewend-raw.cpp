@@ -11,16 +11,19 @@
 // "dcraw_emu -4 -o 0 -r 1 1 1 1 -q 2 -H 0": the camera's own RGB, linear, no
 // white balance, highlights clipped; the inversion is the engine's, and the
 // camera matrix after it, which the header gives as rgb_cam. With -negative-half,
-// at half the size (-h), for the analysis.
+// at half the size (-h), for the analysis. With -fit=N, developed at half the
+// size when the camera's picture is then still N pixels on its long side.
 //
-// Usage: homewend-raw [-negative | -negative-half] FILE
+// Usage: homewend-raw [-fit=N | -negative | -negative-half] FILE
 //
 // It writes to stdout one line of JSON (size and metadata), then the pixels:
 // width*height RGB triples of 16-bit samples in the machine's byte order,
 // rows top to bottom, as the sensor has them. An error is a line on stderr
 // and a non-zero exit.
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "libraw/libraw.h"
@@ -54,9 +57,10 @@ static int fail(const char *what, int err)
 int main(int argc, char **argv)
 {
   std::string mode = argc == 3 ? argv[1] : "";
-  if (argc < 2 || argc > 3 || (argc == 3 && mode != "-negative" && mode != "-negative-half"))
+  int fit = mode.compare(0, 5, "-fit=") == 0 ? atoi(mode.c_str() + 5) : 0;
+  if (argc < 2 || argc > 3 || (argc == 3 && fit <= 0 && mode != "-negative" && mode != "-negative-half"))
   {
-    fprintf(stderr, "usage: homewend-raw [-negative | -negative-half] FILE\n");
+    fprintf(stderr, "usage: homewend-raw [-fit=N | -negative | -negative-half] FILE\n");
     return 2;
   }
   const char *file = argv[argc - 1];
@@ -70,14 +74,14 @@ int main(int argc, char **argv)
   out.user_qual = 2; // -q 2
   out.highlight = 2; // -H 2
   out.user_flip = 0;  // -t 0
-  if (!mode.empty())
+  out.half_size = mode == "-negative-half"; // -h
+  if (mode == "-negative" || mode == "-negative-half")
   {
     out.use_camera_wb = 0;
     out.output_color = 0; // -o 0, the camera's RGB
     for (int c = 0; c < 4; c++)
       out.user_mul[c] = 1; // -r 1 1 1 1
     out.highlight = 0;     // -H 0
-    out.half_size = mode == "-negative-half"; // -h
   }
   // A file whose header lies about its size is refused, not given all the memory.
   raw.imgdata.rawparams.max_raw_memory_mb = 1024;
@@ -92,6 +96,11 @@ int main(int argc, char **argv)
     fprintf(stderr, "open: %dx%d is too large\n", size.width, size.height);
     return 1;
   }
+  // The camera's picture, smaller than the sensor's (Fuji), else the sensor's.
+  const libraw_raw_inset_crop_t &crop = raw.imgdata.sizes.raw_inset_crops[0];
+  int side = crop.cwidth && crop.cheight ? std::max(crop.cwidth, crop.cheight) : std::max(size.width, size.height);
+  if (fit && side / 2 >= fit)
+    out.half_size = 1; // -h
   if ((err = raw.unpack()) != LIBRAW_SUCCESS)
     return fail("unpack", err);
   // A half decode of an X-Trans sensor leaves one pixel in nine with no red
@@ -124,7 +133,6 @@ int main(int argc, char **argv)
   float shift = d.makernotes.common.ExposureCalibrationShift;
   printf(",\"exposure_shift\":%g", std::isfinite(shift) ? shift : 0.0f);
   // The size of the camera's own picture, smaller than the sensor's (Fuji).
-  const libraw_raw_inset_crop_t &crop = d.sizes.raw_inset_crops[0];
   if (crop.cwidth && crop.cheight)
     printf(",\"frame\":{\"width\":%d,\"height\":%d}", crop.cwidth, crop.cheight);
   // Camera RGB to linear sRGB, rows as dcraw normalises them.

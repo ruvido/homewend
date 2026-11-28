@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -154,5 +155,20 @@ func TestDevelopRAF(t *testing.T) {
 	}
 	if len(img.Pix) != img.Width*img.Height*3 || meta.Model == "" {
 		t.Errorf("%dx%d %+v", img.Width, img.Height, meta)
+	}
+}
+
+// The camera's frame of a half decode is half its own.
+func TestCameraFrame(t *testing.T) {
+	if DevelopedFor(0) != Developed || DevelopedFor(2560) != "-fit=2560" {
+		t.Errorf("%q %q", DevelopedFor(0), DevelopedFor(2560))
+	}
+	meta := &Meta{}
+	meta.Frame.Width, meta.Frame.Height = 5998, 3997
+	if f, ok := cameraFrame(&Image{Width: 3016, Height: 2014}, meta); !ok || f != image.Rect(8, 8, 3007, 2006) {
+		t.Errorf("half: %v %v", f, ok)
+	}
+	if f, ok := cameraFrame(&Image{Width: 6032, Height: 4028}, meta); !ok || f != image.Rect(17, 15, 6015, 4012) {
+		t.Errorf("whole: %v %v", f, ok)
 	}
 }
