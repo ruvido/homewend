@@ -284,3 +284,29 @@ func TestConvertingIsDeveloping(t *testing.T) {
 		t.Errorf("all printed: %+v", d)
 	}
 }
+
+// A job that failed is not asked again, however it is asked: the library's
+// has no file, the window's has one.
+func TestAFailedRAFIsNotTriedAgain(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	developer.Lock()
+	developer.started, developer.wake, developer.failed = true, make(chan struct{}, 1), map[jobID]bool{}
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.started, developer.wake, developer.failed, developer.asked = false, nil, nil, nil
+		developer.Unlock()
+	}()
+	// No library to find its file in.
+	develop(rawJob{name: "h", key: library.Key{Hash: "h", Profile: "ron"}, library: true}, false)
+	developed(rawJob{name: "h", src: "h.RAF"}, true)
+	developer.Lock()
+	defer developer.Unlock()
+	if len(developer.asked) != 0 {
+		t.Errorf("asked again: %+v", developer.asked)
+	}
+}

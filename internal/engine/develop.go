@@ -85,9 +85,9 @@ type queue struct {
 	sync.Mutex
 	asked, library []rawJob
 	now            *rawJob
-	// failed are the jobs that did not develop this run: not tried again
-	// until the app starts again.
-	failed map[rawJob]bool
+	// failed are the jobs that did not develop this run, by what same
+	// compares: not tried again until the app starts again.
+	failed map[jobID]bool
 	// recent are the names last developed, newest last.
 	recent []string
 	// checked are the library's RAFs whose old pictures were looked for this run.
@@ -198,7 +198,7 @@ func developed(j rawJob, raise bool) string {
 	d := &developer
 	d.Lock()
 	defer d.Unlock()
-	if d.failed[j] || slices.ContainsFunc(d.asked, j.same) || d.now != nil && j.same(*d.now) {
+	if d.failed[j.id()] || slices.ContainsFunc(d.asked, j.same) || d.now != nil && j.same(*d.now) {
 		return ""
 	}
 	if i := slices.IndexFunc(d.library, j.same); i >= 0 {
@@ -210,7 +210,15 @@ func developed(j rawJob, raise bool) string {
 	return ""
 }
 
-func (j rawJob) same(k rawJob) bool { return j.name == k.name && j.full == k.full }
+func (j rawJob) same(k rawJob) bool { return j.id() == k.id() }
+
+// jobID is what tells a job from another: the picture it makes.
+type jobID struct {
+	name string
+	full bool
+}
+
+func (j rawJob) id() jobID { return jobID{j.name, j.full} }
 
 // developLibrary has the library's RAFs, of photos in the library at root,
 // developed in the background: those not yet, and not failed this run.
@@ -258,7 +266,7 @@ func developLibrary(root string, photos []library.Photo) {
 	d.of = of
 	d.library = d.library[:0]
 	for _, j := range lack {
-		if !d.failed[j] && !slices.ContainsFunc(d.asked, j.same) && (d.now == nil || !j.same(*d.now)) {
+		if !d.failed[j.id()] && !slices.ContainsFunc(d.asked, j.same) && (d.now == nil || !j.same(*d.now)) {
 			d.library = append(d.library, j)
 		}
 	}
@@ -278,7 +286,7 @@ func (d *queue) start() {
 	}
 	d.started, d.wake = true, make(chan struct{}, 1)
 	if d.failed == nil {
-		d.failed = map[rawJob]bool{}
+		d.failed = map[jobID]bool{}
 	}
 	go developAll()
 }
@@ -471,7 +479,7 @@ func develop(j rawJob, background bool) {
 		d.recent = d.recent[max(0, len(d.recent)-recentKept):]
 	}
 	if err != nil {
-		d.failed[j] = true
+		d.failed[j.id()] = true
 		if errors.Is(err, raw.ErrNoHelper) {
 			d.library = nil
 		}
