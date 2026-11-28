@@ -197,3 +197,27 @@ func TestPrintShares(t *testing.T) {
 		t.Errorf("%v %v", got, got2)
 	}
 }
+
+// A grainy frame is balanced alike printed whole and smaller: the grain a
+// block averages is not the same at both sizes.
+func TestBalancedAtAnySize(t *testing.T) {
+	b := Bounds{Base: [3]float64{1.27, 1.27, 1.67}, White: [3]float64{2.01, 2.14, 2.58}}
+	const w, h = 1600, 1200
+	grain := uint32(1)
+	neg := negativeOf(w, h, b, func(x, y int) [3]float64 {
+		var p [3]float64
+		for c := range p {
+			grain = grain*1664525 + 1013904223
+			p[c] = min(1, (0.15+0.05*float64(c))*(0.4+1.2*float64(grain>>8)/(1<<24)))
+		}
+		return p
+	})
+	whole := image.Rect(0, 0, w, h)
+	small, frame := scaled(neg, whole, 400)
+	got, want := autoBalance(neg, whole, b), autoBalance(small, frame, b)
+	for c := range 3 {
+		if math.Abs(got[c]-want[c]) > 2e-3 {
+			t.Errorf("whole %v, at 400 %v", got, want)
+		}
+	}
+}

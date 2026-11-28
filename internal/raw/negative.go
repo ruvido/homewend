@@ -300,16 +300,26 @@ func Enough(img *Image, meta *Meta, long int) bool {
 	return max(f.Dx(), f.Dy()) >= long
 }
 
+// autoBalance is greyShift of the frame of img inside frame, read at the
+// size the look is fitted at, fitLong: a print at 2560 and the whole one
+// are balanced alike, as the grain a block averages depends on the size.
+func autoBalance(img *Image, frame image.Rectangle, b Bounds) [3]float64 {
+	if max(frame.Dx(), frame.Dy()) > fitLong {
+		img, frame = scaled(img, frame, fitLong)
+	}
+	return greyShift(blocks(img, inside(frameOf(img, frame), inset)), b)
+}
+
 // Positive is the print of the negative img, decoded as one, whole or at
 // half the size, with the
 // bounds b and its own auto balance: 8-bit sRGB, cut to the camera's frame,
 // long pixels on its long side at most, 0 for all. It is not turned.
 func Positive(img *Image, meta *Meta, b Bounds, long int) *image.RGBA {
 	frame, _ := cameraFrame(img, meta)
+	shift := autoBalance(img, frame, b)
 	if w, h := frame.Dx(), frame.Dy(); long > 0 && max(w, h) > long {
 		img, frame = scaled(img, frame, long)
 	}
-	shift := greyShift(blocks(img, inside(frameOf(img, frame), inset)), b)
 	// The print of each sample, per channel: a pixel is then three looks
 	// and a matrix.
 	var printed [3][]float32
