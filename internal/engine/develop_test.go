@@ -304,7 +304,7 @@ func TestAFailedRAFIsNotTriedAgain(t *testing.T) {
 		developer.Unlock()
 	}()
 	// No library to find its file in.
-	develop(rawJob{name: "h", key: library.Key{Hash: "h", Profile: "ron"}, library: true}, false)
+	develop(context.Background(), rawJob{name: "h", key: library.Key{Hash: "h", Profile: "ron"}, library: true}, false)
 	developed(rawJob{name: "h", src: "h.RAF"}, true)
 	developer.Lock()
 	defer developer.Unlock()
@@ -441,7 +441,7 @@ func TestAChangedRAFIsDevelopedUnderOneName(t *testing.T) {
 	at := thumb.Path(folder, keptAs(k.Hash, versionOf(k.Hash, info), ""))
 	os.MkdirAll(filepath.Dir(at), 0o755)
 	os.WriteFile(at, b.Bytes(), 0o644)
-	develop(rawJob{name: k.Hash, hash: k.Hash, key: k, library: true}, false)
+	develop(context.Background(), rawJob{name: k.Hash, hash: k.Hash, key: k, library: true}, false)
 	developer.Lock()
 	defer developer.Unlock()
 	if len(developer.failed) != 0 || !slices.Equal(developer.recent, []string{k.Hash}) {
@@ -466,10 +466,41 @@ func TestADiskFullStopsDeveloping(t *testing.T) {
 		developer.failed, developer.library = nil, nil
 		developer.Unlock()
 	}()
-	develop(rawJob{name: "a", hash: "a", src: "a.RAF", library: true}, false)
+	develop(context.Background(), rawJob{name: "a", hash: "a", src: "a.RAF", library: true}, false)
 	developer.Lock()
 	defer developer.Unlock()
 	if len(developer.failed) != 0 || len(developer.library) != 0 {
 		t.Errorf("failed %v, left %v", developer.failed, developer.library)
+	}
+}
+
+// A RAF the window asks for stops the one developed in the background, which
+// is developed again after it.
+func TestAskedStopsTheBackground(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("LocalAppData", t.TempDir())
+	ctx, stop := context.WithCancel(context.Background())
+	background := rawJob{name: "a", hash: "a", library: true}
+	developer.Lock()
+	developer.started, developer.wake, developer.failed = true, make(chan struct{}, 1), map[jobID]bool{}
+	developer.now, developer.stop = &background, stop
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.started, developer.wake, developer.failed, developer.asked, developer.library = false, nil, nil, nil, nil
+		developer.now, developer.stop = nil, nil
+		developer.Unlock()
+	}()
+	developed(rawJob{name: "b", hash: "b", src: "b.RAF"}, true)
+	if ctx.Err() == nil {
+		t.Fatal("the background's goes on")
+	}
+	defer func(f func(context.Context, string, string, int, *raw.Bounds, bool) error) { developFile = f }(developFile)
+	developFile = func(ctx context.Context, _, _ string, _ int, _ *raw.Bounds, _ bool) error { return ctx.Err() }
+	develop(ctx, background, true)
+	developer.Lock()
+	defer developer.Unlock()
+	if len(developer.failed) != 0 || len(developer.library) != 1 || developer.library[0].name != "a" || developer.asked[0].name != "b" {
+		t.Errorf("failed %v, library %v, asked %v", developer.failed, developer.library, developer.asked)
 	}
 }

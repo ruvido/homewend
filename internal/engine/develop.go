@@ -107,7 +107,9 @@ type queue struct {
 	checked map[string]bool
 	of      int
 	started bool
-	wake    chan struct{}
+	// stop stops the job developed in the background; nil for none.
+	stop context.CancelFunc
+	wake chan struct{}
 	// converts are the groups of negatives to print, in turn; converting
 	// those of the group being printed not printed yet. convertOf are the
 	// negatives asked since none was left, convertDone those of them done.
@@ -211,16 +213,30 @@ func developed(j rawJob, raise bool) string {
 	d := &developer
 	d.Lock()
 	defer d.Unlock()
-	if d.failed[j.id()] || slices.ContainsFunc(d.asked, j.same) || d.now != nil && j.same(*d.now) {
+	// Being developed in the background, it is developed again first.
+	if d.failed[j.id()] || slices.ContainsFunc(d.asked, j.same) || d.now != nil && j.same(*d.now) && d.stop == nil {
 		return ""
 	}
 	if i := slices.IndexFunc(d.library, j.same); i >= 0 {
 		j.library = true
 		d.library = slices.Delete(d.library, i, i+1)
 	}
+	if d.now != nil && j.same(*d.now) {
+		j.library = d.now.library
+	}
 	d.asked = append(d.asked, j)
+	d.preempt()
 	d.start()
 	return ""
+}
+
+// preempt stops the job developed in the background, if one is, for one the
+// window waits for; it is developed again later. Under the lock.
+func (d *queue) preempt() {
+	if d.stop != nil {
+		d.stop()
+		d.stop = nil
+	}
 }
 
 func (j rawJob) same(k rawJob) bool { return j.id() == k.id() }
@@ -330,6 +346,7 @@ func Convert(photos []library.Key, on bool) error {
 	defer d.Unlock()
 	d.converts = append(d.converts, photos)
 	d.convertOf += len(photos)
+	d.preempt()
 	d.start()
 	return nil
 }
@@ -449,7 +466,7 @@ func printNegative(k library.Key, j rawJob, frame [4]float64) {
 		return
 	}
 	if _, err := os.Stat(dst); err != nil {
-		develop(j, false)
+		develop(context.Background(), j, false)
 	}
 	// Not printed, it stays as it came, not the camera's negative under the print's name.
 	if _, err := os.Stat(dst); err != nil {
@@ -504,11 +521,14 @@ func developAll() {
 		case len(d.library) > 0:
 			j, background = &d.library[0], true
 		}
+		ctx := context.Background()
+		var next rawJob
 		if j != nil {
-			next := *j
+			next = *j
 			d.now = &next
 			if background {
 				d.library = d.library[1:]
+				ctx, d.stop = context.WithCancel(ctx)
 			} else {
 				d.asked = d.asked[1:]
 			}
@@ -519,7 +539,7 @@ func developAll() {
 			<-wake
 			continue
 		}
-		develop(*d.now, background)
+		develop(ctx, next, background)
 	}
 }
 
@@ -527,15 +547,16 @@ func developAll() {
 var developFile = thumb.Develop
 
 // develop develops j; in the background, after the pictures the window waits for.
-func develop(j rawJob, background bool) {
-	for background && len(thumbSlots) > 0 {
+// Stopped (ctx), it goes back to the library's, first.
+func develop(ctx context.Context, j rawJob, background bool) {
+	queuedAs := j
+	for background && len(thumbSlots) > 0 && ctx.Err() == nil {
 		time.Sleep(50 * time.Millisecond)
 	}
 	long := thumb.PreviewSize
 	if j.full {
 		long = 0
 	}
-	queued := j.id()
 	var err error
 	if j.src == "" {
 		var version string
@@ -554,20 +575,28 @@ func develop(j rawJob, background bool) {
 		negative = &b
 	}
 	if _, there := os.Stat(dst); err == nil && there != nil {
-		err = developFile(context.Background(), j.src, dst, long, negative, background)
+		err = developFile(ctx, j.src, dst, long, negative, background)
 	}
 	// A full disk is no fault of the file's: the rest wait for the next look
 	// at the library, when there may be room.
 	full := errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EFBIG)
+	stopped := err != nil && ctx.Err() != nil
 	d := &developer
 	d.Lock()
-	d.now = nil
+	d.now, d.stop = nil, nil
+	if stopped {
+		if !slices.ContainsFunc(d.asked, queuedAs.same) {
+			d.library = slices.Insert(d.library, 0, queuedAs)
+		}
+		d.Unlock()
+		return
+	}
 	if err == nil {
 		d.recent = append(d.recent, j.hash)
 		d.recent = d.recent[max(0, len(d.recent)-recentKept):]
 	}
 	if err != nil && !full {
-		d.failed[queued] = true
+		d.failed[queuedAs.id()] = true
 	}
 	if errors.Is(err, raw.ErrNoHelper) || full {
 		d.library = nil
