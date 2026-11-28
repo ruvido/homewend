@@ -181,35 +181,49 @@ func inside(r image.Rectangle, share float64) image.Rectangle {
 // column is lit when its median log brightness is past the midpoint between
 // the holder's (the 5th percentile) and the median; the longest lit run is
 // the frame, not the neighbours' slivers at the sides. A picture with no
-// holder is all one run, and only an inset keeps its edges out.
+// holder is all one run, and only an inset keeps its edges out. A row's
+// median is of every frameStep-th pixel of it, and the log is taken of the
+// medians only: it keeps their order.
 func frameOf(img *Image, r image.Rectangle) image.Rectangle {
 	w, h := r.Dx(), r.Dy()
-	light := make([]float32, w*h)
-	for y := range h {
-		row := img.Pix[((r.Min.Y+y)*img.Width+r.Min.X)*3:]
-		for x := range w {
-			px := row[3*x : 3*x+3]
-			light[y*w+x] = float32(math.Log10((float64(px[0])+float64(px[1])+float64(px[2]))/(3*65535) + thinLight))
+	at := func(x, y int) uint32 {
+		px := img.Pix[((r.Min.Y+y)*img.Width+r.Min.X+x)*3:]
+		return uint32(px[0]) + uint32(px[1]) + uint32(px[2])
+	}
+	line := make([]uint32, 0, max(w, h))
+	median := func() float64 {
+		slices.Sort(line)
+		n := len(line)
+		lg := func(v uint32) float64 { return math.Log10(float64(v)/(3*65535) + thinLight) }
+		if n%2 == 1 {
+			return lg(line[n/2])
 		}
+		return (lg(line[n/2-1]) + lg(line[n/2])) / 2
 	}
 	rows, cols := make([]float64, h), make([]float64, w)
-	line := make([]float64, max(w, h))
 	for y := range h {
-		for x := range w {
-			line[x] = float64(light[y*w+x])
+		line = line[:0]
+		for x := 0; x < w; x += frameStep {
+			line = append(line, at(x, y))
 		}
-		rows[y] = exactMedian(line[:w])
+		rows[y] = median()
 	}
 	for x := range w {
-		for y := range h {
-			line[y] = float64(light[y*w+x])
+		line = line[:0]
+		for y := 0; y < h; y += frameStep {
+			line = append(line, at(x, y))
 		}
-		cols[x] = exactMedian(line[:h])
+		cols[x] = median()
 	}
 	y0, y1 := litRun(rows)
 	x0, x1 := litRun(cols)
 	return image.Rect(r.Min.X+x0, r.Min.Y+y0, r.Min.X+x1, r.Min.Y+y1)
 }
+
+// frameStep is the step a row's or a column's median is read in: the frame
+// found on the three negatives is the same as with every pixel, at a step of
+// 3 one was a pixel off (28/11).
+const frameStep = 2
 
 // litRun is the longest run of profile past its midpoint.
 func litRun(profile []float64) (from, to int) {
