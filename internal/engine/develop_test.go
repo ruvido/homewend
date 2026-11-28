@@ -47,14 +47,14 @@ func TestARAFIsShownDevelopedOnceItIs(t *testing.T) {
 		return w, h
 	}
 
-	file, kept, err := cached(context.Background(), "previews", thumb.PreviewSize, hash, drawing{}, source)
+	file, kept, err := cached(context.Background(), previewsDir, hash, drawing{}, source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if w, _ := size(file); kept || w != 600 || filepath.Base(file) != hash+cameraMark+".jpg" {
 		t.Errorf("before: %s %d wide, kept %v; want the camera's, not kept", file, w, kept)
 	}
-	file, kept, _ = cached(context.Background(), "thumbs", thumb.Size, hash, drawing{}, source)
+	file, kept, _ = cached(context.Background(), thumbsDir, hash, drawing{}, source)
 	if w, _ := size(file); !kept || w != thumb.Size {
 		t.Errorf("the grid's thumbnail: %s %d wide, kept %v", file, w, kept)
 	}
@@ -67,7 +67,7 @@ func TestARAFIsShownDevelopedOnceItIs(t *testing.T) {
 		t.Fatal(err)
 	}
 	forgetCamera(hash)
-	file, kept, err = cached(context.Background(), "previews", thumb.PreviewSize, hash, drawing{}, source)
+	file, kept, err = cached(context.Background(), previewsDir, hash, drawing{}, source)
 	if w, _ := size(file); err != nil || !kept || w != 300 || filepath.Base(file) != hash+".jpg" {
 		t.Errorf("after: %s %d wide, kept %v, %v; want the developed one, kept", file, w, kept, err)
 	}
@@ -256,7 +256,7 @@ func TestANegativesPicturesAreItsPrint(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Its print's pictures, of no copy any more, are gone from every folder.
-	for _, dir := range append(slices.Clone(madeDirs), developedDirs...) {
+	for _, dir := range cacheDirs() {
 		folder, _ := picturesDir(dir)
 		if left, _ := filepath.Glob(thumb.Path(folder, k.Hash+positiveMark+"*")); len(left) > 0 {
 			t.Errorf("left %v", left)

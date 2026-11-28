@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/ruvido/homewend/internal/library"
-	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // A phone reads its owner's library. Nothing here changes it, and the catalog
@@ -276,21 +275,21 @@ func failed(err, otherwise error) error {
 
 // PhoneThumbnail is Thumbnail of a photo of phone's library.
 func PhoneThumbnail(ctx context.Context, phone Phone, hash string) (file string, kept bool, err error) {
-	return phonePicture(ctx, phone, hash, "thumbs", thumb.Size)
+	return phonePicture(ctx, phone, hash, thumbsDir)
 }
 
 // PhonePreview is Preview of a photo of phone's library.
 func PhonePreview(ctx context.Context, phone Phone, hash string) (file string, kept bool, err error) {
-	return phonePicture(ctx, phone, hash, "previews", thumb.PreviewSize)
+	return phonePicture(ctx, phone, hash, previewsDir)
 }
 
 // PhoneScreen is a photo of phone's library at the size of a phone's screen,
 // for the phone to keep and show with no computer in reach.
 func PhoneScreen(ctx context.Context, phone Phone, hash string) (file string, kept bool, err error) {
-	return phonePicture(ctx, phone, hash, "screens", thumb.ScreenSize)
+	return phonePicture(ctx, phone, hash, screensDir)
 }
 
-func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) (file string, kept bool, err error) {
+func phonePicture(ctx context.Context, phone Phone, hash string, dir madeDir) (file string, kept bool, err error) {
 	root, negative, here, err := listedHere(phone, hash)
 	if err == nil && !here {
 		var p library.Photo
@@ -302,7 +301,7 @@ func phonePicture(ctx context.Context, phone Phone, hash, dir string, size int) 
 	}
 	end := func() {}
 	defer func() { end() }()
-	file, kept, err = cached(ctx, dir, size, hash, drawing{negative: negative}, func() (string, string, error) {
+	file, kept, err = cached(ctx, dir, hash, drawing{negative: negative}, func() (string, string, error) {
 		done, err := phoneTurn(ctx, phone)
 		if err != nil {
 			return "", "", err

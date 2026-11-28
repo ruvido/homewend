@@ -568,7 +568,7 @@ var thumbSlots = make(chan struct{}, max(1, runtime.NumCPU()-1))
 // being none, of the print named positive if a negative, making it the first
 // time; kept says it is what was asked, which never changes.
 func Thumbnail(ctx context.Context, k library.Key, asked, positive string) (file string, kept bool, err error) {
-	return picture(ctx, "thumbs", thumb.Size, k, asked, positive)
+	return picture(ctx, thumbsDir, k, asked, positive)
 }
 
 // Preview is the picture the viewer shows a photo of the library with, at
@@ -578,22 +578,22 @@ func Thumbnail(ctx context.Context, k library.Key, asked, positive string) (file
 // shortcut: no limit on the cache's size (about 0.5–1 MB a photo looked at),
 // prune by age when a library's previews grow past a few GB.
 func Preview(ctx context.Context, k library.Key, asked, positive string) (file string, kept bool, err error) {
-	return picture(ctx, "previews", thumb.PreviewSize, k, asked, positive)
+	return picture(ctx, previewsDir, k, asked, positive)
 }
 
 // picture is the picture of k kept in the cache's folder dir, with the edit
 // named asked, of the print named positive: with those it has now when they
 // are others, and as it came when they are none, or it cannot be drawn; then
 // it is not kept.
-func picture(ctx context.Context, dir string, size int, k library.Key, asked, positive string) (file string, kept bool, err error) {
+func picture(ctx context.Context, dir madeDir, k library.Key, asked, positive string) (file string, kept bool, err error) {
 	source := func() (string, string, error) { return pictureOf(k, os.Stat) }
 	plain := func() (string, bool, error) {
-		return cached(ctx, dir, size, k.Hash, drawing{}, source)
+		return cached(ctx, dir, k.Hash, drawing{}, source)
 	}
 	if asked == "" && positive == "" {
 		return plain()
 	}
-	folder, err := picturesDir(dir)
+	folder, err := picturesDir(dir.name)
 	if err != nil {
 		return "", false, err
 	}
@@ -609,7 +609,7 @@ func picture(ctx context.Context, dir string, size int, k library.Key, asked, po
 		return "", false, err
 	}
 	if its.name != "" || its.negative != "" {
-		if file, kept, err = cached(ctx, dir, size, k.Hash, its, source); err == nil {
+		if file, kept, err = cached(ctx, dir, k.Hash, its, source); err == nil {
 			thumb.ForgetEdits(folder, k.Hash, all)
 			return file, kept && its.name == asked && library.PositiveName(its.negative) == positive, nil
 		}
@@ -737,14 +737,16 @@ func picturesDir(dir string) (string, error) {
 	return filepath.Join(cache, "homewend", dir), err
 }
 
-// cached is the picture of the content hash at size, with an edit, kept by them
-// in the cache's folder dir; or, when source says the file it found is not that content
-// any more, of the version source names, and kept is false.
-func cached(ctx context.Context, dir string, size int, hash string, with drawing, source func() (file, version string, err error)) (dst string, kept bool, err error) {
-	folder, err := picturesDir(dir)
+// cached is the picture of the content hash at the size of the cache's
+// folder dir, with an edit, kept by them there; or, when source says the
+// file it found is not that content any more, of the version source names,
+// and kept is false.
+func cached(ctx context.Context, dir madeDir, hash string, with drawing, source func() (file, version string, err error)) (dst string, kept bool, err error) {
+	folder, err := picturesDir(dir.name)
 	if err != nil {
 		return "", false, err
 	}
+	size := dir.size
 	there := func(name string) bool {
 		dst = thumb.Path(folder, name)
 		_, err := os.Stat(dst)

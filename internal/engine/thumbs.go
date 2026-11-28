@@ -92,7 +92,7 @@ func makeThumbnails(ctx context.Context, changes string, failed map[string]bool)
 	if err != nil {
 		return 0, false
 	}
-	folder, err := picturesDir("thumbs")
+	folder, err := picturesDir(thumbsDir.name)
 	if err != nil {
 		return 0, false
 	}

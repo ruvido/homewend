@@ -16,7 +16,6 @@ import (
 
 	"github.com/ruvido/homewend/internal/library"
 	"github.com/ruvido/homewend/internal/progress"
-	"github.com/ruvido/homewend/internal/thumb"
 )
 
 // Importing runs the window's import in the background, one at a time: the
@@ -305,7 +304,7 @@ func (im *Importing) Thumbnail(ctx context.Context, path string) (string, error)
 	if !ok {
 		return "", fs.ErrNotExist
 	}
-	file, _, err := cached(ctx, "thumbs", thumb.Size, hash, drawing{}, func() (string, string, error) { return src, "", nil })
+	file, _, err := cached(ctx, thumbsDir, hash, drawing{}, func() (string, string, error) { return src, "", nil })
 	return file, err
 }
 

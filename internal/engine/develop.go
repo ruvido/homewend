@@ -79,9 +79,31 @@ func (j rawJob) dst() (string, error) {
 	return thumb.Path(folder, j.name), err
 }
 
-// madeDirs are the cache's folders of pictures made to be shown, and
+// madeDir is a folder of the cache's pictures made to be shown, and the
+// long side of its pictures.
+type madeDir struct {
+	name string
+	size int
+}
+
+// The cache's folders of pictures made to be shown, madeDirs, and
 // developedDirs those of raw files developed, at 2560 pixels and whole.
-var madeDirs, developedDirs = []string{"thumbs", "previews", "screens"}, []string{"developed", "developed-full"}
+var (
+	thumbsDir     = madeDir{"thumbs", thumb.Size}
+	previewsDir   = madeDir{"previews", thumb.PreviewSize}
+	screensDir    = madeDir{"screens", thumb.ScreenSize}
+	madeDirs      = []madeDir{thumbsDir, previewsDir, screensDir}
+	developedDirs = []string{"developed", "developed-full"}
+)
+
+// cacheDirs are the names of all the cache's folders of pictures.
+func cacheDirs() []string {
+	var all []string
+	for _, d := range madeDirs {
+		all = append(all, d.name)
+	}
+	return append(all, developedDirs...)
+}
 
 func developedDir(full bool) string {
 	if full {
@@ -662,7 +684,7 @@ func forgetPrints(c *library.Catalog, photos []library.Key) error {
 				shown = append(shown, positiveMark+library.PositiveName(bounds))
 			}
 		}
-		for _, dir := range append(slices.Clone(madeDirs), developedDirs...) {
+		for _, dir := range cacheDirs() {
 			folder, err := picturesDir(dir)
 			if err != nil {
 				return err
@@ -681,7 +703,7 @@ func forgetPrints(c *library.Catalog, photos []library.Key) error {
 // forgetCamera deletes the pictures of name made while it was developed.
 func forgetCamera(name string) {
 	for _, dir := range madeDirs {
-		if folder, err := picturesDir(dir); err == nil {
+		if folder, err := picturesDir(dir.name); err == nil {
 			files, _ := filepath.Glob(thumb.Path(folder, name+cameraMark+"*"))
 			for _, file := range files {
 				os.Remove(file)
@@ -695,11 +717,11 @@ func forgetCamera(name string) {
 // developed ones take: found there, they would be shown for ever.
 func forgetUndeveloped(name, edit string) {
 	for _, dir := range madeDirs {
-		folder, err := picturesDir(dir)
+		folder, err := picturesDir(dir.name)
 		if err != nil {
 			return
 		}
-		if dir != "thumbs" {
+		if dir != thumbsDir {
 			os.Remove(thumb.Path(folder, name))
 		}
 		if edit != "" {
