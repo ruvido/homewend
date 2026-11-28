@@ -324,7 +324,7 @@ func (d *queue) converted(k library.Key) {
 }
 
 // convert prints the negatives photos: each one's bounds and frame read on
-// a decode at half the size, then the median of the bounds is theirs; each
+// a decode at half the size, then they share the film's base (raw.SharedBase); each
 // is shown printed, cropped to its frame, once its print is made, one after
 // another, as a turn shows.
 func convert(photos []library.Key) {
@@ -359,8 +359,9 @@ func convert(photos []library.Key) {
 	if len(all) == 0 {
 		return
 	}
-	bounds := raw.MedianBounds(all).String()
+	shared := raw.SharedBase(all)
 	for i, k := range keys {
+		bounds := shared[i].String()
 		printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), src: srcs[i], negative: bounds}, frames[i])
 		developer.converted(k)
 	}

@@ -62,18 +62,28 @@ func ParseBounds(s string) (Bounds, error) {
 	return b, nil
 }
 
-// MedianBounds are the bounds of photos of one film: the median of theirs,
-// per channel, so that one damaged frame cannot move them. Of two, their mean.
-func MedianBounds(all []Bounds) Bounds {
-	var b Bounds
+// SharedBase are the bounds of photos of one film converted together: the
+// median of their bases, per channel, so that one damaged frame cannot move
+// the film's; each keeps its own white, which is its scene's and not the
+// film's (a frame's sky, another's shirt). Of two bases, their mean. A photo
+// whose white is not past the shared base, of another film, keeps its own.
+func SharedBase(all []Bounds) []Bounds {
+	var base [3]float64
 	for c := range 3 {
-		var base, white []float64
+		var v []float64
 		for _, a := range all {
-			base, white = append(base, a.Base[c]), append(white, a.White[c])
+			v = append(v, a.Base[c])
 		}
-		b.Base[c], b.White[c] = exactMedian(base), exactMedian(white)
+		base[c] = exactMedian(v)
 	}
-	return b
+	out := make([]Bounds, len(all))
+	for i, a := range all {
+		out[i] = Bounds{Base: base, White: a.White}
+		if _, err := ParseBounds(out[i].String()); err != nil {
+			out[i] = a
+		}
+	}
+	return out
 }
 
 // densityOf is the density of each 16-bit sample.
@@ -88,7 +98,9 @@ var densityOf = func() (t [65536]float32) {
 // film inside the holder, as colours. The base is the median, per channel,
 // of the thinnest blocks by mean density, the white that of the densest:
 // a percentile of each channel alone would be set by whatever is extreme in
-// that one (a streak in the red layer) and cast the whole frame.
+// that one (a streak in the red layer) and cast the whole frame. A block
+// counts by the densest of its neighbours for the base, by the thinnest for
+// the white, so a scratch or a speck a block or two wide sets neither.
 //
 // crop is the frame, inset, in shares of the print Positive
 // makes of the same file (x0, y0, x1, y1), not turned: the holder and the
@@ -105,15 +117,20 @@ func Analyse(img *Image, meta *Meta) (b Bounds, crop [4]float64, err error) {
 	for i, b := range s {
 		m[i] = (b[0] + b[1] + b[2]) / 3
 	}
-	sorted := slices.Sorted(slices.Values(m))
-	lo, hi := sorted[int(thinnest*float64(len(m)-1))], sorted[int(math.Ceil(densest*float64(len(m)-1)))]
+	// A block thin with all its neighbours may be the base; dense with all
+	// of them, the white.
+	thin, dense := neighbours(m, frame.Dx()/blockSide)
+	sorted := slices.Sorted(slices.Values(thin))
+	lo := sorted[int(thinnest*float64(len(m)-1))]
+	sorted = slices.Sorted(slices.Values(dense))
+	hi := sorted[int(math.Ceil(densest*float64(len(m)-1)))]
 	for c := range 3 {
 		var base, white []float64
-		for i, v := range m {
-			if v <= lo {
+		for i := range m {
+			if thin[i] <= lo {
 				base = append(base, s[i][c])
 			}
-			if v >= hi {
+			if dense[i] >= hi {
 				white = append(white, s[i][c])
 			}
 		}
@@ -123,6 +140,25 @@ func Analyse(img *Image, meta *Meta) (b Bounds, crop [4]float64, err error) {
 		}
 	}
 	return b, crop, nil
+}
+
+// neighbours are, for each of the blocks m, a grid w wide, the densest and
+// the thinnest of it and the eight around it.
+func neighbours(m []float64, w int) (densest, thinnest []float64) {
+	densest, thinnest = make([]float64, len(m)), make([]float64, len(m))
+	h := len(m) / w
+	for y := range h {
+		for x := range w {
+			hi, lo := m[y*w+x], m[y*w+x]
+			for ny := max(y-1, 0); ny <= min(y+1, h-1); ny++ {
+				for nx := max(x-1, 0); nx <= min(x+1, w-1); nx++ {
+					hi, lo = max(hi, m[ny*w+nx]), min(lo, m[ny*w+nx])
+				}
+			}
+			densest[y*w+x], thinnest[y*w+x] = hi, lo
+		}
+	}
+	return densest, thinnest
 }
 
 // printShares is r, of img, in shares of the print Positive makes of the

@@ -91,19 +91,69 @@ func TestNegativeRoundTrip(t *testing.T) {
 	}
 }
 
-// One frame of another film among three moves nothing; of two, the mean.
-func TestMedianBounds(t *testing.T) {
+// A frame alone, scratched with bright streaks thinner than its film base,
+// is printed with no cast: its greys stay grey. The streaks are too thin to
+// be taken for the base.
+func TestNegativeStreaksAlone(t *testing.T) {
+	want := Bounds{Base: [3]float64{1.27, 1.27, 1.67}, White: [3]float64{2.01, 2.14, 2.58}}
+	const w, h = 400, 300
+	// A picture with a black square in the middle, white below it, greys.
+	print := func(x, y int) [3]float64 {
+		switch {
+		case x > 2*w/5 && x < 3*w/5 && y > 2*h/5 && y < 3*h/5:
+			return [3]float64{}
+		case x > 2*w/5 && x < 3*w/5 && y >= 3*h/5:
+			return [3]float64{1, 1, 1}
+		}
+		g := 0.1 + 0.25*(float64(x)/w+float64(y)/h)
+		return [3]float64{g, g, g}
+	}
+	neg := negativeOf(w, h, want, print)
+	// Ten streaks two pixels wide, thinner than the base in green and blue.
+	thinner := [3]float64{want.Base[0] + 0.1, want.Base[1] - 0.3, want.Base[2] - 0.3}
+	for k := range 10 {
+		for y := h / 4; y < 3*h/4; y++ {
+			for x := w/10 + 40 + 30*k; x < w/10+42+30*k; x++ {
+				for c := range 3 {
+					neg.Pix[(y*w+x)*3+c] = uint16(math.Round(65535 * math.Pow(10, -thinner[c])))
+				}
+			}
+		}
+	}
+	got, _, err := Analyse(neg, &Meta{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for c := range 3 {
+		if math.Abs(got.Base[c]-want.Base[c]) > 0.01 || math.Abs(got.White[c]-want.White[c]) > 0.01 {
+			t.Fatalf("bounds %v, want %v", got, want)
+		}
+	}
+	pos := Positive(neg, &Meta{RGBCam: identity}, got, 0)
+	// A grey between the streaks.
+	px := pos.Pix[(h/2)*pos.Stride+4*(w/10+55):]
+	if px[0] != px[1] || px[1] != px[2] {
+		t.Errorf("a grey prints %v", px[:3])
+	}
+}
+
+// One frame of another film among three moves no base; of two, the mean.
+// Each keeps its own white; one not past the shared base keeps its own base.
+func TestSharedBase(t *testing.T) {
 	a := Bounds{[3]float64{1, 1, 1}, [3]float64{2, 2, 2}}
 	b := Bounds{[3]float64{1.2, 1.1, 1}, [3]float64{2, 2.2, 2}}
 	odd := Bounds{[3]float64{0.1, 3, 1}, [3]float64{4, 4, 9}}
-	if got := MedianBounds([]Bounds{a, odd, b}); got != (Bounds{[3]float64{1, 1.1, 1}, [3]float64{2, 2.2, 2}}) {
-		t.Errorf("median of three = %v", got)
+	got := SharedBase([]Bounds{a, odd, b})
+	base := [3]float64{1, 1.1, 1}
+	if got[0] != (Bounds{base, a.White}) || got[1] != (Bounds{base, odd.White}) || got[2] != (Bounds{base, b.White}) {
+		t.Errorf("shared of three = %v", got)
 	}
-	if got := MedianBounds([]Bounds{a, b}); math.Abs(got.Base[0]-1.1) > 1e-9 || math.Abs(got.White[1]-2.1) > 1e-9 {
-		t.Errorf("median of two = %v", got)
+	if got := SharedBase([]Bounds{a, b}); math.Abs(got[0].Base[0]-1.1) > 1e-9 || got[1].White != b.White {
+		t.Errorf("shared of two = %v", got)
 	}
-	if got := MedianBounds([]Bounds{odd}); got != odd {
-		t.Errorf("median of one = %v", got)
+	thin := Bounds{[3]float64{0.1, 0.1, 0.1}, [3]float64{0.5, 0.5, 0.5}}
+	if got := SharedBase([]Bounds{a, b, thin}); got[2] != thin {
+		t.Errorf("another film's = %v", got[2])
 	}
 }
 
