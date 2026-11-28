@@ -34,12 +34,23 @@ func apiRoutes(jobs *engine.Jobs, importing *engine.Importing, phones func() *ph
 	// changed by their own calls, so a page holding older settings cannot
 	// undo them.
 	mux.HandleFunc("PUT /api/settings", func(w http.ResponseWriter, r *http.Request) {
-		var in engine.Settings
+		// Only what is sent: two windows, each changing one thing, keep both.
+		var in struct {
+			Theme  *string   `json:"theme"`
+			Hidden *[]string `json:"hidden"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		s, err := engine.UpdateSettings(func(s *engine.Settings) { s.Theme, s.Hidden = in.Theme, in.Hidden })
+		s, err := engine.UpdateSettings(func(s *engine.Settings) {
+			if in.Theme != nil {
+				s.Theme = *in.Theme
+			}
+			if in.Hidden != nil {
+				s.Hidden = *in.Hidden
+			}
+		})
 		reply(w, s, err)
 	})
 	// Whose photos an account's are: the folder of the library they go in.

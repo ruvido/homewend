@@ -216,7 +216,7 @@ export async function togglePerson(profile: string) {
 	const hidden = new Set(app.settings.hidden ?? []);
 	if (hidden.has(profile)) hidden.delete(profile);
 	else hidden.add(profile);
-	app.settings = await putSettings({ ...app.settings, hidden: [...hidden] });
+	app.settings = await putSettings({ hidden: [...hidden] });
 	app.overview = await getOverview();
 }
 

@@ -66,7 +66,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const getSettings = () => call<Settings>('GET', '/api/settings');
-export const putSettings = (s: Settings) => call<Settings>('PUT', '/api/settings', s);
+export const putSettings = (s: Partial<Settings>) => call<Settings>('PUT', '/api/settings', s);
 export const putProfile = (account: string, profile: string) =>
 	call<{ profile: string }>('PUT', `/api/profile?account=${encodeURIComponent(account)}`, { profile });
 /** Renames a profile: its folder in the library, and all that names it. */

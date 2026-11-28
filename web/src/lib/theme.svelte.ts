@@ -44,5 +44,5 @@ export async function loadTheme() {
 
 export async function setTheme(t: Theme) {
 	apply(t);
-	app.settings = await putSettings({ ...app.settings, theme: t });
+	app.settings = await putSettings({ theme: t });
 }

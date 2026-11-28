@@ -135,6 +135,21 @@ func TestSettingsThroughTheAPI(t *testing.T) {
 	if got := get(s, "/api/settings", cookie); !strings.Contains(got.Body.String(), `"theme":"dark"`) {
 		t.Fatalf("get: %s", got.Body)
 	}
+	// Each window says only what it changed: one hiding a person, another
+	// changing the theme, keep both.
+	for _, body := range []string{`{"hidden":["ann"]}`, `{"theme":"light"}`} {
+		r := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(body))
+		r.Host = s.host
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		s.handler().ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", body, w.Code, w.Body)
+		}
+	}
+	if got := get(s, "/api/settings", cookie).Body.String(); !strings.Contains(got, `"theme":"light"`) || !strings.Contains(got, `"hidden":["ann"]`) {
+		t.Fatalf("both kept: %s", got)
+	}
 
 	bad := httptest.NewRequest(http.MethodPut, "/api/settings", strings.NewReader(`{"theme":"blue"}`))
 	bad.Host = s.host
