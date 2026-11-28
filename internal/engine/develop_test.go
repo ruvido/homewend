@@ -310,3 +310,35 @@ func TestAFailedRAFIsNotTriedAgain(t *testing.T) {
 		t.Errorf("asked again: %+v", developer.asked)
 	}
 }
+
+// A negative shown as it came again while it waits, or is read, to be
+// printed is not printed after.
+func TestShownAsItCameIsNotPrintedAfter(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AppData", t.TempDir())
+	developer.Lock()
+	developer.started, developer.wake = true, make(chan struct{}, 1) // no one prints in this one
+	developer.Unlock()
+	defer func() {
+		developer.Lock()
+		developer.started, developer.wake, developer.converts, developer.converting = false, nil, nil, nil
+		developer.convertOf, developer.convertDone = 0, 0
+		developer.Unlock()
+	}()
+	keys := []library.Key{{Hash: "n1"}, {Hash: "n2"}, {Hash: "n3"}}
+	Convert(keys[:1], true)
+	Convert(keys[1:], true)
+	// The first group being read.
+	developer.Lock()
+	developer.converting, developer.converts = slices.Clone(developer.converts[0]), developer.converts[1:]
+	developer.Unlock()
+	Convert([]library.Key{keys[0], keys[2]}, false) // no library: only the queue
+	if d := DevelopingNow(); len(d.Now) != 1 || d.Now[0] != "n2" || d.Done != 0 || d.Of != 1 {
+		t.Errorf("%+v", d)
+	}
+	developer.converted(keys[0]) // read meanwhile, not printed
+	if d := DevelopingNow(); d.Done != 0 || d.Of != 1 {
+		t.Errorf("%+v", d)
+	}
+}

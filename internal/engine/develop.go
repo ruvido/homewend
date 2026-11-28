@@ -309,6 +309,7 @@ func forgetUnfinished() {
 // as they came, at once. A photo that is no RAF is left as it is.
 func Convert(photos []library.Key, on bool) error {
 	if !on {
+		developer.unasked(photos)
 		return printing(func(c *library.Catalog) error { return c.Unprint(photos) })
 	}
 	d := &developer
@@ -324,8 +325,34 @@ func Convert(photos []library.Key, on bool) error {
 func (d *queue) converted(k library.Key) {
 	d.Lock()
 	defer d.Unlock()
-	d.convertDone++
+	if slices.Contains(d.converting, k) {
+		d.convertDone++
+	}
 	d.converting = slices.DeleteFunc(d.converting, func(c library.Key) bool { return c == k })
+	d.convertsLeft()
+}
+
+// unasked are photos to be shown as they came: not printed, if they are
+// still to be.
+func (d *queue) unasked(photos []library.Key) {
+	d.Lock()
+	defer d.Unlock()
+	asked := func(k library.Key) bool { return slices.Contains(photos, k) }
+	n := len(d.converting)
+	d.converting = slices.DeleteFunc(d.converting, asked)
+	d.convertOf -= n - len(d.converting)
+	for i := range d.converts {
+		n := len(d.converts[i])
+		d.converts[i] = slices.DeleteFunc(d.converts[i], asked)
+		d.convertOf -= n - len(d.converts[i])
+	}
+	d.converts = slices.DeleteFunc(d.converts, func(g []library.Key) bool { return len(g) == 0 })
+	d.convertsLeft()
+}
+
+// convertsLeft counts the negatives asked from 0 again once none is left;
+// under the lock.
+func (d *queue) convertsLeft() {
 	if len(d.converting) == 0 && len(d.converts) == 0 {
 		d.convertOf, d.convertDone = 0, 0
 	}
@@ -386,6 +413,13 @@ func printNegative(k library.Key, j rawJob, frame [4]float64) {
 	}
 	// Not printed, it stays as it came, not the camera's negative under the print's name.
 	if _, err := os.Stat(dst); err != nil {
+		return
+	}
+	// Under the lock: shown as it came meanwhile, it is not printed after.
+	d := &developer
+	d.Lock()
+	defer d.Unlock()
+	if !slices.Contains(d.converting, k) {
 		return
 	}
 	if err := printing(func(c *library.Catalog) error { return c.Print(k, j.negative, frame) }); err != nil {
