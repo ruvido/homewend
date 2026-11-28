@@ -48,13 +48,13 @@ func printed(name, positive string) string {
 	return name + positiveMark + positive
 }
 
-// rawJob is a raw file to develop: the name its picture is kept by, its file
-// (or the photo it is found by, when developed), and whether it is the whole
-// of it.
+// rawJob is a raw file to develop: the name its picture is kept by, the hash
+// of its photo, its file (or the photo it is found by, when developed), and
+// whether it is the whole of it.
 type rawJob struct {
-	name, src string
-	key       library.Key
-	full      bool
+	name, hash, src string
+	key             library.Key
+	full            bool
 	// library is a job of the library's: counted in its progress.
 	library bool
 	// negative are the bounds of the print it is developed as; "" for none.
@@ -88,7 +88,7 @@ type queue struct {
 	// failed are the jobs that did not develop this run, by what same
 	// compares: not tried again until the app starts again.
 	failed map[jobID]bool
-	// recent are the names last developed, newest last.
+	// recent are the hashes last developed, newest last.
 	recent []string
 	// checked are the library's RAFs whose old pictures were looked for this run.
 	checked map[string]bool
@@ -103,15 +103,15 @@ type queue struct {
 	convertOf, convertDone int
 }
 
-// recentKept is how many of the names last developed are said: more than
+// recentKept is how many of the photos last developed are said: more than
 // a window misses between two asks, a second apart.
 const recentKept = 16
 
 var noHelper sync.Once
 
 // Developing is where the library's development is: Done of Of of its RAFs
-// have their picture; Now are the names being developed for the window or
-// a phone, or next; Recent the last developed, newest last.
+// have their picture; Now are the hashes of the photos being developed for
+// the window or a phone, or next; Recent of those last developed, newest last.
 type Developing struct {
 	Done   int      `json:"done"`
 	Of     int      `json:"of"`
@@ -130,7 +130,7 @@ func DevelopingNow() Developing {
 		if j.library {
 			left++
 		}
-		now = append(now, j.name)
+		now = append(now, j.hash)
 	}
 	for _, k := range slices.Concat(append(d.converts, d.converting)...) {
 		now = append(now, k.Hash)
@@ -166,17 +166,17 @@ type aheadKey struct{}
 // photos either side: a RAF's is not developed sooner for it.
 func Ahead(ctx context.Context) context.Context { return context.WithValue(ctx, aheadKey{}, true) }
 
-// developedFor is the file a picture of the RAF src, kept as name, at size
-// with the edit e, is made from, and whether it is what it should be made
+// developedFor is the file a picture of the RAF src, of the photo hash, kept
+// as name, at size with the edit e, is made from, and whether it is what it should be made
 // from; "" while that is developed, or where it cannot be. Unless asked
 // ahead, it is developed next.
-func developedFor(ctx context.Context, src, name string, size int, e drawing) (from string, whole bool) {
+func developedFor(ctx context.Context, src, hash, name string, size int, e drawing) (from string, whole bool) {
 	raise := ctx.Value(aheadKey{}) == nil
-	from = developed(rawJob{name: name, src: src, negative: e.negative}, raise)
+	from = developed(rawJob{name: name, hash: hash, src: src, negative: e.negative}, raise)
 	if from == "" || e.edit.None() || !thumb.Short(from, size, e.edit) {
 		return from, from != ""
 	}
-	if full := developed(rawJob{name: name, src: src, full: true, negative: e.negative}, raise); full != "" {
+	if full := developed(rawJob{name: name, hash: hash, src: src, full: true, negative: e.negative}, raise); full != "" {
 		return full, true
 	}
 	return from, false
@@ -242,7 +242,7 @@ func developLibrary(root string, photos []library.Photo) {
 		}
 		of++
 		// A page of the library has no paths: the file is found when its turn comes.
-		j := rawJob{name: printed(p.Hash, library.PositiveName(p.Negative)), key: p.Key(), library: true, negative: p.Negative}
+		j := rawJob{name: printed(p.Hash, library.PositiveName(p.Negative)), hash: p.Hash, key: p.Key(), library: true, negative: p.Negative}
 		dst, err := j.dst()
 		if err != nil {
 			continue
@@ -370,7 +370,7 @@ func convert(photos []library.Key) {
 	shared := raw.SharedBase(all)
 	for i, k := range keys {
 		bounds := shared[i].String()
-		printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), src: srcs[i], negative: bounds}, frames[i])
+		printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), hash: k.Hash, src: srcs[i], negative: bounds}, frames[i])
 		developer.converted(k)
 	}
 }
@@ -475,7 +475,7 @@ func develop(j rawJob, background bool) {
 	d.Lock()
 	d.now = nil
 	if err == nil {
-		d.recent = append(d.recent, j.name)
+		d.recent = append(d.recent, j.hash)
 		d.recent = d.recent[max(0, len(d.recent)-recentKept):]
 	}
 	if err != nil {

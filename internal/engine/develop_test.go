@@ -116,14 +116,14 @@ func TestAskedGoesFirst(t *testing.T) {
 		developer.asked, developer.library, developer.now, developer.of, developer.started, developer.wake = asked, lib, nil, of, started, wake
 		developer.Unlock()
 	}
-	set(nil, []rawJob{{name: "a", library: true}, {name: "b", library: true}}, 3, true, make(chan struct{}, 1))
+	set(nil, []rawJob{{name: "a", hash: "a", library: true}, {name: "b-positive-0f", hash: "b", library: true}}, 3, true, make(chan struct{}, 1))
 	defer set(nil, nil, 0, false, nil)
-	if got := developed(rawJob{name: "b", src: "b.RAF"}, true); got != "" {
+	if got := developed(rawJob{name: "b-positive-0f", hash: "b", src: "b.RAF"}, true); got != "" {
 		t.Fatalf("%q", got)
 	}
-	developed(rawJob{name: "c", src: "c.RAF"}, true)
+	developed(rawJob{name: "c", hash: "c", src: "c.RAF"}, true)
 	developer.Lock()
-	if len(developer.asked) != 2 || developer.asked[0].name != "b" || !developer.asked[0].library || len(developer.library) != 1 {
+	if len(developer.asked) != 2 || developer.asked[0].hash != "b" || !developer.asked[0].library || len(developer.library) != 1 {
 		t.Errorf("asked %+v, library %+v", developer.asked, developer.library)
 	}
 	developer.Unlock()
@@ -131,12 +131,12 @@ func TestAskedGoesFirst(t *testing.T) {
 		t.Errorf("%+v", d)
 	}
 	// Asked ahead, not raised.
-	developed(rawJob{name: "a", src: "a.RAF"}, false)
+	developed(rawJob{name: "a", hash: "a", src: "a.RAF"}, false)
 	if d := DevelopingNow(); len(d.Now) != 2 {
 		t.Errorf("%+v", d)
 	}
 	// Asked twice, once in the queue.
-	developed(rawJob{name: "c", src: "c.RAF"}, true)
+	developed(rawJob{name: "c", hash: "c", src: "c.RAF"}, true)
 	if d := DevelopingNow(); len(d.Now) != 2 {
 		t.Errorf("%+v", d)
 	}

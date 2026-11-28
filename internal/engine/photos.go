@@ -759,7 +759,7 @@ func cached(ctx context.Context, dir string, size int, hash string, with drawing
 	}
 	if developsFrom(src, size, !with.edit.None() || with.negative != "") {
 		base := cmp.Or(version, shown)
-		from, whole := developedFor(ctx, src, base, size, with)
+		from, whole := developedFor(ctx, src, hash, base, size, with)
 		if from != "" {
 			src = from
 		}
