@@ -136,13 +136,13 @@ func scaled(img *Image, frame image.Rectangle, long int) (*Image, image.Rectangl
 	if h > w {
 		sw, sh = max(1, int(math.Round(float64(long*w)/float64(h)))), long
 	}
-	px := shrunk(w, h, sw, sh, func(y int, dst []float32) {
+	px := shrunk(w, h, sw, sh, img.cores, func(y int, dst []float32) {
 		row := img.Pix[((frame.Min.Y+y)*img.Width+frame.Min.X)*3:]
 		for i := range dst {
 			dst[i] = float32(row[i])
 		}
 	})
-	out := &Image{Width: sw, Height: sh, Pix: make([]uint16, len(px))}
+	out := &Image{Width: sw, Height: sh, Pix: make([]uint16, len(px)), cores: img.cores}
 	for i, v := range px {
 		out.Pix[i] = uint16(min(max(v+0.5, 0), 65535))
 	}
@@ -168,7 +168,7 @@ func fit(img *Image, frame image.Rectangle, preview image.Image, meta *Meta) loo
 	if h > w {
 		sw, sh = max(1, int(math.Round(float64(fitLong*w)/float64(h)))), fitLong
 	}
-	lin := shrunk(w, h, sw, sh, func(y int, dst []float32) {
+	lin := shrunk(w, h, sw, sh, img.cores, func(y int, dst []float32) {
 		row := img.Pix[((frame.Min.Y+y)*img.Width+frame.Min.X)*3:]
 		for i := range dst {
 			dst[i] = float32(row[i]) / 65535
@@ -180,7 +180,7 @@ func fit(img *Image, frame image.Rectangle, preview image.Image, meta *Meta) loo
 	rgba := image.NewRGBA(preview.Bounds())
 	draw.Draw(rgba, rgba.Bounds(), preview, preview.Bounds().Min, draw.Src)
 	pw, ph := rgba.Bounds().Dx(), rgba.Bounds().Dy()
-	jpg := shrunk(pw, ph, sw, sh, func(y int, dst []float32) {
+	jpg := shrunk(pw, ph, sw, sh, img.cores, func(y int, dst []float32) {
 		row := rgba.Pix[y*rgba.Stride:]
 		for x := range pw {
 			for c := range 3 {
@@ -470,7 +470,7 @@ func develop(img *Image, frame image.Rectangle, l look) *image.RGBA {
 	strips := (h + stripRows - 1) / stripRows
 	var mu sync.Mutex
 	var luma, chroma []float64
-	parallel(strips, func(s int, buf *buffers) {
+	parallel(strips, img.cores, func(s int, buf *buffers) {
 		if s%8 != 0 && strips >= 8 {
 			return
 		}
@@ -484,7 +484,7 @@ func develop(img *Image, frame image.Rectangle, l look) *image.RGBA {
 	d.sigma, d.chromaSigma = percentile10(luma), percentile10(chroma)
 	d.chromaBlur = l.body.chromaK * math.Pow(d.chromaSigma/0.004, chromaP)
 	halo := 2 + 3*max(boxRadius(1), boxRadius(d.chromaBlur), boxRadius(lumaBlur)+boxRadius(sharpBlur))
-	parallel(strips, func(s int, buf *buffers) {
+	parallel(strips, img.cores, func(s int, buf *buffers) {
 		y0, y1 := s*stripRows, min(h, (s+1)*stripRows)
 		d.finish(d.planes(y0, y1, halo, buf), y0, y1, out, buf)
 	})
@@ -629,14 +629,19 @@ func byte8(v float32) byte {
 	return byte(min(max(v, 0), 1)*255 + 0.5)
 }
 
-// parallel does n strips on every core, each with its own buffers. A panic
-// in one is handed to the caller, who can recover it.
-func parallel(n int, do func(strip int, buf *buffers)) {
+// parallel does n strips on every core, or on cores of them when not 0,
+// each with its own buffers. A panic in one is handed to the caller, who can
+// recover it.
+func parallel(n, cores int, do func(strip int, buf *buffers)) {
 	var wg sync.WaitGroup
 	var next sync.Mutex
 	var failed atomic.Value
 	i := 0
-	for range min(n, runtime.GOMAXPROCS(0)) {
+	workers := min(n, runtime.GOMAXPROCS(0))
+	if cores > 0 {
+		workers = min(workers, cores)
+	}
+	for range workers {
 		wg.Go(func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -997,8 +1002,8 @@ func percentile10(v []float64) float64 {
 }
 
 // shrunk is the area average of a w×h picture, three floats a pixel that
-// row puts in its dst, at sw×sh.
-func shrunk(w, h, sw, sh int, row func(y int, dst []float32)) []float32 {
+// row puts in its dst, at sw×sh, on cores (parallel).
+func shrunk(w, h, sw, sh, cores int, row func(y int, dst []float32)) []float32 {
 	xs, ys := shares(w, sw), shares(h, sh)
 	// A band of rows a core, each into the sums of the rows it reaches.
 	type part struct {
@@ -1007,7 +1012,7 @@ func shrunk(w, h, sw, sh int, row func(y int, dst []float32)) []float32 {
 	}
 	bands := min(h, runtime.GOMAXPROCS(0))
 	parts := make([]part, bands)
-	parallel(bands, func(band int, _ *buffers) {
+	parallel(bands, cores, func(band int, _ *buffers) {
 		y0, y1 := h*band/bands, h*(band+1)/bands
 		from := ys[y0].to
 		sums := make([]float32, (ys[y1-1].next-from+1)*sw*3)

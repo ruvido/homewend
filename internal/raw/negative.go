@@ -324,7 +324,7 @@ func Positive(img *Image, meta *Meta, b Bounds, long int) *image.RGBA {
 	w, h := frame.Dx(), frame.Dy()
 	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	strips := (h + stripRows - 1) / stripRows
-	parallel(strips, func(s int, _ *buffers) {
+	parallel(strips, img.cores, func(s int, _ *buffers) {
 		for y := s * stripRows; y < min(h, (s+1)*stripRows); y++ {
 			row := img.Pix[((frame.Min.Y+y)*img.Width+frame.Min.X)*3:]
 			o := out.Pix[y*out.Stride:]

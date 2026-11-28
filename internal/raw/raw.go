@@ -36,6 +36,9 @@ var timeout, cpuLimit = 2 * time.Minute, 3 * time.Minute
 type Image struct {
 	Width, Height int
 	Pix           []uint16
+	// cores are those developing it may take, 0 for all: one, decoded in
+	// the background, so it does not take the window's.
+	cores int
 }
 
 // Meta is what the helper read from the file besides the pixels.
@@ -119,6 +122,9 @@ func Develop(ctx context.Context, path string, mode Mode, background bool) (*Ima
 	if readErr != nil {
 		return nil, nil, fmt.Errorf("homewend-raw %s: %w", filepath.Base(path), readErr)
 	}
+	if background {
+		img.cores = 1
+	}
 	return img, meta, nil
 }
 
@@ -151,7 +157,7 @@ func read(r *bufio.Reader) (*Image, *Meta, error) {
 			i++
 		}
 	}
-	return &Image{h.Width, h.Height, pix}, &h.Meta, nil
+	return &Image{Width: h.Width, Height: h.Height, Pix: pix}, &h.Meta, nil
 }
 
 // find finds the helper as the desktop app ships it, beside the engine, else

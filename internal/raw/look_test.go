@@ -7,7 +7,9 @@ import (
 	"image"
 	"math"
 	"math/rand/v2"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // The three box blurs are, each way, the mean of the 2r+1 around, the edges
@@ -216,5 +218,18 @@ func TestScaled(t *testing.T) {
 		if want := []uint16{20000, 1000, 50}[i%3]; v < want-1 || v > want+1 {
 			t.Fatalf("sample %d is %d, want %d", i, v, want)
 		}
+	}
+}
+
+// Developed in the background, a photo takes one core.
+func TestBackgroundTakesOneCore(t *testing.T) {
+	var at, most atomic.Int32
+	parallel(64, 1, func(int, *buffers) {
+		most.Store(max(most.Load(), at.Add(1)))
+		time.Sleep(time.Millisecond)
+		at.Add(-1)
+	})
+	if most.Load() != 1 {
+		t.Errorf("%d at once", most.Load())
 	}
 }
