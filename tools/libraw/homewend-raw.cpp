@@ -94,6 +94,18 @@ int main(int argc, char **argv)
   }
   if ((err = raw.unpack()) != LIBRAW_SUCCESS)
     return fail("unpack", err);
+  // A half decode of an X-Trans sensor leaves one pixel in nine with no red
+  // and no blue, and LibRaw fills them (pre_interpolate) where it finds the
+  // first such pixel in the picture's top left corner. A black corner, as a
+  // film holder's, has real pixels at 0 there: it finds the wrong ones,
+  // leaves the holes and halves real samples, a film base 0.08 too dense in
+  // red and blue. Its first 6 rows and 8 columns are lit to the white level.
+  libraw_rawdata_t &rd = raw.imgdata.rawdata;
+  if (raw.imgdata.params.half_size && raw.imgdata.idata.filters == 9 && rd.raw_image)
+    for (int row = 0; row < 6; row++)
+      for (int col = 0; col < 8; col++)
+        rd.raw_image[(row + size.top_margin) * (size.raw_pitch / 2) + col + size.left_margin] =
+            raw.imgdata.color.maximum;
   if ((err = raw.dcraw_process()) != LIBRAW_SUCCESS)
     return fail("process", err);
   libraw_processed_image_t *img = raw.dcraw_make_mem_image(&err);
