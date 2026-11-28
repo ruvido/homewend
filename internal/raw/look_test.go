@@ -233,3 +233,24 @@ func TestBackgroundTakesOneCore(t *testing.T) {
 		t.Errorf("%d at once", most.Load())
 	}
 }
+
+// The fast log2 and the inverse curve's table are as the exact ones.
+func TestFastLogAndInverse(t *testing.T) {
+	for _, v := range []float64{1e-6, 0.0013, 0.18, 0.5, 1, 3.7} {
+		if d := math.Abs(log2(v) - math.Log2(v)); d > 1e-6 {
+			t.Errorf("log2(%g) off by %g", v, d)
+		}
+	}
+	inverse := inverseCurve(baseCurve)
+	var up [knots]float64
+	top := math.Inf(-1)
+	for k := range baseCurve {
+		top = max(top, baseCurve[k]+float64(k)*1e-6)
+		up[k] = top
+	}
+	for y := 0.001; y < 1; y += 0.0137 {
+		if got, want := inverse(y), math.Exp2(firstKnot+knotStep*interp(y, up[:])); math.Abs(got-want) > 1e-4*want {
+			t.Errorf("%g: %g, want %g", y, got, want)
+		}
+	}
+}

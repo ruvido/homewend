@@ -6,6 +6,7 @@ package raw
 import (
 	"fmt"
 	"image"
+	"image/color"
 	"image/draw"
 	"math"
 	"runtime"
@@ -177,18 +178,8 @@ func fit(img *Image, frame image.Rectangle, preview image.Image, meta *Meta) loo
 	for i := 0; i < len(lin); i += 3 {
 		lin[i], lin[i+1], lin[i+2] = apply3(proToSRGB, lin[i], lin[i+1], lin[i+2])
 	}
-	rgba := image.NewRGBA(preview.Bounds())
-	draw.Draw(rgba, rgba.Bounds(), preview, preview.Bounds().Min, draw.Src)
-	pw, ph := rgba.Bounds().Dx(), rgba.Bounds().Dy()
-	jpg := shrunk(pw, ph, sw, sh, img.cores, func(y int, dst []float32) {
-		row := rgba.Pix[y*rgba.Stride:]
-		for x := range pw {
-			for c := range 3 {
-				dst[3*x+c] = float32(row[4*x+c]) / 255
-			}
-		}
-	})
-	rgba = nil
+	pw, ph := preview.Bounds().Dx(), preview.Bounds().Dy()
+	jpg := shrunk(pw, ph, sw, sh, img.cores, rowsOf(preview))
 
 	gain := math.Pow(2, ev0-meta.ExposureShift)
 	vig, gains := shadingOf(sw, sh), make([]float32, sw)
@@ -232,6 +223,31 @@ func fit(img *Image, frame image.Rectangle, preview image.Image, meta *Meta) loo
 	return l
 }
 
+// rowsOf reads the rows of the picture p as floats, three a pixel: a JPEG's
+// straight from its YCbCr, as image/draw converts it, not copied first.
+func rowsOf(p image.Image) func(y int, dst []float32) {
+	b := p.Bounds()
+	if yc, ok := p.(*image.YCbCr); ok {
+		return func(y int, dst []float32) {
+			for x := range b.Dx() {
+				yi, ci := yc.YOffset(b.Min.X+x, b.Min.Y+y), yc.COffset(b.Min.X+x, b.Min.Y+y)
+				r, g, bl := color.YCbCrToRGB(yc.Y[yi], yc.Cb[ci], yc.Cr[ci])
+				dst[3*x], dst[3*x+1], dst[3*x+2] = float32(r)/255, float32(g)/255, float32(bl)/255
+			}
+		}
+	}
+	rgba := image.NewRGBA(b)
+	draw.Draw(rgba, b, p, b.Min, draw.Src)
+	return func(y int, dst []float32) {
+		row := rgba.Pix[y*rgba.Stride:]
+		for x := range b.Dx() {
+			for c := range 3 {
+				dst[3*x+c] = float32(row[4*x+c]) / 255
+			}
+		}
+	}
+}
+
 // fitCurve is the median encoded value of the preview at each knot of our
 // light through m, all channels together; where the photo has too little,
 // the global curve, joined to it.
@@ -242,7 +258,7 @@ func fitCurve(lx, ly []float64, m [3][3]float64) [knots]float64 {
 	for i := 0; i < len(lx); i += 3 {
 		r, g, b := apply3d(m, lx[i], lx[i+1], lx[i+2])
 		for c, v := range [3]float64{r, g, b} {
-			f := (math.Log2(max(v, 1e-6)) - firstKnot) / knotStep
+			f := (log2(max(v, 1e-6)) - firstKnot) / knotStep
 			y := min(max(int(ly[i+c]*bins), 0), bins-1)
 			// Each value counts for the knots less than a step from it.
 			k0 := int(math.Floor(f))
@@ -360,7 +376,9 @@ func fitMatrix(lx, ly []float64, curve [knots]float64) [3][3]float64 {
 	return m
 }
 
-// inverseCurve is linear light from an encoded value, through curve.
+// inverseCurve is linear light from an encoded value of 0 to 1, through
+// curve: read from a table of inverseSteps, as it is asked millions of times.
+// At 4096 steps the hue table moved by 0.4; at 65536, by 4e-5.
 func inverseCurve(curve [knots]float64) func(float64) float64 {
 	var up [knots]float64
 	top := math.Inf(-1)
@@ -368,10 +386,38 @@ func inverseCurve(curve [knots]float64) func(float64) float64 {
 		top = max(top, curve[k]+float64(k)*1e-6)
 		up[k] = top
 	}
+	t := make([]float64, inverseSteps+1)
+	for i := range t {
+		t[i] = math.Exp2(firstKnot + knotStep*interp(float64(i)/inverseSteps, up[:]))
+	}
 	return func(y float64) float64 {
-		return math.Exp2(firstKnot + knotStep*interp(y, up[:]))
+		f := min(max(y, 0), 1) * inverseSteps
+		i := min(int(f), inverseSteps-1)
+		return t[i] + (t[i+1]-t[i])*(f-float64(i))
 	}
 }
+
+const inverseSteps = 1 << 16
+
+// log2 is math.Log2 within 1e-6, from the bits of v, which is positive and
+// normal: its exponent and the first 10 bits of its mantissa, as tone reads
+// its curve.
+func log2(v float64) float64 {
+	bits := math.Float64bits(v)
+	exp := int(bits>>52) - 1023
+	m := bits & (1<<52 - 1)
+	i := m >> 42
+	f := float64(m&(1<<42-1)) / (1 << 42)
+	return float64(exp) + log2Mantissa[i] + (log2Mantissa[i+1]-log2Mantissa[i])*f
+}
+
+// log2Mantissa is log2 of 1 to 2 in 1024 steps.
+var log2Mantissa = func() (t [1025]float64) {
+	for i := range t {
+		t[i] = math.Log2(1 + float64(i)/1024)
+	}
+	return t
+}()
 
 // interp is where y falls among the increasing xs, as a fractional index,
 // held at the ends.
