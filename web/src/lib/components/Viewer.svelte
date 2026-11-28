@@ -364,6 +364,7 @@
 								style={fit}
 								class="full"
 								class:ready={ready?.id === p.id}
+								class:fade={!!under}
 								src={previewSrc}
 								alt=""
 								bind:this={fitted}
@@ -546,6 +547,10 @@
 	}
 	.full.ready {
 		opacity: 1;
+	}
+	/* Only a picture replacing another (developed, printed) fades in; a
+	   photo opened shows its preview at once, as before. */
+	.full.ready.fade {
 		transition: opacity var(--motion-base) var(--ease-out);
 	}
 	/* Zoomed in: the photo at its own size, moved by dragging it. */
