@@ -106,14 +106,15 @@ func unprinted(tx *sql.Tx, k Key) (data string, was mark, err error) {
 	}
 	data = cmp.Or(was.value, "null")
 	var crop, before string
-	err = tx.QueryRow(`SELECT crop, was FROM negatives WHERE photo = ?`, was.id).Scan(&crop, &before)
+	var turn int
+	err = tx.QueryRow(`SELECT n.crop, n.was, p.turn FROM negatives n JOIN library_photos p ON p.id = n.photo WHERE n.photo = ?`, was.id).Scan(&crop, &before, &turn)
 	if err == sql.ErrNoRows || err == nil && crop == "" {
 		return data, was, nil
 	}
 	if err != nil {
 		return "", was, err
 	}
-	return edit.Unframed(data, crop, before), was, nil
+	return edit.Unframed(data, crop, before, turn), was, nil
 }
 
 // setEdit gives k the edit data, now, as the window's Rotate does.

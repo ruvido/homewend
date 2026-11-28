@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"strings"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ func TestFramedKeepsTheFrame(t *testing.T) {
 	for quarters, size := range map[int]image.Point{0: {160, 80}, 1: {80, 160}, 2: {160, 80}} {
 		data, crop, before, ok := Framed("", r, quarters)
 		e, err := Parse([]byte(data))
-		if !ok || err != nil || crop == "" || before != "" {
+		if !ok || err != nil || crop == "" || (before == "") != (quarters == 0) {
 			t.Fatalf("turned %d: %s %v %v", quarters, data, ok, err)
 		}
 		out := Draw(img, e)
@@ -34,8 +35,14 @@ func TestFramedKeepsTheFrame(t *testing.T) {
 				}
 			}
 		}
-		if back := Unframed(data, crop, before); back != "null" {
+		if back := Unframed(data, crop, before, quarters); back != "null" {
 			t.Errorf("turned %d: back to %s", quarters, back)
+		}
+		// The computer's turn, the edit's now, stays: turned back after
+		// another tool was used, it is not shown sideways.
+		exposed := strings.Replace(data, `"adjust":{}`, `"adjust":{"Exposure":20}`, 1)
+		if back, err := Parse([]byte(Unframed(exposed, crop, before, quarters))); err != nil || back.crop.turns != e.crop.turns || back.None() {
+			t.Errorf("turned %d, exposed: back to %s", quarters, Unframed(exposed, crop, before, quarters))
 		}
 	}
 }
@@ -45,13 +52,13 @@ func TestFramedLeavesThePersons(t *testing.T) {
 	r := [4]float64{0.1, 0.1, 0.9, 0.9}
 	tools := `{"adjust":{"Exposure":12},"tools":2}`
 	data, crop, before, ok := Framed(tools, r, 0)
-	if !ok || before != "" || Unframed(data, crop, before) != tools {
-		t.Errorf("tools: %s, back %s", data, Unframed(data, crop, before))
+	if !ok || before != "" || Unframed(data, crop, before, 0) != tools {
+		t.Errorf("tools: %s, back %s", data, Unframed(data, crop, before, 0))
 	}
 	turned := `{"adjust":{},"tools":2,"crop":{"turns":1,"flip":false,"angle":0,"x":0,"y":0,"w":1,"h":1,"shape":"Free"}}`
 	data, crop, before, ok = Framed(turned, r, 0)
-	if e, _ := Parse([]byte(data)); !ok || e.crop.turns != 1 || Unframed(data, crop, before) != `{"adjust":{},"crop":{"turns":1,"flip":false,"angle":0,"x":0,"y":0,"w":1,"h":1,"shape":"Free"},"tools":2}` {
-		t.Errorf("turned: %s, back %s", data, Unframed(data, crop, before))
+	if e, _ := Parse([]byte(data)); !ok || e.crop.turns != 1 || Unframed(data, crop, before, 0) != `{"adjust":{},"crop":{"turns":1,"flip":false,"angle":0,"x":0,"y":0,"w":1,"h":1,"shape":"Free"},"tools":2}` {
+		t.Errorf("turned: %s, back %s", data, Unframed(data, crop, before, 0))
 	}
 	framed := `{"adjust":{},"tools":2,"crop":{"turns":0,"flip":false,"angle":0,"x":0,"y":0,"w":0.5,"h":1,"shape":"Free"}}`
 	if data, _, _, ok := Framed(framed, r, 0); ok || data != framed {
@@ -60,7 +67,7 @@ func TestFramedLeavesThePersons(t *testing.T) {
 	// Changed since: theirs.
 	data, crop, before, _ = Framed("", r, 0)
 	changed := `{"adjust":{},"tools":2,"crop":{"turns":0,"flip":false,"angle":4,"x":0,"y":0,"w":0.5,"h":0.5,"shape":"Free"}}`
-	if back := Unframed(changed, crop, before); back != changed {
+	if back := Unframed(changed, crop, before, 0); back != changed {
 		t.Errorf("changed: %s", back)
 	}
 }
