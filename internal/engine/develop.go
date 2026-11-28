@@ -359,19 +359,22 @@ func (d *queue) convertsLeft() {
 }
 
 // convert prints the negatives photos: each one's bounds and frame read on
-// a decode at half the size, then they share the film's base (raw.SharedBase); each
-// is shown printed, cropped to its frame, once its print is made, one after
-// another, as a turn shows.
+// a decode at half the size, once for copies of the same content, then they
+// share the film's base (raw.SharedBase); each is shown printed, cropped to
+// its frame, once its print is made, one after another, as a turn shows.
 func convert(photos []library.Key) {
-	var keys []library.Key
-	var srcs []string
+	type negative struct {
+		copies []library.Key
+		src    string
+		frame  [4]float64
+	}
+	var negatives []negative
 	var all []raw.Bounds
-	var frames [][4]float64
-	for _, k := range photos {
+	for _, copies := range byHash(photos) {
+		k := copies[0]
 		src, _, err := pictureOf(k, os.Stat)
 		if err == nil && !isRAF(src) {
-			developer.converted(k)
-			continue
+			err = errNotRaw
 		}
 		var img *raw.Image
 		var meta *raw.Meta
@@ -384,22 +387,46 @@ func convert(photos []library.Key) {
 			b, frame, err = raw.Analyse(img, meta)
 		}
 		if err != nil {
-			log.Printf("reading the negative %s: %v", k.Hash, err)
-			developer.converted(k)
+			if !errors.Is(err, errNotRaw) {
+				log.Printf("reading the negative %s: %v", k.Hash, err)
+			}
+			for _, k := range copies {
+				developer.converted(k)
+			}
 			continue
 		}
-		keys, srcs, all = append(keys, k), append(srcs, src), append(all, b)
-		frames = append(frames, thumb.UprightShares(frame, library.Orientation(src)))
+		negatives = append(negatives, negative{copies, src, thumb.UprightShares(frame, library.Orientation(src))})
+		all = append(all, b)
 	}
 	if len(all) == 0 {
 		return
 	}
 	shared := raw.SharedBase(all)
-	for i, k := range keys {
+	for i, n := range negatives {
 		bounds := shared[i].String()
-		printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), hash: k.Hash, src: srcs[i], negative: bounds}, frames[i])
-		developer.converted(k)
+		for _, k := range n.copies {
+			printNegative(k, rawJob{name: printed(k.Hash, library.PositiveName(bounds)), hash: k.Hash, src: n.src, negative: bounds}, n.frame)
+			developer.converted(k)
+		}
 	}
+}
+
+// errNotRaw is a photo to print that is no raw file: left as it is.
+var errNotRaw = errors.New("not a raw file")
+
+// byHash are photos in groups of copies of the same content, in turn.
+func byHash(photos []library.Key) [][]library.Key {
+	var out [][]library.Key
+	at := map[string]int{}
+	for _, k := range photos {
+		if i, ok := at[k.Hash]; ok {
+			out[i] = append(out[i], k)
+			continue
+		}
+		at[k.Hash] = len(out)
+		out = append(out, []library.Key{k})
+	}
+	return out
 }
 
 // printNegative develops j, the print of k, and shows k printed, cropped to frame.

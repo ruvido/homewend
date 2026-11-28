@@ -342,3 +342,12 @@ func TestShownAsItCameIsNotPrintedAfter(t *testing.T) {
 		t.Errorf("%+v", d)
 	}
 }
+
+// Copies of one photo are read once: one negative, not two, in the film's base.
+func TestCopiesAreReadOnce(t *testing.T) {
+	a, b, c := library.Key{Hash: "a", Profile: "ron"}, library.Key{Hash: "b", Profile: "ron"}, library.Key{Hash: "a", Profile: "ada"}
+	got := byHash([]library.Key{a, b, c})
+	if len(got) != 2 || !slices.Equal(got[0], []library.Key{a, c}) || !slices.Equal(got[1], []library.Key{b}) {
+		t.Errorf("%v", got)
+	}
+}
