@@ -280,6 +280,12 @@ func greyShift(s [][3]float64, b Bounds) (shift [3]float64) {
 	return shift
 }
 
+// Enough says whether img, decoded with meta, prints long pixels on its long side.
+func Enough(img *Image, meta *Meta, long int) bool {
+	f, _ := cameraFrame(img, meta)
+	return max(f.Dx(), f.Dy()) >= long
+}
+
 // Positive is the print of the negative img, decoded as one, whole or at
 // half the size, with the
 // bounds b and its own auto balance: 8-bit sRGB, cut to the camera's frame,

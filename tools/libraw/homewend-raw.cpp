@@ -11,10 +11,10 @@
 // "dcraw_emu -4 -o 0 -r 1 1 1 1 -q 2 -H 0": the camera's own RGB, linear, no
 // white balance, highlights clipped; the inversion is the engine's, and the
 // camera matrix after it, which the header gives as rgb_cam. With -negative-half,
-// at half the size (-h), for the analysis. With -fit=N, developed at half the
-// size when the camera's picture is then still N pixels on its long side.
+// at half the size (-h), for the analysis. With -fit=N after either, at half
+// the size when the camera's picture is then still N pixels on its long side.
 //
-// Usage: homewend-raw [-fit=N | -negative | -negative-half] FILE
+// Usage: homewend-raw [-fit=N | -negative | -negative-half | -negative-fit=N] FILE
 //
 // It writes to stdout one line of JSON (size and metadata), then the pixels:
 // width*height RGB triples of 16-bit samples in the machine's byte order,
@@ -57,10 +57,12 @@ static int fail(const char *what, int err)
 int main(int argc, char **argv)
 {
   std::string mode = argc == 3 ? argv[1] : "";
-  int fit = mode.compare(0, 5, "-fit=") == 0 ? atoi(mode.c_str() + 5) : 0;
-  if (argc < 2 || argc > 3 || (argc == 3 && fit <= 0 && mode != "-negative" && mode != "-negative-half"))
+  bool negative = mode.compare(0, 9, "-negative") == 0;
+  std::string size_mode = negative ? mode.substr(9) : mode;
+  int fit = size_mode.compare(0, 5, "-fit=") == 0 ? atoi(size_mode.c_str() + 5) : 0;
+  if (argc < 2 || argc > 3 || (argc == 3 && fit <= 0 && !(negative && (size_mode.empty() || size_mode == "-half"))))
   {
-    fprintf(stderr, "usage: homewend-raw [-fit=N | -negative | -negative-half] FILE\n");
+    fprintf(stderr, "usage: homewend-raw [-fit=N | -negative | -negative-half | -negative-fit=N] FILE\n");
     return 2;
   }
   const char *file = argv[argc - 1];
@@ -74,8 +76,8 @@ int main(int argc, char **argv)
   out.user_qual = 2; // -q 2
   out.highlight = 2; // -H 2
   out.user_flip = 0;  // -t 0
-  out.half_size = mode == "-negative-half"; // -h
-  if (mode == "-negative" || mode == "-negative-half")
+  out.half_size = size_mode == "-half"; // -h
+  if (negative)
   {
     out.use_camera_wb = 0;
     out.output_color = 0; // -o 0, the camera's RGB

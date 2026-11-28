@@ -397,9 +397,13 @@ func convert(photos []library.Key) {
 		copies       []library.Key
 		src, version string
 		frame        [4]float64
+		// The decode read, kept to print from when it is large enough.
+		img  *raw.Image
+		meta *raw.Meta
 	}
 	var negatives []negative
 	var all []raw.Bounds
+	kept := 0
 	for _, copies := range byHash(photos) {
 		k := copies[0]
 		src, version, err := pictureOf(k, os.Stat)
@@ -425,7 +429,12 @@ func convert(photos []library.Key) {
 			}
 			continue
 		}
-		negatives = append(negatives, negative{copies, src, version, thumb.UprightShares(frame, library.Orientation(src))})
+		n := negative{copies: copies, src: src, version: version, frame: thumb.UprightShares(frame, library.Orientation(src))}
+		if kept < keptDecodes && raw.Enough(img, meta, thumb.PreviewSize) {
+			n.img, n.meta = img, meta
+			kept++
+		}
+		negatives = append(negatives, n)
 		all = append(all, b)
 	}
 	if len(all) == 0 {
@@ -435,11 +444,26 @@ func convert(photos []library.Key) {
 	for i, n := range negatives {
 		bounds := shared[i].String()
 		for _, k := range n.copies {
-			printNegative(k, rawJob{name: keptAs(k.Hash, n.version, bounds), hash: k.Hash, src: n.src, negative: bounds}, n.frame)
+			j := rawJob{name: keptAs(k.Hash, n.version, bounds), hash: k.Hash, src: n.src, negative: bounds}
+			// Printed from the decode read: not decoded again.
+			if dst, err := j.dst(); err == nil && n.img != nil {
+				if _, there := os.Stat(dst); there != nil {
+					if err := thumb.Print(n.src, dst, n.img, n.meta, shared[i], thumb.PreviewSize); err != nil {
+						log.Printf("printing the negative %s: %v", k.Hash, err)
+					}
+				}
+			}
+			printNegative(k, j, n.frame)
 			developer.converted(k)
 		}
+		negatives[i].img = nil
 	}
 }
+
+// keptDecodes is how many negatives converted together are printed from the
+// decode read for their bounds, kept meanwhile: 40 MB each at 26 MP. The
+// rest are decoded again.
+const keptDecodes = 8
 
 // errNotRaw is a photo to print that is no raw file: left as it is.
 var errNotRaw = errors.New("not a raw file")

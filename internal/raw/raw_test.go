@@ -160,8 +160,8 @@ func TestDevelopRAF(t *testing.T) {
 
 // The camera's frame of a half decode is half its own.
 func TestCameraFrame(t *testing.T) {
-	if DevelopedFor(0) != Developed || DevelopedFor(2560) != "-fit=2560" {
-		t.Errorf("%q %q", DevelopedFor(0), DevelopedFor(2560))
+	if Developed.For(0) != Developed || Developed.For(2560) != "-fit=2560" || Negative.For(2560) != "-negative-fit=2560" {
+		t.Errorf("%q %q %q", Developed.For(0), Developed.For(2560), Negative.For(2560))
 	}
 	meta := &Meta{}
 	meta.Frame.Width, meta.Frame.Height = 5998, 3997

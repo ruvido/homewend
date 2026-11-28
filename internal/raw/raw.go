@@ -65,15 +65,15 @@ const (
 	NegativeHalf Mode = "-negative-half"
 )
 
-// DevelopedFor is how a file is decoded for a picture long pixels on its
-// long side, 0 for all: at half the size when that is as long, which the
-// helper knows once it has read the file. A 26 MP file decodes in a sixth of
-// the time, as close to the camera's JPEG (docs/architecture.md).
-func DevelopedFor(long int) Mode {
+// For is m for a picture long pixels on its long side, 0 for all: at half
+// the size when that is as long, which the helper knows once it has read
+// the file. A 26 MP file decodes in a sixth of the time, as close to the
+// camera's JPEG (docs/architecture.md).
+func (m Mode) For(long int) Mode {
 	if long <= 0 {
-		return Developed
+		return m
 	}
-	return Mode(fmt.Sprintf("-fit=%d", long))
+	return Mode(fmt.Sprintf("%s-fit=%d", m, long))
 }
 
 // cameraFrame is the camera's own picture in img, in the middle of the

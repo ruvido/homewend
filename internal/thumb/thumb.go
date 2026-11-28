@@ -174,11 +174,11 @@ func Develop(ctx context.Context, src, dst string, long int, negative *raw.Bound
 		}
 	}()
 	if negative != nil {
-		img, meta, err := raw.Develop(ctx, src, raw.Negative, background)
+		img, meta, err := raw.Develop(ctx, src, raw.Negative.For(long), background)
 		if err != nil {
 			return err
 		}
-		return save(dst, upright(raw.Positive(img, meta, *negative, long), library.Orientation(src)), developedQuality, true)
+		return Print(src, dst, img, meta, *negative, long)
 	}
 	f, err := os.Open(src)
 	if err != nil {
@@ -193,11 +193,22 @@ func Develop(ctx context.Context, src, dst string, long int, negative *raw.Bound
 	if err != nil {
 		return err
 	}
-	img, meta, err := raw.Develop(ctx, src, raw.DevelopedFor(long), background)
+	img, meta, err := raw.Develop(ctx, src, raw.Developed.For(long), background)
 	if err != nil {
 		return err
 	}
 	return save(dst, upright(raw.Picture(img, meta, preview, long), library.Orientation(src)), developedQuality, true)
+}
+
+// Print writes at dst the print, with the bounds b, of img, the film
+// negative src decoded as one, as Develop does.
+func Print(src, dst string, img *raw.Image, meta *raw.Meta, b raw.Bounds, long int) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("printing %s: %v", src, r)
+		}
+	}()
+	return save(dst, upright(raw.Positive(img, meta, b, long), library.Orientation(src)), developedQuality, true)
 }
 
 // Short says whether src has fewer pixels than the edit e, drawn at size,
